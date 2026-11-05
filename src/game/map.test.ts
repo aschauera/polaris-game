@@ -3,16 +3,16 @@ import { createHash } from 'node:crypto'
 import { generateMap, randomStep, seedState, tileAt } from './map'
 
 describe('deterministic domain map', () => {
-  it('locks complete generator-v1 fixtures across multiple seeds', () => {
+  it('locks complete generator-v2 fixtures across multiple seeds', () => {
     const fingerprints = ['polaris', 'aurora', '0', 'North_Star-7'].map(seed =>
       createHash('sha256').update(JSON.stringify(generateMap({ seed, width: 8, height: 8 }))).digest('hex'),
     )
     expect(fingerprints).toMatchInlineSnapshot(`
       [
-        "e732bf6b9090638a17c43c71f8bcc7c11993ada3dcd9b6c960464768f16d9fde",
-        "e1ec26b3c5a6bc5413aab84dbd48412c772218abcd9f96f3cfdd5d885dcd75ea",
-        "8d71847cd2fb587932ce99fd6e13f752104df3eedc9f0faa8bf3d62ba4d8443f",
-        "4cc95e4d0314c9e12752c7408c48b1109137d76e4cdd7ec8a6d4a4572d448c3b",
+        "c0b4223f5fc7cdbc6332d588ba83f0fa37714feac327383e565e8f5c67902ffa",
+        "a402cdf1c95e74cdb830fd156c03362530d3bc7b7f35b29c0a006089ff580845",
+        "a9e84c7ed781b9591d2ccad09089a3ae84443040007279ab77cd59c71b94b7f4",
+        "5be531985462ffc431babac691ca6a28cd93f0251d5c57fc7241f6e0de40503b",
       ]
     `)
   })
@@ -20,6 +20,39 @@ describe('deterministic domain map', () => {
     const config = { seed, width: 32, height: 32 }
     expect(generateMap(config)).toEqual(generateMap(config))
     expect(new Set(generateMap(config).tiles.map(t => t.terrain)).size).toBe(3)
+  })
+
+  it('generates distinct continents and connected stepped terrain', () => {
+    for (const seed of ['polaris', 'aurora', '0']) {
+      const map = generateMap({ seed, width: 64, height: 48 })
+      const visited = new Set<number>()
+      const landmassSizes: number[] = []
+      for (const tile of map.tiles) {
+        if (tile.terrain === 'water' || visited.has(tile.id)) continue
+        const frontier = [tile]
+        visited.add(tile.id)
+        let size = 0
+        while (frontier.length) {
+          const current = frontier.pop()!
+          size++
+          for (const [x, z] of [[current.x - 1, current.z], [current.x + 1, current.z],
+            [current.x, current.z - 1], [current.x, current.z + 1]]) {
+            const neighbor = tileAt(map, x!, z!)
+            if (neighbor && neighbor.terrain !== 'water' && !visited.has(neighbor.id)) {
+              visited.add(neighbor.id)
+              frontier.push(neighbor)
+            }
+          }
+        }
+        landmassSizes.push(size)
+      }
+      expect(landmassSizes.filter(size => size >= map.tiles.length * 0.05).length).toBeGreaterThanOrEqual(2)
+      expect(Math.max(...map.tiles.map(tile => tile.elevation))).toBe(4)
+      expect(map.tiles.every(tile => tile.terrain === 'water'
+        ? tile.elevation === 0 && tile.trees === 0
+        : tile.elevation >= 1 && tile.elevation <= 4 && tile.trees >= 0 && tile.trees <= 3)).toBe(true)
+      expect(map.tiles.some(tile => tile.trees > 0)).toBe(true)
+    }
   })
 
   it('uses canonical row-major coordinates on rectangular maps', () => {

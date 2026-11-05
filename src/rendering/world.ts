@@ -8,6 +8,11 @@ export const CHUNK_SIZE = 16
 const COLORS: Record<Terrain, string> = { grassland: '#609b83', water: '#387c9b', hills: '#bdab86' }
 
 interface Batch { mesh: Mesh; ids: number[] }
+
+function surfaceHeight(tile: Tile): number {
+  return TERRAIN[tile.terrain].height + (tile.terrain === 'water' ? 0 : (tile.elevation - 1) * 0.24)
+}
+
 export interface RenderStats {
   meshes: number
   materials: number
@@ -27,9 +32,11 @@ export class WorldRenderer {
   private readonly camera: FreeCamera
   private readonly instrumentation: SceneInstrumentation
   private readonly materials = new Map<Terrain, StandardMaterial>()
+  private readonly treeMaterials: StandardMaterial[] = []
   private readonly hover: Mesh
   private readonly selection: Mesh
   private batches: Batch[] = []
+  private treeMeshes: Mesh[] = []
   private batchIds = new Map<AbstractMesh, number[]>()
   private map?: WorldMap
   private target = Vector3.Zero()
@@ -71,6 +78,13 @@ export class WorldRenderer {
       material.specularColor = Color3.Black()
       material.freeze()
       this.materials.set(terrain, material)
+    }
+    for (const color of ['#725943', '#315d53']) {
+      const material = new StandardMaterial(`tree-${this.treeMaterials.length}`, this.scene)
+      material.diffuseColor = Color3.FromHexString(color)
+      material.specularColor = Color3.Black()
+      material.freeze()
+      this.treeMaterials.push(material)
     }
     this.hover = this.makeMarker('hover', '#c5e6df')
     this.selection = this.makeMarker('selection', '#f0c873')
@@ -133,7 +147,9 @@ export class WorldRenderer {
       batch.mesh.dispose()
       if (batch.mesh.isDisposed()) this.disposedBatches++
     }
+    for (const mesh of this.treeMeshes) mesh.dispose()
     this.batches = []
+    this.treeMeshes = []
     this.batchIds.clear()
     this.bufferBytes = 0
     this.map = map
@@ -155,7 +171,7 @@ export class WorldRenderer {
           mesh.material = this.materials.get(terrain)!
           const matrices = new Float32Array(tiles.length * 16)
           for (const [index, tile] of tiles.entries()) {
-            const height = TERRAIN[terrain].height
+            const height = surfaceHeight(tile)
             Matrix.Scaling(0.96, height, 0.96).multiply(Matrix.Translation(tile.x, height / 2, tile.z))
               .copyToArray(matrices, index * 16)
           }
@@ -169,7 +185,37 @@ export class WorldRenderer {
         }
       }
     }
+    this.addTrees(map)
     this.reset()
+  }
+
+  private addTrees(map: WorldMap): void {
+    const trees = map.tiles.flatMap(tile => {
+      if (!tile.trees) return []
+      const offsets: [number, number][] = tile.trees === 1 ? [[0, 0]]
+        : tile.trees === 2 ? [[-0.2, 0], [0.2, 0]]
+          : [[-0.2, -0.15], [0.2, -0.15], [0, 0.2]]
+      return offsets.map(([x, z]) => ({ tile, x: tile.x + x, z: tile.z + z }))
+    })
+    const definitions = [
+      { name: 'tree-trunks', height: 0.38, width: 0.13, offset: 0.19, material: this.treeMaterials[0]! },
+      { name: 'tree-canopies', height: 0.82, width: 0.78, offset: 0.59, material: this.treeMaterials[1]! },
+    ]
+    for (const definition of definitions) {
+      const mesh = MeshBuilder.CreateCylinder(definition.name, {
+        height: definition.height, diameterTop: 0.04, diameterBottom: definition.width, tessellation: 5,
+      }, this.scene)
+      mesh.material = definition.material
+      mesh.isPickable = false
+      const matrices = new Float32Array(trees.length * 16)
+      for (const [index, tree] of trees.entries()) {
+        const height = surfaceHeight(tree.tile) + definition.offset
+        Matrix.Translation(tree.x, height, tree.z).copyToArray(matrices, index * 16)
+      }
+      mesh.thinInstanceSetBuffer('matrix', matrices, 16, true)
+      mesh.freezeWorldMatrix()
+      this.treeMeshes.push(mesh)
+    }
   }
 
   private resize(): void {
@@ -267,7 +313,7 @@ export class WorldRenderer {
 
   private placeMarker(marker: Mesh, tile?: Tile): void {
     marker.setEnabled(!!tile)
-    if (tile) marker.position.set(tile.x, TERRAIN[tile.terrain].height + 0.035, tile.z)
+    if (tile) marker.position.set(tile.x, surfaceHeight(tile) + 0.035, tile.z)
   }
 
   private showHover(tile?: Tile): void { this.placeMarker(this.hover, tile); this.onHover(tile) }
@@ -287,7 +333,7 @@ export class WorldRenderer {
   projectTile(id: number): { x: number; y: number } | undefined {
     const tile = this.map?.tiles[id]
     if (!tile) return
-    const projected = Vector3.Project(new Vector3(tile.x, TERRAIN[tile.terrain].height, tile.z),
+    const projected = Vector3.Project(new Vector3(tile.x, surfaceHeight(tile), tile.z),
       Matrix.Identity(), this.scene.getTransformMatrix(),
       new Viewport(0, 0, this.engine.getRenderWidth(), this.engine.getRenderHeight()))
     const rect = this.canvas.getBoundingClientRect()
@@ -311,5 +357,7 @@ export class WorldRenderer {
     this.batches = []
     this.batchIds.clear()
     this.materials.clear()
+    this.treeMaterials.length = 0
+    this.treeMeshes = []
   }
 }
