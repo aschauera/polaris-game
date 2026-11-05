@@ -106,8 +106,9 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   await page.goto('/?diagnostics=1&width=256&height=256')
   await expect(page.locator('#map-status')).toContainText('65,536 TILES')
   await selectTile(page, 256)
+  const initial = await stats(page)
   expect(await stats(page)).toMatchObject({
-    batches: 768, meshes: 770, geometries: 770, materials: 7, instances: 65_536, instanceBufferBytes: 4_194_304,
+    batches: 335, meshes: 339, geometries: 339, materials: 7, instances: 65_536, instanceBufferBytes: 4_194_304,
   })
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
   await page.locator('canvas').focus()
@@ -115,7 +116,8 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   await selectTile(page, 256)
   for (let i = 1; i <= 3; i++) {
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
-    expect(await stats(page)).toMatchObject({ batches: 768, meshes: 770, geometries: 770, materials: 7, disposedBatches: 768 * i })
+    expect(await stats(page)).toMatchObject({ batches: initial.batches, meshes: initial.meshes,
+      geometries: initial.geometries, materials: 7, disposedBatches: initial.batches! * i })
   }
   await page.getByRole('button', { name: '32² showcase' }).click()
   expect(await stats(page)).toMatchObject({ batches: 12, meshes: 16, geometries: 16 })

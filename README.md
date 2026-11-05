@@ -2,7 +2,7 @@
 
 An original voxel-isometric strategy **foundation**, not a playable 4X game. This PR implements only a deterministic map, chunked WebGL 2 rendering, an orthographic camera, picking, and a small Art Deco HUD.
 
-![Polaris procedural showcase, captured from the running app](docs/showcase.png)
+![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
 
 ## Plan and visual direction
 
@@ -74,11 +74,11 @@ Generator 2 builds broad, irregular landforms before adding local coast variatio
 
 ## Validation and benchmark evidence
 
-The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Structural browser checks prove **16 meshes / 7 materials / 16 geometries** for 32² and **772 / 7 / 772** for 256²: one source per populated 16 × 16 chunk/terrain batch, two map-wide tree meshes and two markers, not one object per tile.
+The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Structural browser checks prove **16 meshes / 7 materials / 16 geometries** for 32² and **339 / 7 / 339** for the `polaris` 256² fixture (335 populated chunk/terrain batches): two map-wide tree meshes and two markers, not one object per tile.
 
-Three successive regenerations of **each** size retain those counts. The disposal counter confirms 36 showcase or 2,304 stress source meshes disposed, respectively. Matrix buffers are 64 KiB / 4 MiB. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
+Three successive regenerations of **each** size retain those counts. The disposal counter confirms 36 showcase or 1,005 stress source meshes disposed, respectively. Matrix buffers are 64 KiB / 4 MiB. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
 
-Local validation: clean `npm ci`, type-check, lint, **19 unit tests**, **5 browser tests**, and production build pass. GitHub's initial validation runs reported `action_required` with zero jobs; repository approval is required before hosted CI evidence is available. Local results are not presented as a completed hosted CI run.
+Local validation: clean `npm ci`, type-check, lint, **20 unit tests**, **5 browser tests**, and production build pass. GitHub's initial validation runs reported `action_required` with zero jobs; repository approval is required before hosted CI evidence is available. Local results are not presented as a completed hosted CI run.
 
 Measured results and reproduction details are recorded below. Architecture budgets are provisional targets, not acceptance claims for arbitrary hardware.
 
