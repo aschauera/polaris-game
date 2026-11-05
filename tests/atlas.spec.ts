@@ -11,8 +11,8 @@ async function stats(page: Page) {
 
 async function selectTile(page: Page, width = 32, height = width) {
   const map = generateMap({ seed: 'polaris', width, height })
-  const tile = map.tiles.find(tile => tile.terrain === 'hills' &&
-    Math.abs(tile.x - width / 2) < 3 && Math.abs(tile.z - height / 2) < 3)!
+  const tile = map.tiles.filter(tile => tile.terrain === 'hills')
+    .sort((a, b) => Math.hypot(a.x - width / 2, a.z - height / 2) - Math.hypot(b.x - width / 2, b.z - height / 2))[0]!
   await settled(page)
   const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id), tile.id)
   expect(point).toBeDefined()
@@ -43,7 +43,7 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   const initial = await page.evaluate(() => window.polarisDiagnostics!.camera())
   expect(initial?.mode).toBe(1) // Babylon ORTHOGRAPHIC_CAMERA, not perspective.
   const rendering = await stats(page)
-  expect(rendering).toMatchObject({ webGLVersion: 2, batches: 12, meshes: 14, materials: 5, geometries: 14 })
+  expect(rendering).toMatchObject({ webGLVersion: 2, batches: 12, meshes: 16, materials: 7, geometries: 16 })
   expect(rendering.drawCalls).toBeGreaterThan(0)
   // Check real framebuffer colors, not just meshes/canvas existence.
   const colors = await page.locator('canvas').evaluate(canvas => {
@@ -96,7 +96,7 @@ test('regenerates repeatably and releases old chunk resources three times', asyn
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     await expect(page.getByRole('status')).toHaveText('No tile selected')
     const current = await stats(page)
-    expect(current).toMatchObject({ batches: 12, meshes: 14, geometries: 14, materials: 5,
+    expect(current).toMatchObject({ batches: 12, meshes: 16, geometries: 16, materials: 7,
       disposedBatches: i * 12, rngState: initial.rngState, instanceBufferBytes: 65_536 })
     expect((await selectTile(page)).tile).toEqual(tile)
   }
@@ -106,8 +106,9 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   await page.goto('/?diagnostics=1&width=256&height=256')
   await expect(page.locator('#map-status')).toContainText('65,536 TILES')
   await selectTile(page, 256)
+  const initial = await stats(page)
   expect(await stats(page)).toMatchObject({
-    batches: 768, meshes: 770, geometries: 770, materials: 5, instances: 65_536, instanceBufferBytes: 4_194_304,
+    batches: 335, meshes: 339, geometries: 339, materials: 7, instances: 65_536, instanceBufferBytes: 4_194_304,
   })
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
   await page.locator('canvas').focus()
@@ -115,10 +116,11 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   await selectTile(page, 256)
   for (let i = 1; i <= 3; i++) {
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
-    expect(await stats(page)).toMatchObject({ batches: 768, meshes: 770, geometries: 770, materials: 5, disposedBatches: 768 * i })
+    expect(await stats(page)).toMatchObject({ batches: initial.batches, meshes: initial.meshes,
+      geometries: initial.geometries, materials: 7, disposedBatches: initial.batches! * i })
   }
   await page.getByRole('button', { name: '32² showcase' }).click()
-  expect(await stats(page)).toMatchObject({ batches: 12, meshes: 14, geometries: 14 })
+  expect(await stats(page)).toMatchObject({ batches: 12, meshes: 16, geometries: 16 })
   await selectTile(page)
 })
 

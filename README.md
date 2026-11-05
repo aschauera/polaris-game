@@ -2,7 +2,7 @@
 
 An original voxel-isometric strategy **foundation**, not a playable 4X game. This PR implements only a deterministic map, chunked WebGL 2 rendering, an orthographic camera, picking, and a small Art Deco HUD.
 
-![Polaris procedural showcase, captured from the running app](docs/showcase.png)
+![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
 
 ## Plan and visual direction
 
@@ -70,15 +70,15 @@ Headless tests explicitly use Chromium ANGLE **SwiftShader** via `--use-angle=sw
 - With the canvas focused: arrows pan, `+`/`-` zoom, `R` resets. Orientation is fixed; there is no rotation.
 - HUD inputs/buttons do not send camera events. Pan target is bounded to map tile centers; zoom is bounded between inspection and whole-map fit. Resize preserves relative zoom.
 
-Grassland is a green low plateau, water a blue shelf, and hills a taller sand-colored block. These are original procedural placeholders, not actual volumetric/destructible terrain. Selection/hover outlines are renderer-only data. Invalid inputs leave the prior valid map intact and show an explicit error. Missing WebGL 2 or context loss shows an error rather than a fake successful scene; reload after context loss.
+Generator 2 builds broad, irregular landforms before adding local coast variation, elevation steps and clustered trees. Grassland is a green low plateau, water a blue shelf, and hills a taller sand-colored block; elevation is shown by connected stepped silhouettes, with low-poly canopy clusters for scale. Terrain and tree shapes are original procedural placeholders, not actual volumetric/destructible terrain. Selection/hover outlines are renderer-only data. Invalid inputs leave the prior valid map intact and show an explicit error. Missing WebGL 2 or context loss shows an error rather than a fake successful scene; reload after context loss.
 
 ## Validation and benchmark evidence
 
-The automated suite checks complete-map deterministic fingerprints for four seeds, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Structural browser checks prove **14 meshes / 5 materials / 14 geometries** for 32² and **770 / 5 / 770** for 256²: one source per populated 16 × 16 chunk/terrain batch, plus two markers, not one object per tile.
+The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Structural browser checks prove **16 meshes / 7 materials / 16 geometries** for 32² and **339 / 7 / 339** for the `polaris` 256² fixture (335 populated chunk/terrain batches): two map-wide tree meshes and two markers, not one object per tile.
 
-Three successive regenerations of **each** size retain those counts. The disposal counter confirms 36 showcase or 2,304 stress source meshes disposed, respectively. Matrix buffers are 64 KiB / 4 MiB. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
+Three successive regenerations of **each** size retain those counts. The disposal counter confirms 36 showcase or 1,005 stress source meshes disposed, respectively. Matrix buffers are 64 KiB / 4 MiB. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
 
-Local validation: clean `npm ci`, type-check, lint, **19 unit tests**, **5 browser tests**, and production build pass. GitHub's initial validation runs reported `action_required` with zero jobs; repository approval is required before hosted CI evidence is available. Local results are not presented as a completed hosted CI run.
+Local validation: clean `npm ci`, type-check, lint, **20 unit tests**, **5 browser tests**, and production build pass. GitHub's initial validation runs reported `action_required` with zero jobs; repository approval is required before hosted CI evidence is available. Local results are not presented as a completed hosted CI run.
 
 Measured results and reproduction details are recorded below. Architecture budgets are provisional targets, not acceptance claims for arbitrary hardware.
 
@@ -123,7 +123,7 @@ For CI-equivalent software measurements, use the Chromium flags documented above
 
 - No units, turns, cities, resources, economy, combat, research, policies, fog, diplomacy, AI, save/load, multiplayer, physics, or external services.
 - Only Chromium is automated. Windows Edge hardware, Firefox/Safari, long-duration profiling, touch/mobile UX, assistive-technology map navigation, and WebGPU are unvalidated/deferred.
-- The random banded terrain is a showcase, not a realistic world generator. At full stress-map zoom tiles are intentionally tiny; zoom in to inspect them.
+- Continents and tree clusters are seeded procedural shapes, not a climate or hydrology simulation; rivers, bridges and settlements are not yet represented. At full stress-map zoom tiles are intentionally tiny; zoom in to inspect them.
 - Thin-instance picking and scene upload remain synchronous; large-map interactions must be profiled before promising larger maps. The 256² fixture is not a finished-game performance promise.
 - The recorded SwiftShader 256² frame intervals are seconds, not a smooth-play claim; native GPU validation and focused rendering profiling remain open.
 - Babylon's initial bundle is substantial; Vite reports a chunk-size advisory. It is not a build failure. Loading/code-splitting optimization is deferred until measured.

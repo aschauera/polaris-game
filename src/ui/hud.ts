@@ -69,7 +69,7 @@ export function createHud() {
     loaded: (map: WorldMap) => {
       get('error').hidden = true
       get('world-info').textContent = `${map.seed} / ${map.width} × ${map.height}`
-      get('map-status').textContent = `${map.tiles.length.toLocaleString('en-US')} TILES · GENERATOR 01`
+      get('map-status').textContent = `${map.tiles.length.toLocaleString('en-US')} TILES · GENERATOR ${String(map.generatorVersion).padStart(2, '0')}`
     },
   }
 }
