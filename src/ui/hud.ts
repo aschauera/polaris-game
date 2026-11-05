@@ -35,7 +35,7 @@ export function createHud() {
         <p class="scope">PROCEDURAL PLACEHOLDERS<br>Exploration, cities &amp; factions are planned next.</p>
       </aside>
       <section class="atlas" aria-label="Isometric world map">
-        <div class="atlas-heading"><span id="world-info">Preparing atlas…</span><span class="north">N ↗</span></div>
+        <div class="atlas-heading"><span id="world-info">Preparing atlas…</span><span class="north">N ↖</span></div>
         <canvas id="world" tabindex="0" aria-label="Voxel map. Drag to pan, scroll to zoom, click to select. Arrow keys pan; plus and minus zoom; R resets."></canvas>
         <div class="camera-tools" aria-label="Camera controls">
           <button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out">−</button><button id="reset">Reset view</button>

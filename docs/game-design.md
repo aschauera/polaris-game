@@ -21,6 +21,8 @@ An original, browser-first, turn-based 4X game about rival societies rebuilding 
 
 Observe → issue valid orders → commit the turn → resolve in a documented stable order → inspect outcomes. Exploration opens settlement choices; settlements fund units, infrastructure, and research; policy and diplomacy shape whether expansion remains sustainable.
 
+The full loop is **explore → develop → negotiate or fight → progress → win**. Keep tactical orders simple (move, work, attack, end turn) and damage previews explicit, while putting strategic depth in scarce production, settlement location, research priorities, and policy tradeoffs. Add representative systems only when they produce a distinct decision; do not reproduce an exhaustive historical simulation.
+
 | Future system | Initial playable rule | Later depth |
 | --- | --- | --- |
 | Terrain and resources | Terrain movement costs; food/material deposits; water and mountains impassable to initial land units | Biomes, strategic resources, extraction limits, environmental events |
@@ -45,6 +47,10 @@ Costs, ranges, yields, and thresholds belong in versioned definitions, not UI co
 - **Lantern Compact:** one exploration feature—its scout receives one additional movement point. Demonstrates movement/fog differentiation.
 
 Use the same basic units, buildings, and research for both. First playable includes one small map, founding and growth, production, worker improvements and roads, a short research graph, one policy choice, unrest, peace/war diplomacy, heuristic AI, fog, and one victory condition. Balance these two features before adding factions or unique systems.
+
+**Concrete planned match:** a fixed 24 × 24 map, one human and one AI faction, each starting with a founder and scout. Found up to two cities and choose between producing a guard, a worker, or a storehouse. Explore to reveal three neutral beacon sites. Hills cost two movement points versus grassland's one and grant a visible defensive bonus: occupy a slower hill or take the exposed short route. Choose **Surveying** (cheaper road construction) or **Terracing** (improved hill food yields) as the first research. Choose the council policy **Common Granaries** (+food, reduced production) or **Civic Workshops** (+production, increased unrest). This is the first minimal government decision, not a separate government simulation. Happiness is initially represented by inverse unrest, with a warning and yield penalty above one explicit threshold.
+
+Begin at peace; offer a ten-turn nonaggression pledge or declare war to contest the beacons. **Victory:** hold two of the three beacon sites at the end of three consecutive own turns. Defeat follows loss of all cities and founders; turn 40 is a draw if no faction has won. Resolve defeat before beacon victory, then the turn cap; the active faction resolves its condition at its end-turn boundary. Test these exact boundaries. These values are an initial testable design, subject to recorded playtest revision—not implemented in this PR.
 
 ## Visual and interaction direction
 

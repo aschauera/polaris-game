@@ -48,5 +48,5 @@ if (params.get('diagnostics') === '1') {
     camera: () => renderer?.cameraState(),
   }
 }
-window.addEventListener('pagehide', () => renderer?.dispose(), { once: true })
+window.addEventListener('pagehide', event => { if (!event.persisted) renderer?.dispose() })
 if (import.meta.hot) import.meta.hot.dispose(() => renderer?.dispose())

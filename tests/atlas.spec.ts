@@ -23,12 +23,16 @@ async function selectTile(page: Page, width = 32, height = width) {
   return { tile, point: point! }
 }
 
+const browserErrors = new WeakMap<Page, string[]>()
 test.beforeEach(async ({ page }) => {
   const errors: string[] = []
+  browserErrors.set(page, errors)
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
-  // This assertion also runs on failures: rendering errors are never filtered out.
-  page.on('close', () => expect(errors).toEqual([]))
+})
+
+test.afterEach(async ({ page }) => {
+  expect(browserErrors.get(page), 'Unexpected browser console/page errors').toEqual([])
 })
 
 test('renders real terrain, maps picks through camera changes, and isolates HUD input', async ({ page }) => {
@@ -80,6 +84,8 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   await page.keyboard.press('+')
   await selectTile(page)
   await page.keyboard.press('r')
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })))
+  await selectTile(page)
 })
 
 test('regenerates repeatably and releases old chunk resources three times', async ({ page }) => {
