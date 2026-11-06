@@ -5,6 +5,10 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   timeout: 60_000,
+  projects: [
+    { name: 'chromium', use: { browserName: 'chromium' } },
+    { name: 'webkit-mobile', testMatch: '**/mobile.spec.ts', use: { browserName: 'webkit', launchOptions: {} } },
+  ],
   use: {
     baseURL: 'http://127.0.0.1:4173',
     viewport: { width: 1440, height: 900 },
@@ -14,7 +18,8 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: 'npm run build && npm run preview -- --host 127.0.0.1 --port 4173 --strictPort',
+    command: 'npm run build && npm start',
+    env: { POLARIS_DB: '.polaris/e2e.sqlite', PORT: '4173', PUBLIC_ORIGIN: 'http://127.0.0.1:4173' },
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: false,
     timeout: 120_000,
