@@ -31,6 +31,7 @@ test('phone layout, touch controls and static-only offline shell', async ({ page
     expect(await page.locator('#selection').textContent()).toBe(selection)
     await input.detach()
   }
+  await page.locator('#select-scout').tap()
   await page.screenshot({ path: info.outputPath('mobile-expedition.png') })
   const manifest = await (await page.request.get('/manifest.webmanifest')).json()
   expect(manifest.display).toBe('standalone')
@@ -55,4 +56,33 @@ test('phone layout, touch controls and static-only offline shell', async ({ page
   await expect(page.locator('#turn-info')).toContainText('Turn 1')
   await context.setOffline(false)
   expect(errors).toEqual([])
+})
+
+test('phone players can join, hand off a turn and resume their seat', async ({ browser, page }, info) => {
+  const second = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const guest = await second.newPage()
+  guest.on('pageerror', error => errors.push(error.message))
+  try {
+    await page.goto('/?diagnostics=1')
+    await page.locator('#network-panel summary').tap()
+    await page.locator('#create-room').tap()
+    await expect(page.locator('#share-invite')).toHaveValue(/#invite=/)
+    await guest.goto((await page.locator('#share-invite').inputValue()).replace('/#', '/?diagnostics=1#'))
+    await guest.locator('#join-room').tap()
+    await expect(page.locator('#end-turn')).toBeEnabled()
+    await expect(guest.locator('#end-turn')).toBeDisabled()
+    await page.locator('#select-scout').tap()
+    await page.screenshot({ path: info.outputPath('mobile-online.png') })
+    await page.locator('#end-turn').tap()
+    await expect(guest.locator('#end-turn')).toBeEnabled()
+    await guest.locator('#end-turn').tap()
+    await expect(page.locator('#turn-info')).toContainText('Turn 2')
+    await page.reload()
+    await expect(page.locator('#turn-info')).toContainText('Turn 2')
+    await expect(page.locator('#end-turn')).toBeEnabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect(errors).toEqual([])
+  } finally { await second.close() }
 })
