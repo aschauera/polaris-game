@@ -18,6 +18,8 @@ Briefs 1–5 describe this PR's foundation; the README records actual verificati
 
 ## First playable: two factions, one feature each
 
+For parent issue #5, create one dependency-ordered child issue for each brief 6–14 below. Each row is an issue-ready scope: retain its boundaries and acceptance criteria, and do not treat later-depth briefs 15–23 as part of the first-playable milestone. These are proposals; this document does not imply the GitHub sub-issues have already been created.
+
 | Brief / objective | Depends on | Boundaries | Acceptance | Size |
 | --- | --- | --- | --- | --- |
 | **6. Add turn commands, movement and exploration** | 5 | Four-cardinal deterministic A*/movement range, integer costs, occupancy, one scout and per-faction unseen/explored/visible terrain; no combat/cities; diagonals deferred | Invalid commands do not mutate state/RNG; stable resolution and path ties tested; move/end-turn reveals only affected tiles; UI/picks hide unseen terrain; UI explains rejected orders | M |
