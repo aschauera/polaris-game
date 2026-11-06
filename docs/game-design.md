@@ -4,7 +4,7 @@
 
 An original, browser-first, turn-based 4X game about rival societies rebuilding a fractured world. Explore readable voxel landscapes, grow cities, and choose between cooperation and conquest. Art Deco geometry gives the world civic grandeur without copying an existing game's art, names, factions, or rules.
 
-**Implemented scope:** seeded terrain, an interactive camera, tile inspection, and an opt-in scout expedition with movement, turns and basic faction fog (roadmap brief 6). Cities, ownership simulation, combat and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
+**Implemented scope:** seeded terrain, an interactive camera, tile inspection, local scout exploration and private two-player alternating-turn rooms with durable progress, per-player fog and a mobile PWA. See the [multiplayer architecture](multiplayer-architecture.md). Cities, ownership simulation, combat and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
 
 ## Map contract
 
@@ -47,7 +47,9 @@ The atlas is unchanged by default; **Start expedition** starts one Meridian scou
 
 A* finds a destination route, bounded by remaining movement; Dijkstra produces the reachable range. Both use charted, unoccupied terrain only, N/E/S/W neighbor insertion and FIFO ties at equal priority. Movement resolves immediately, reveals sight along the route, and leaves only current scout sight visible. End-turn activates the next faction in declared order and refreshes only its movement; the round increments on wrapping to the first faction. With one faction, each end-turn increments the round. Static terrain needs no end-turn fog recomputation.
 
-Commands carry faction and monotonically increasing sequence IDs. Invalid orders leave state, history and RNG unchanged. No command currently consumes randomness. Accepted commands are retained in memory for deterministic tests; this is not a save/replay format. The UI offers one scout without opponent AI or faction bonuses. Multi-faction turn order, occupancy and separate fog are domain-tested foundations, not a claim of a complete match.
+Commands carry faction and monotonically increasing sequence IDs. Invalid orders leave state, history and RNG unchanged. No command currently consumes randomness. Local progress is ephemeral. Online, the server derives faction/unit identity from the session and atomically persists accepted commands and idempotency receipts.
+
+Private online games have two scouts on a server-generated 24 x 24 map. Meridian moves first, then Lantern, with a round increment on return to Meridian. Players may close the app between turns and reconnect using the same browser session. Routes require current sight online to prevent blind occupancy probing; local routes may use remembered terrain. Both factions currently share the same scout statistics; the bonuses below are still planned. This is multiplayer exploration, not a complete match or victory loop.
 
 ## First playable: two representative factions
 

@@ -90,6 +90,8 @@ test('lost command reply is retried once with the same ID after reconnect', asyn
       else await route.continue()
     })
     await page.locator('#end-turn').click()
+    await expect(page.locator('#connection-status')).toContainText('Pending order retained')
+    await page.reload()
     await expect.poll(async () => (await online(page)).revision, { timeout: 15_000 }).toBe(2)
     await expect.poll(() => ids.length).toBe(2)
     expect(new Set(ids).size).toBe(1)

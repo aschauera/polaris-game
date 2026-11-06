@@ -160,9 +160,9 @@ For CI-equivalent software measurements, use the Chromium flags documented above
 
 ## Known limitations
 
-- Only a scout exploration loop is playable. No cities, resources, economy, combat, research, policies, diplomacy, AI, save/load, multiplayer, physics, or external services.
-- The expedition uses one faction in the UI. Domain tests exercise multiple factions, but hot-seat UI, hidden enemy units and mutable last-known terrain belong to later milestones. Closing/reloading the page loses progress.
-- Only Chromium is automated. Windows Edge hardware, Firefox/Safari, long-duration profiling, touch/mobile UX, assistive-technology map navigation, and WebGPU are unvalidated/deferred.
+- Only scout exploration is playable. No cities, economy, combat, research, policies, diplomacy, AI, physics or victory conditions.
+- Local mode loses progress on reload. Online rooms persist for two players, but have no accounts/recovery, cross-device transfer, matchmaking, push notifications, saved-game export or horizontal scaling.
+- Automated Chromium and WebKit checks are not physical Android/iPhone certification. Native packaging/store publication, hardware performance, long-duration profiling, assistive-technology map navigation and WebGPU remain unvalidated/deferred.
 - Continents and tree clusters are seeded procedural shapes, not a climate or hydrology simulation; rivers, bridges and settlements are not yet represented. At full stress-map zoom tiles are intentionally tiny; zoom in to inspect them.
 - Thin-instance picking and scene upload remain synchronous; large-map interactions must be profiled before promising larger maps. The 256² fixture is not a finished-game performance promise.
 - The recorded SwiftShader 256² frame intervals are seconds, not a smooth-play claim; native GPU validation and focused rendering profiling remain open.

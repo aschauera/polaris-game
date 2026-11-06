@@ -42,6 +42,8 @@ function restore(serialized: string): Expedition {
     if (!record(command) || command.factionId !== state.activeFaction || command.sequence !== state.commands.length + 1) {
       throw new Error('Corrupt stored command identity or sequence.')
     }
+    if (!keys(command, command.type === 'end-turn' ? ['type', 'factionId', 'sequence']
+      : ['type', 'factionId', 'sequence', 'unitId', 'to'])) throw new Error('Corrupt stored command shape.')
     const scout = state.scouts.find(unit => unit.factionId === state.activeFaction)!
     const action = command.type === 'end-turn' ? { type: 'end-turn' } : { type: command.type, to: command.to }
     if (!isOrder({ requestId: '00000000-0000-4000-8000-000000000000', revision: 0, action }) ||
@@ -112,7 +114,8 @@ export class RoomStore {
     if (!row) throw new RequestError(410, 'This room expired. Forget this session to start again.')
     if (typeof row.id !== 'string' || typeof row.snapshot !== 'string' || typeof row.revision !== 'number' ||
       (row.status !== 'waiting' && row.status !== 'active') ||
-      (row.inviteHash !== null && typeof row.inviteHash !== 'string')) throw new Error('Corrupt room record.')
+      (row.status === 'waiting' ? typeof row.inviteHash !== 'string' || !/^[0-9a-f]{64}$/.test(row.inviteHash)
+        : row.inviteHash !== null)) throw new Error('Corrupt room record.')
     return { id: row.id, snapshot: row.snapshot, revision: row.revision, status: row.status, inviteHash: row.inviteHash }
   }
 
@@ -120,7 +123,8 @@ export class RoomStore {
     const cached = this.cache.get(room.id)
     if (cached?.revision === room.revision) return cached.state
     const state = restore(room.snapshot)
-    if (room.revision !== state.commands.length + Number(room.status === 'active')) throw new Error('Stored revision does not match history.')
+    if (room.revision !== state.commands.length + Number(room.status === 'active') ||
+      (room.status === 'waiting' && state.commands.length !== 0)) throw new Error('Stored revision does not match history.')
     this.cache.set(room.id, { revision: room.revision, state })
     return state
   }

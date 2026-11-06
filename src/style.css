@@ -83,3 +83,8 @@ footer { height: 46px; display: flex; justify-content: space-between; align-item
   .camera-tools button { min-width: 44px; }
   .expedition { margin-top: 8px; }
 }
+@media (max-height: 500px) and (min-width: 601px) and (pointer: coarse) {
+  .masthead { height: 50px; } .edition, .prototype, footer { display: none; }
+  main { height: calc(100dvh - 50px); min-height: 0; grid-template-columns: 240px minmax(0, 1fr); }
+  input { font-size: 16px; }
+}

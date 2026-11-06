@@ -8,7 +8,7 @@ import { test, type TestContext } from 'node:test'
 import { once } from 'node:events'
 import { RoomStore, RequestError, ROOM_TTL, playerView } from './store.ts'
 import { createApp } from './http.ts'
-import { isOrder, isReply, isPlayerView, type OnlineOrder, type OnlineReply } from '../src/network/protocol.ts'
+import { isOrder, isReply, isPlayerView, record, type OnlineOrder, type OnlineReply } from '../src/network/protocol.ts'
 import { applyCommand, createExpedition, findPath, type Expedition } from '../src/game/expedition.ts'
 import type { WorldMap } from '../src/game/map.ts'
 
@@ -113,6 +113,45 @@ test('unknown database schema is rejected without migration/reset', t => {
   db.exec('PRAGMA user_version=9')
   db.close()
   assert.throws(() => new RoomStore(file), /Unsupported room database schema/)
+  const incomplete = join(directory(t), 'incomplete.sqlite')
+  const broken = new DatabaseSync(incomplete)
+  broken.exec('PRAGMA user_version=1')
+  broken.close()
+  assert.throws(() => new RoomStore(incomplete), /incomplete room database/)
+})
+
+test('session, room and command capacities are enforced without partial admission', t => {
+  const store = memory(t)
+  for (let i = 0; i < 2048; i++) store.connect()
+  assert.throws(() => store.connect(), rejected(503))
+  const file = join(directory(t), 'limits.sqlite')
+  let durable = new RoomStore(file)
+  const { host } = players(durable)
+  const roomId = view(durable.view(host)).roomId
+  durable.close()
+  const db = new DatabaseSync(file)
+  const row = db.prepare('SELECT snapshot FROM rooms WHERE id=?').get(roomId)!
+  assert.equal(typeof row.snapshot, 'string')
+  const envelope: unknown = JSON.parse(String(row.snapshot))
+  assert.ok(record(envelope))
+  envelope.commands = Array.from({ length: 5000 }, (_, i) => ({
+    type: 'end-turn', factionId: i % 2 ? 'lantern' : 'meridian', sequence: i + 1,
+  }))
+  db.prepare('UPDATE rooms SET snapshot=?,revision=5001 WHERE id=?').run(JSON.stringify(envelope), roomId)
+  db.close()
+  durable = new RoomStore(file)
+  assert.throws(() => durable.command(host, order(5001)), rejected(409))
+  assert.equal(view(durable.view(host)).revision, 5001)
+  for (let i = 1; i < 128; i++) durable.create(durable.connect().token)
+  const excess = durable.connect().token
+  assert.throws(() => durable.create(excess), rejected(503))
+  assert.equal(durable.view(excess).view, null)
+  durable.close()
+})
+
+test('public HTTP and a statically exposed database are rejected at startup', () => {
+  assert.throws(() => createApp({ database: ':memory:', origin: 'http://example.com' }), /HTTPS outside loopback/)
+  assert.throws(() => createApp({ database: 'dist/rooms.sqlite', origin: 'https://example.com', staticRoot: 'dist' }), /outside the static root/)
 })
 
 test('visible-only movement cannot probe hidden occupancy; local charted rules remain intact', () => {
@@ -181,6 +220,13 @@ test('HTTP enforces origins, JSON, bounds, cookies, redaction and static boundar
   assert.equal((await fetch(`${base}/manifest.webmanifest`)).status, 404)
   const forbidden = await send('/api/commands', JSON.stringify({ ...order(0), factionId: 'lantern' }), cookie.split(';')[0]!)
   assert.equal(forbidden.status, 400)
+  let limited = false
+  for (let i = 0; i < 240; i++) {
+    const poll = await fetch(`${base}/api/session`, { headers: { Cookie: cookie.split(';')[0]! } })
+    await poll.text()
+    if (poll.status === 429) { assert.equal(poll.headers.get('retry-after'), '60'); limited = true; break }
+  }
+  assert.ok(limited, 'The bounded request limiter must reject excess requests.')
 })
 
 test('concurrent HTTP orders on one revision accept at most one', async t => {
