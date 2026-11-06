@@ -72,6 +72,16 @@ Sight reaches two cardinal steps. Uncharted tiles have identical opaque flat sur
 
 Regenerating during an expedition starts a fresh expedition on the new world. Invalid configuration preserves the current expedition. **Return to atlas (discard expedition)** removes fog and returns to free inspection; it does not save progress. The browser UI currently runs one Meridian scout without AI, faction bonuses, cities or victory conditions. The domain supports separate faction fog and deterministic turn rotation for subsequent milestones.
 
+### Visual overview
+
+Fresh production-app captures from [validation run 42239574200](https://github.com/aschauera/polaris-game/actions/runs/42239574200), application commit `a767df2`, seed `polaris`, 32 × 32, 1440 × 900 viewport, Linux Chromium/SwiftShader:
+
+![Turn 1: the selected scout and its initial sight area, surrounded by uniform uncharted terrain](docs/expedition.png)
+
+![Turn 2: explored terrain stays dim, current sight remains bright, and the scout stays readable among trees](docs/expedition-explored.png)
+
+These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **39 unit tests**, **10 browser tests**, type-check, lint and production build in that run.
+
 ## Map inputs and controls
 
 - Seed: **1–64 ASCII letters, digits, `_`, or `-`**; case-sensitive.
