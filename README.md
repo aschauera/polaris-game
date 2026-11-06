@@ -1,6 +1,6 @@
-# Polaris · World Atlas
+# Polaris · World Atlas & Expeditions
 
-An original voxel-isometric strategy **foundation**, not a playable 4X game. This PR implements only a deterministic map, chunked WebGL 2 rendering, an orthographic camera, picking, and a small Art Deco HUD.
+An original voxel-isometric strategy **foundation**, not a complete 4X game. The deterministic atlas now includes an opt-in, playable scout expedition: movement, turns and terrain exploration, with chunked WebGL 2 rendering and an Art Deco HUD.
 
 ![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
 
@@ -11,7 +11,7 @@ An original voxel-isometric strategy **foundation**, not a playable 4X game. Thi
 - [Dependency-ordered follow-up briefs](docs/roadmap.md)
 - [Initial original visual mockup](docs/visual-mockup.svg) — a direction-setting concept, not a rendered screenshot.
 
-**Recommended next task:** roadmap brief 6, deterministic commands/turns, movement, exploration, and fog. Cities, combat, research, policies, diplomacy, and opponent AI are deliberately deferred. No follow-up issues are automatically created.
+**Implemented:** roadmap brief 6 / issue #7, deterministic commands/turns, movement, exploration, and fog. **Next planned milestone:** brief 7 / issue #8, founding, yields and production. Cities, combat, research, policies, diplomacy, and opponent AI are deliberately deferred.
 
 ## Requirements and setup
 
@@ -58,6 +58,20 @@ Linux CI uses `npx playwright install --with-deps chromium`. `.github/workflows/
 
 Headless tests explicitly use Chromium ANGLE **SwiftShader** via `--use-angle=swiftshader --enable-unsafe-swiftshader`. The latter opts into local software WebGL for testing; it is not an app requirement or a rendering bypass. Tests require actual WebGL 2, inspect nonuniform framebuffer pixels, check tile picks, and fail on **every unexpected console error or page error**. GPU performance warnings are not suppressed. Hardware-sensitive FPS is not a CI gate.
 
+Browser runs upload a `browser-evidence` artifact (14-day retention), including a fresh expedition screenshot and any failure traces. These are captures of the implemented app, not concept art.
+
+## Play a scout expedition
+
+1. Generate a world, then choose **Start expedition**. The ordinary atlas stays the default.
+2. Select the gold scout on the map or use **Select scout** (also centers the camera).
+3. Select a charted destination, inspect its route cost, then choose **Move scout here**. The **N/E/S/W** buttons offer keyboard-accessible single-step orders.
+4. The scout has **4 movement points** per turn. Entering grassland costs **1**, hills **2**; water is impassable. There are no diagonal moves, embarkation, combat or opponents yet.
+5. **End turn** restores movement. Invalid orders show a reason and spend neither movement nor RNG state.
+
+Sight reaches two cardinal steps. Uncharted tiles have identical opaque flat surfaces, with terrain/trees hidden and no inspector/pick information. Dim tiles are remembered terrain; bright tiles are currently visible. Pale land is reachable using the current movement budget. Only charted, unoccupied terrain can be used for a route; no hidden-terrain pathfinding. A multi-step move remembers the sight area along its entire route and keeps only the final sight area visible. Static terrain is unchanged between turns.
+
+Regenerating during an expedition starts a fresh expedition on the new world. Invalid configuration preserves the current expedition. **Return to atlas (discard expedition)** removes fog and returns to free inspection; it does not save progress. The browser UI currently runs one Meridian scout without AI, faction bonuses, cities or victory conditions. The domain supports separate faction fog and deterministic turn rotation for subsequent milestones.
+
 ## Map inputs and controls
 
 - Seed: **1–64 ASCII letters, digits, `_`, or `-`**; case-sensitive.
@@ -74,11 +88,11 @@ Generator 2 builds broad, irregular landforms before adding local coast variatio
 
 ## Validation and benchmark evidence
 
-The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Structural browser checks prove **16 meshes / 7 materials / 16 geometries** for 32² and **339 / 7 / 339** for the `polaris` 256² fixture (335 populated chunk/terrain batches): two map-wide tree meshes and two markers, not one object per tile.
+The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Expedition coverage adds stable A*/Dijkstra paths, occupancy/costs, rejected commands, faction isolation, fog, actual UI movement/end-turn, hidden-terrain framebuffer/picking checks and mode-transition cleanup. Structural browser checks retain **16 meshes / 7 materials / 16 geometries** for the atlas at 32² and **339 / 7 / 339** for the `polaris` 256² fixture (335 populated chunk/terrain batches): two map-wide tree meshes and two markers, not one object per tile. Expedition mode adds one scout mesh/material/geometry.
 
-Three successive regenerations of **each** size retain those counts. The disposal counter confirms 36 showcase or 1,005 stress source meshes disposed, respectively. Matrix buffers are 64 KiB / 4 MiB. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
+Three successive regenerations of **each** size retain those counts. The disposal counter confirms 36 showcase or 1,005 stress source meshes disposed, respectively. `instanceBufferBytes` reports **terrain matrix buffers only** (64 KiB / 4 MiB); it does not include tree matrices, new per-instance RGBA colors (16 bytes per terrain/tree instance), or CPU mirrors. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
 
-Local validation: clean `npm ci`, type-check, lint, **20 unit tests**, **5 browser tests**, and production build pass. GitHub's initial validation runs reported `action_required` with zero jobs; repository approval is required before hosted CI evidence is available. Local results are not presented as a completed hosted CI run.
+Use the revision's GitHub Actions checks for current type-check, lint, domain/browser test and production-build results. The historical map-only validation had 20 unit tests and 5 browser tests; those regression checks remain alongside the new expedition coverage. The historical benchmark below is not an expedition performance measurement.
 
 Measured results and reproduction details are recorded below. Architecture budgets are provisional targets, not acceptance claims for arbitrary hardware.
 
@@ -104,7 +118,7 @@ Generation timing surrounds only pure `generateMap`; scene setup surrounds rende
 
 **Result and gap:** generation and structural batching work, but software-rendered frame pacing is poor, especially at 256². The fixture accepts pan/zoom/selection but is **not smoothly interactive on this runner**. The provisional frame targets are not met here; neither native GPU performance nor the full architecture benchmark protocol has been established. Follow up with an isolated Windows Chromium/Edge GPU benchmark, then profile vertex/draw cost and assess an overview LOD or chunk-size adjustment before expanding map sizes. A software-renderer result alone does not justify replacing Babylon with another engine.
 
-**Reproduce:** run the validation commands above; then `npm run build` and `npm run preview`. Open either fixture with `&diagnostics=1`. Read-only `window.polarisDiagnostics.stats()`, `.camera()`, and `.projectTile(id)` expose timing/resource/picking diagnostics only when explicitly requested. For the frame sample, run in the browser console after warming up:
+**Reproduce:** run the validation commands above; then `npm run build` and `npm run preview`. Open either fixture with `&diagnostics=1`. Read-only `window.polarisDiagnostics.stats()`, `.camera()`, `.projectTile(id)` and `.expedition()` expose timing/resource/picking and player-view diagnostics only when explicitly requested. Unknown-tile projection uses the uniform fog surface, not its hidden elevation. `fogUpdates` counts terrain instance updates, allowing tests to prove camera motion does not recompute fog. For the frame sample, run in the browser console after warming up:
 
 ```js
 const samples = [];
@@ -121,7 +135,8 @@ For CI-equivalent software measurements, use the Chromium flags documented above
 
 ## Known limitations
 
-- No units, turns, cities, resources, economy, combat, research, policies, fog, diplomacy, AI, save/load, multiplayer, physics, or external services.
+- Only a scout exploration loop is playable. No cities, resources, economy, combat, research, policies, diplomacy, AI, save/load, multiplayer, physics, or external services.
+- The expedition uses one faction in the UI. Domain tests exercise multiple factions, but hot-seat UI, hidden enemy units and mutable last-known terrain belong to later milestones. Closing/reloading the page loses progress.
 - Only Chromium is automated. Windows Edge hardware, Firefox/Safari, long-duration profiling, touch/mobile UX, assistive-technology map navigation, and WebGPU are unvalidated/deferred.
 - Continents and tree clusters are seeded procedural shapes, not a climate or hydrology simulation; rivers, bridges and settlements are not yet represented. At full stress-map zoom tiles are intentionally tiny; zoom in to inspect them.
 - Thin-instance picking and scene upload remain synchronous; large-map interactions must be profiled before promising larger maps. The 256² fixture is not a finished-game performance promise.

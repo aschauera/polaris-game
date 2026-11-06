@@ -1,6 +1,6 @@
 # Polaris: implementation roadmap
 
-Planning briefs, not automatically created issues. **This PR is limited to the map prototype and its original visual concept.** The pure `src/game` generator and tests are implemented; the renderer uses 16×16 chunk/type box instances. Briefs below retain acceptance gates rather than implying every gate is verified. Future gameplay remains planned.
+Dependency-ordered implementation briefs. The atlas foundation and brief 6 scout exploration are implemented; briefs 7–14 have follow-up issues #8–#15. The renderer retains 16×16 chunk/type box instances. Briefs below retain acceptance gates rather than implying every later gate is verified.
 
 Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 days, **L** 6–10 days. Split an L brief before execution if acceptance cannot be reviewed together. Dependencies refer to brief numbers.
 
@@ -9,16 +9,16 @@ Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 day
 | Brief / objective | Depends on | Boundaries | Acceptance | Size |
 | --- | --- | --- | --- | --- |
 | **1. Establish browser shell**: strict TS, Vite, Babylon WebGL2, Node Vitest, Playwright | None | One package; `src/game`, `src/rendering`, `src/ui`; no gameplay | App boots; unsupported WebGL2 has useful message; existing scripts support typecheck, domain and browser checks | S |
-| **2. Build deterministic map model**: implemented generator/tests; retain regression gate | 1 | No DOM/rendering; 8–256 integer dimensions; seed 1–64 ASCII alphanumeric/underscore/hyphen; version 1 FNV-1a/Mulberry32 | Fixed fixtures repeat; invalid inputs rejected; rectangular IDs equal `z * width + x`; explicit PRNG state and stable iteration tested | M |
+| **2. Build deterministic map model**: implemented generator/tests; retain regression gate | 1 | No DOM/rendering; 8–256 integer dimensions; seed 1–64 ASCII alphanumeric/underscore/hyphen; version 2 FNV-1a/Mulberry32 | Fixed fixtures repeat; invalid inputs rejected; rectangular IDs equal `z * width + x`; explicit PRNG state and stable iteration tested | M |
 | **3. Render voxel terrain**: Art Deco materials and silhouettes | 2 | 16×16 spatial chunk/type thin instances; no units or economy | All terrain distinguishable; 32×32 showcase and 256×256 fixture render; regeneration disposes old resources; instance→tile mapping checked | M |
 | **4. Make map inspectable**: fixed orthographic camera, bounded pan/zoom, picking and inputs | 3 | No rotation; no movement; future HUD controls not presented as functional | Resize/touch/mouse work; corner picks resolve canonical IDs; reset and regeneration clear stale selection; validation errors visible; keyboard-accessible inputs | M |
 | **5. Verify prototype**: browser regression and measured benchmark report | 4 | No gameplay expansion or speculative optimization; initial shorter software-rendered runner evidence is not the full future device protocol | Domain/browser checks pass; sample duration/environment and limitations published; measured results separate from provisional budgets; regeneration and WebGL2 fallback covered; unperformed full-protocol checks explicitly pending | M |
 
-Briefs 1–5 describe this PR's foundation; the README records actual verification and outstanding device-validation limitations. **Recommended next task: brief 6**, deterministic turn/actions, movement, exploration, and basic fog. Named-device performance and accessibility verification remain separate release gates, not claims implied by the software-rendered sample.
+Briefs 1–5 describe the map foundation; the README records actual verification and outstanding device-validation limitations. **Brief 6 is implemented:** opt-in one-scout exploration, deterministic commands, four-cardinal A*/Dijkstra, movement budgets, faction fog and tests. **Recommended next task: brief 7 / #8**, split into reviewable city/economy increments. Named-device performance and accessibility verification remain separate release gates, not claims implied by the software-rendered sample.
 
 ## First playable: two factions, one feature each
 
-For parent issue #5, create one dependency-ordered child issue for each brief 6–14 below. Each row is an issue-ready scope: retain its boundaries and acceptance criteria, and do not treat later-depth briefs 15–23 as part of the first-playable milestone. These are proposals; this document does not imply the GitHub sub-issues have already been created.
+Parent issue #5 has child issues #7–#15 for briefs 6–14 below. Retain their boundaries and acceptance criteria, and do not treat later-depth briefs 15–23 as part of the first-playable milestone. Completion of brief 6 is not completion of the full two-faction match.
 
 | Brief / objective | Depends on | Boundaries | Acceptance | Size |
 | --- | --- | --- | --- | --- |

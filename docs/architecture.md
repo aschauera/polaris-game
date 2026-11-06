@@ -2,11 +2,11 @@
 
 ## Scope and boundaries
 
-Browser-first **strict TypeScript + Vite + Babylon.js WebGL2**, in a single package. This PR is a map prototype, not the first playable. The pure `src/game` generator and its tests are implemented. Use **Vitest in Node** for domain tests and **Playwright** for browser behavior.
+Browser-first **strict TypeScript + Vite + Babylon.js WebGL2**, in a single package. The atlas and first scout-exploration slice are implemented, not the full first-playable match. Pure `src/game` owns generation, commands, pathfinding and faction fog. Use **Vitest in Node** for domain tests and **Playwright** for browser behavior.
 
 | Directory | Responsibility | Must not contain |
 | --- | --- | --- |
-| `src/game` | Definitions, seeded generation, canonical map state; later commands, rules, saves, AI | DOM, Babylon objects, wall-clock time, renderer state |
+| `src/game` | Definitions, seeded generation, immutable expedition state, commands, movement/fog; later saves/AI | DOM, Babylon objects, wall-clock time, renderer state |
 | `src/rendering` | Babylon scene, chunk batches, camera, visual picking adapters | Authoritative gameplay rules or independent tile state |
 | `src/ui` | Inputs, validation feedback, inspector, future HUD | Simulation logic or direct mutation of domain state |
 
@@ -34,7 +34,9 @@ Revisit Godot if native desktop/mobile becomes the primary distribution target, 
 - Keep authoritative arithmetic integer-based where practical. Never use frame delta, wall time, DOM state, or Babylon transforms to resolve gameplay.
 - Unit tests must verify fixed fixtures, repeatability, PRNG state transitions, rectangular-map IDs, bounds, and invalid inputs.
 
-**Future command resolution:** validate a command against current state; reject without mutation or RNG consumption if invalid; resolve into the next state and explicit events. Record accepted commands and their sequence. Turn phases and actor order must be specified before simultaneous orders are introduced. AI submits the same commands; previews must not consume authoritative RNG.
+**Command resolution (rules version 1):** `applyCommand` validates faction, sequence and legality, rejecting with a reason and the identical state reference. Accepted move/end-turn orders return an immutable snapshot, explicit affected tile IDs and a user-facing outcome. The accepted-command log retains sequence order; no command consumes RNG. Movement resolves immediately. End-turn advances through declared faction order, restores incoming scout movement and increments the round on wrap. No simultaneous resolution, AI or save format is introduced.
+
+`findPath` uses Manhattan A* and `movementRange` uses Dijkstra, sharing a binary min-heap. Equal priorities preserve insertion order, neighbors are N/E/S/W, and equal-cost rediscoveries retain the first parent. Searches stop at the current integer movement budget and cannot traverse uncharted terrain, water or occupied tiles. The UI submits commands and displays domain outcomes rather than independently resolving rules.
 
 ## ADR-003: data and persistence
 
@@ -55,7 +57,9 @@ Terrain/resource definitions are typed, data-driven records with stable symbolic
 
 ### Future incremental work and simulation costs
 
-Fog uses per-faction visibility/last-known data. Recompute affected visibility regions on movement, founding or ownership changes; track dirty tile IDs and dirty chunks for rendering. Update only affected instance data/overlays, not the whole map per action or frame. Camera motion alone must not trigger domain visibility recomputation. Full generation/loading may rebuild the whole map.
+Implemented fog is a faction-owned sparse immutable record of explored/visible tile IDs; absent entries are unseen. Terrain is immutable, so the map itself is the remembered terrain source. Moving copies the discovered record, processes old/new/traveled sight regions (not every map tile) and returns only changed visibility IDs. End-turn and camera motion do not alter fog. Mutable last-known terrain and enemy-unit hiding remain brief 11 work.
+
+Renderer matrices and RGBA colors are dynamic thin-instance buffers. Unknown terrain receives a uniform height/color and hidden trees, with no terrain-dependent silhouette or picking result. Explored terrain/trees are dimmed. Commands update only dirty visibility and old/new movement-range instances via partial GPU buffer writes; affected terrain-chunk bounds and Babylon CPU picking matrices are synchronized. Trees retain conservative original world bounds rather than rescanning the entire forest after every move. Full mode transitions/regeneration initialize all tiles. A separate non-pickable scout mesh is disposed on leaving the expedition or regeneration. No per-tile meshes or per-frame visibility computations are added.
 
 Pathfinding should start with deterministic A* for a single destination and Dijkstra for movement ranges. On a four-cardinal grid, edges scale with tile count; heap-based searches can approach O(V log V) and O(V) memory. Repeating a full search for every unit/candidate can dominate AI turns. Bound AI candidate sets and search counts, reuse valid results with explicit terrain/occupancy invalidation, and measure expanded nodes and per-turn work. Defer Web Workers until profiling shows main-thread stalls justify serialization and coordination costs. If introduced, use immutable inputs, explicit RNG state and ordered results; worker scheduling must not alter outcomes. This refers to browser threads, not gameplay worker units.
 

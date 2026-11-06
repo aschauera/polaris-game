@@ -1,4 +1,4 @@
-import { type Terrain, type Tile, type WorldMap } from './map'
+import type { Terrain, Tile, WorldMap } from './map'
 
 export const RULES_VERSION = 1
 export const SCOUT = Object.freeze({ movement: 4, sight: 2 })

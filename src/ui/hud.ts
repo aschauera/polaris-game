@@ -100,6 +100,7 @@ export function createHud() {
     selectScout: get<HTMLButtonElement>('select-scout'), moveScout: get<HTMLButtonElement>('move-scout'),
     endTurn: get<HTMLButtonElement>('end-turn'),
     expedition: (summary?: ExpeditionSummary) => {
+      document.body.classList.toggle('exploring', !!summary)
       get('expedition').hidden = !summary
       get('start-expedition').hidden = !!summary
       if (!summary) return
