@@ -171,6 +171,26 @@ describe('expedition movement and commands', () => {
 })
 
 describe('faction exploration', () => {
+  it.each([[8, 256], [256, 8], [256, 256]])('bounds exploration on a %sx%s world', (width, height) => {
+    let state = createExpedition(generateMap({ seed: 'polaris', width, height }))
+    const rngState = state.rngState
+    for (let i = 0; i < 16; i++) {
+      const scout = state.scouts[0]!
+      const ids = [...movementRange(state, scout.id).keys()].filter(id => id !== scout.tileId)
+      const to = ids[(i * 13) % ids.length]
+      const command: Command = to === undefined
+        ? { type: 'end-turn', factionId: state.activeFaction, sequence: state.commands.length + 1 } : move(state, to)
+      const result = applyCommand(state, command)
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.dirtyTiles.length).toBeLessThan(60)
+      expect(result.state.rngState).toBe(rngState)
+      expect(result.state.scouts[0]!.movement).toBeGreaterThanOrEqual(0)
+      expect(result.state.map.tiles[result.state.scouts[0]!.tileId]).toBeDefined()
+      state = result.state
+    }
+  })
+
   it('hides unknown tiles and reveals only the traveled sight regions', () => {
     const state = createExpedition(plainMap())
     const start = state.scouts[0]!.tileId

@@ -72,20 +72,20 @@ function regenerate(): void {
     const config = hud.config()
     const start = performance.now()
     const next = generateMap(config)
-    const nextExpedition = expedition ? createExpedition(next) : undefined
     generationMs = performance.now() - start
+    const nextExpedition = expedition ? createExpedition(next) : undefined
     const renderStart = performance.now()
     renderer ??= new WorldRenderer(hud.canvas, select, hud.hover, hud.error)
     expedition = nextExpedition
     scoutSelected = false
     renderer.setMap(next)
-    renderSetupMs = performance.now() - renderStart
     map = next
     hud.loaded(next)
     if (expedition) {
       renderExpedition()
       renderer.focusTile(expedition.scouts[0]!.tileId)
     }
+    renderSetupMs = performance.now() - renderStart
   } catch (error) {
     hud.error(error instanceof Error ? error.message : 'Unable to generate or render the atlas.')
   }

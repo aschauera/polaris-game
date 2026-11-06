@@ -84,7 +84,7 @@ test('unknown land and water have identical opaque surfaces, no trees or inspect
   await page.getByRole('button', { name: 'Reset view' }).click()
   await settled(page)
   const hidden = state.map.tiles.filter(tile => !state.factions[0]!.fog[tile.id])
-  const land = hidden.find(tile => tile.terrain === 'hills' && tile.x > 0 && tile.z > 0)!
+  const land = hidden.find(tile => tile.trees > 0 && tile.x > 0 && tile.z > 0)!
   const water = hidden.find(tile => tile.terrain === 'water' && tile.x > 0 && tile.z > 0)!
   expect(land).toBeDefined()
   expect(water).toBeDefined()
@@ -108,6 +108,13 @@ test('unknown land and water have identical opaque surfaces, no trees or inspect
   }
   expect(pixels[0]).toEqual(pixels[1])
   expect(pixels[0]![3]).toBe(255)
+  const background = await page.locator('canvas').evaluate(canvas => {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
+    const pixel = new Uint8Array(4)
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+    return [...pixel]
+  })
+  expect(pixels[0], 'Fog pixels must be rendered geometry, not an empty canvas').not.toEqual(background)
   await page.getByRole('button', { name: 'Select scout', exact: true }).click()
   await settled(page)
   await page.screenshot({ path: testInfo.outputPath('expedition.png') })
