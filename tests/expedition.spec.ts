@@ -76,6 +76,22 @@ test('selects a scout, spends movement, explores, rejects orders and restores mo
   await expect(page.locator('#scout-info')).toContainText('4/4 movement')
   expect((await snapshot(page))!.fog).toEqual(before!.fog)
   await settled(page)
+  const markerPixels = await page.evaluate(id => {
+    const point = window.polarisDiagnostics!.projectTile(id)!
+    const canvas = document.querySelector('canvas')!
+    const rect = canvas.getBoundingClientRect()
+    const gl = canvas.getContext('webgl2')!
+    const x = Math.floor((point.x - rect.left) * gl.drawingBufferWidth / rect.width) - 25
+    const y = gl.drawingBufferHeight - Math.floor((point.y - rect.top) * gl.drawingBufferHeight / rect.height)
+    const pixels = new Uint8Array(50 * 65 * 4)
+    gl.readPixels(x, y, 50, 65, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+    let gold = 0
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i]! > 180 && pixels[i + 1]! > 130 && pixels[i + 2]! < 170) gold++
+    }
+    return gold
+  }, state.scouts[0]!.tileId)
+  expect(markerPixels, 'The own scout must remain readable among trees').toBeGreaterThan(150)
   await page.screenshot({ path: testInfo.outputPath('expedition-explored.png') })
 })
 

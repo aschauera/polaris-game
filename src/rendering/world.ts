@@ -293,6 +293,8 @@ export class WorldRenderer {
         material.emissiveColor = Color3.FromHexString('#856124')
         this.scout.material = material
         this.scout.isPickable = false
+        // The own-unit indicator must remain legible above decorative trees.
+        this.scout.renderingGroupId = 1
       }
       const tile = this.map.tiles[view.scoutTileId]!
       this.scout.position.set(tile.x, surfaceHeight(tile) + 0.45, tile.z)
