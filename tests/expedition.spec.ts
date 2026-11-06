@@ -42,7 +42,7 @@ test.afterEach(({ page }) => {
   expect(browserErrors.get(page), 'Unexpected browser console/page errors').toEqual([])
 })
 
-test('selects a scout, spends movement, explores, rejects orders and restores movement at end-turn', async ({ page }) => {
+test('selects a scout, spends movement, explores, rejects orders and restores movement at end-turn', async ({ page }, testInfo) => {
   let state = await start(page)
   const initialFog = { ...state.factions[0]!.fog }
   await clickTile(page, state.scouts[0]!.tileId)
@@ -75,6 +75,8 @@ test('selects a scout, spends movement, explores, rejects orders and restores mo
   await expect(page.locator('#turn-info')).toContainText('Turn 2')
   await expect(page.locator('#scout-info')).toContainText('4/4 movement')
   expect((await snapshot(page))!.fog).toEqual(before!.fog)
+  await settled(page)
+  await page.screenshot({ path: testInfo.outputPath('expedition-explored.png') })
 })
 
 const SCOUT_MOVEMENT_LIMIT = 4
@@ -174,7 +176,15 @@ test('tree-free rectangular maps, invalid regeneration and pointer cancellation 
   await page.getByRole('button', { name: 'Regenerate atlas' }).click()
   await expect(page.getByRole('alert')).toContainText('Seed must')
   expect(await snapshot(page)).toEqual(before)
+  const canvas = (await page.locator('canvas').boundingBox())!
+  const camera = await page.evaluate(() => window.polarisDiagnostics!.camera())
+  await page.mouse.move(canvas.x + 40, canvas.y + 70)
+  await page.mouse.down()
   await page.locator('canvas').dispatchEvent('pointercancel', { pointerId: 1 })
+  await page.mouse.move(canvas.x + 100, canvas.y + 90)
+  await page.mouse.up()
+  expect(await page.evaluate(() => window.polarisDiagnostics!.camera())).toEqual(camera)
+  expect(await snapshot(page)).toEqual(before)
   await page.getByLabel('World seed').fill('polaris')
   await page.getByLabel('Height', { exact: true }).fill('12')
   await page.getByRole('button', { name: 'Regenerate atlas' }).click()

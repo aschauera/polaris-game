@@ -36,7 +36,7 @@ function select(tile?: Tile): void {
   if (tile && tile.id !== scout.tileId && scoutSelected) {
     const route = findPath(expedition, scout.id, tile.id)
     const visibility = visibilityAt(expedition, expedition.activeFaction, tile.id)
-    hud.order(route ? `${visibility === 'explored' ? 'Remembered terrain. ' : ''}Route: ${route.cost} movement. Choose Move scout here.`
+    hud.order(route ? `Destination (${tile.x}, ${tile.z}). ${visibility === 'explored' ? 'Remembered terrain. ' : ''}Route: ${route.cost} movement. Choose Move scout here.`
       : 'No affordable known route. Choose another tile or end the turn.')
   } else hud.order(scoutSelected ? 'Scout selected. Choose a charted destination or use N/E/S/W.' : 'Select the gold scout to begin.')
   updateExpeditionHud()

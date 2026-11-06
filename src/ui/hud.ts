@@ -25,7 +25,7 @@ export function createHud() {
         <button id="start-expedition" class="primary" disabled>Start expedition</button>
         <section id="expedition" class="expedition" aria-label="Expedition controls" hidden>
           <div class="section-label">SCOUT EXPEDITION</div>
-          <p id="turn-info"></p>
+          <p id="turn-info" aria-live="polite" aria-atomic="true"></p>
           <p id="scout-info"></p>
           <p id="exploration-info"></p>
           <button id="select-scout" aria-pressed="false">Select scout</button>
