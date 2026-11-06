@@ -75,6 +75,16 @@ Browser runs upload `browser-evidence` (14 days), including screenshots and fail
 
 Rooms have two scouts and no turn deadline, combat or victory yet. They expire after seven inactive days; sessions last 30 days. This is a PWA, **not an App Store/Play Store binary**. Public hosting, signing, native packaging and physical-device release testing remain separate work.
 
+### Verified multiplayer/mobile evidence
+
+[Validation run 42249795653](https://github.com/aschauera/polaris-game/actions/runs/42249795653), application commit `8dff8e0`: **39 domain tests + 10 server tests + 16 browser tests**, type-check, lint and production build. Both mobile Chromium and WebKit exercise two isolated players, turn handoff and reload/resume. Coverage also includes lost-response retries across reload, offline shell loading, static/API cache separation, native Chromium pinch input, phone layout and install icons.
+
+The server suite also passed locally on Windows/Node 24. A CI-built app rendered WebGL 2 and activated its service worker in the Windows integrated Chromium browser. These checks are not physical-phone, store-installation or GPU-performance certification.
+
+![Desktop private-room view from the production browser test](docs/multiplayer.png)
+
+[Open the mobile WebKit production screenshot](docs/mobile-multiplayer.png) (390 x 844 CSS viewport, device scale 2). Both captures show server-generated private 24 x 24 worlds; they are actual UI, not mockups.
+
 ## Play a scout expedition
 
 1. Generate a world, then choose **Start expedition**. The ordinary atlas stays the default.
