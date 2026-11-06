@@ -153,7 +153,9 @@ class Frontier {
   }
 }
 
-function search(state: Expedition, scout: Scout, goal?: number) {
+export type MovementScope = 'charted' | 'visible'
+
+function search(state: Expedition, scout: Scout, goal?: number, scope: MovementScope = 'charted') {
   const frontier = new Frontier()
   const costs = new Map<number, number>([[scout.tileId, 0]])
   const parents = new Map<number, number>()
@@ -165,7 +167,7 @@ function search(state: Expedition, scout: Scout, goal?: number) {
     if (current.cost !== costs.get(current.id)) continue
     if (current.id === goal) break
     for (const id of neighbors(state.map, current.id)) {
-      if (!fog[id] || occupied.has(id)) continue
+      if (!fog[id] || (scope === 'visible' && fog[id] !== 'visible') || occupied.has(id)) continue
       const cost = current.cost + MOVEMENT_COST[state.map.tiles[id]!.terrain]
       if (cost > scout.movement || cost >= (costs.get(id) ?? Infinity)) continue
       costs.set(id, cost)
@@ -176,17 +178,17 @@ function search(state: Expedition, scout: Scout, goal?: number) {
   return { costs, parents }
 }
 
-export function movementRange(state: Expedition, unitId: string): ReadonlyMap<number, number> {
+export function movementRange(state: Expedition, unitId: string, scope: MovementScope = 'charted'): ReadonlyMap<number, number> {
   const scout = state.scouts.find(unit => unit.id === unitId)
   if (!scout || scout.factionId !== state.activeFaction) return new Map()
-  return search(state, scout).costs
+  return search(state, scout, undefined, scope).costs
 }
 
-export function findPath(state: Expedition, unitId: string, to: number): Route | undefined {
+export function findPath(state: Expedition, unitId: string, to: number, scope: MovementScope = 'charted'): Route | undefined {
   const scout = state.scouts.find(unit => unit.id === unitId)
   if (!scout || scout.factionId !== state.activeFaction || !Number.isInteger(to) ||
     !knownTile(state, scout.factionId, to)) return
-  const { costs, parents } = search(state, scout, to)
+  const { costs, parents } = search(state, scout, to, scope)
   const cost = costs.get(to)
   if (cost === undefined) return
   const path = [to]
@@ -217,7 +219,7 @@ function moveFog(state: Expedition, scout: Scout, path: readonly number[], scout
   return { factions: Object.freeze(factions), dirtyTiles: Object.freeze(dirtyTiles) }
 }
 
-export function applyCommand(state: Expedition, command: Command): CommandResult {
+export function applyCommand(state: Expedition, command: Command, scope: MovementScope = 'charted'): CommandResult {
   const reject = (reason: string): CommandResult => ({ ok: false, state, reason })
   if (command.factionId !== state.activeFaction) return reject('It is not this faction\'s turn.')
   if (command.sequence !== state.commands.length + 1) return reject('This order is stale. Choose an order for the current turn.')
@@ -238,10 +240,13 @@ export function applyCommand(state: Expedition, command: Command): CommandResult
   if (!Number.isInteger(command.to) || !state.map.tiles[command.to]) return reject('Choose a tile inside the map.')
   const tile = knownTile(state, command.factionId, command.to)
   if (!tile) return reject('That territory is uncharted. Explore closer before issuing an order.')
+  if (scope === 'visible' && visibilityAt(state, command.factionId, command.to) !== 'visible') {
+    return reject('Online orders require current sight. Move closer before entering remembered terrain.')
+  }
   if (command.to === scout.tileId) return reject('The scout is already on that tile.')
   if (tile.terrain === 'water') return reject('Scouts cannot cross water.')
   if (state.scouts.some(unit => unit.tileId === command.to)) return reject('The destination is occupied.')
-  const route = findPath(state, scout.id, command.to)
+  const route = findPath(state, scout.id, command.to, scope)
   if (!route) return reject('No known, unoccupied route fits the remaining movement. End the turn or choose a closer tile.')
   const scouts = Object.freeze(state.scouts.map(unit => unit === scout
     ? Object.freeze({ ...unit, tileId: command.to, movement: unit.movement - route.cost }) : unit))

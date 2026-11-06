@@ -2,7 +2,7 @@ import {
   AbstractMesh, Camera, Color3, Color4, Engine, FreeCamera, HemisphericLight, Matrix,
   Mesh, MeshBuilder, Scene, SceneInstrumentation, StandardMaterial, Vector3, Viewport,
 } from '@babylonjs/core'
-import { TERRAIN, type Terrain, type Tile, type WorldMap } from '../game/map'
+import { TERRAIN, type Terrain, type Tile } from '../game/map'
 import type { Visibility } from '../game/expedition'
 
 export const CHUNK_SIZE = 16
@@ -10,10 +10,12 @@ const COLORS: Record<Terrain, string> = { grassland: '#609b83', water: '#387c9b'
 
 interface Batch { mesh: Mesh; ids: number[]; matrices: Float32Array; colors: Float32Array }
 interface TreeInstance { mesh: Mesh; index: number; matrix: Matrix; color: Color3 }
+export interface RenderMap { readonly width: number; readonly height: number; readonly tiles: readonly Tile[] }
 export interface ExplorationView {
   readonly fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
   readonly scoutTileId: number
   readonly reachable: readonly number[]
+  readonly opponents?: readonly number[]
 }
 
 function surfaceHeight(tile: Tile): number {
@@ -49,15 +51,19 @@ export class WorldRenderer {
   private readonly treeInstances = new Map<number, TreeInstance[]>()
   private exploration?: ExplorationView
   private scout?: Mesh
+  private opponent?: Mesh
   private fogUpdates = 0
   private batchIds = new Map<AbstractMesh, number[]>()
-  private map?: WorldMap
+  private map?: RenderMap
   private target = Vector3.Zero()
   private halfHeight = 20
   private maxHalfHeight = 100
   private disposedBatches = 0
   private bufferBytes = 0
   private pointer?: { id: number; x: number; y: number; lastX: number; lastY: number; dragged: boolean }
+  private readonly touches = new Map<number, { x: number; y: number }>()
+  private pinchDistance?: number
+  private pinched = false
   private readonly resizeObserver: ResizeObserver
   private readonly removeListeners: (() => void)[] = []
   private disposed = false
@@ -108,8 +114,8 @@ export class WorldRenderer {
     this.listen('pointerdown', e => this.pointerDown(e as PointerEvent))
     this.listen('pointermove', e => this.pointerMove(e as PointerEvent))
     this.listen('pointerup', e => this.pointerUp(e as PointerEvent))
-    this.listen('pointercancel', () => { this.pointer = undefined })
-    this.listen('lostpointercapture', () => { this.pointer = undefined })
+    this.listen('pointercancel', e => this.cancelPointer(e as PointerEvent))
+    this.listen('lostpointercapture', e => this.cancelPointer(e as PointerEvent))
     this.listen('pointerleave', () => { if (!this.pointer) this.showHover() })
     this.listen('wheel', e => {
       const event = e as WheelEvent
@@ -152,11 +158,16 @@ export class WorldRenderer {
     return mesh
   }
 
-  setMap(map: WorldMap): void {
+  setMap(map: RenderMap, preserveCamera = false): void {
     this.exploration = undefined
     this.scout?.dispose(false, true)
     this.scout = undefined
+    this.opponent?.dispose(false, true)
+    this.opponent = undefined
     this.pointer = undefined
+    this.touches.clear()
+    this.pinched = false
+    this.pinchDistance = undefined
     this.showHover()
     this.showSelection()
     for (const batch of this.batches) {
@@ -210,10 +221,11 @@ export class WorldRenderer {
       }
     }
     this.addTrees(map)
-    this.reset()
+    if (preserveCamera) { this.fitBounds(); this.updateCamera() }
+    else this.reset()
   }
 
-  private addTrees(map: WorldMap): void {
+  private addTrees(map: RenderMap): void {
     const trees = map.tiles.flatMap(tile => {
       if (!tile.trees) return []
       const offsets: [number, number][] = tile.trees === 1 ? [[0, 0]]
@@ -302,6 +314,20 @@ export class WorldRenderer {
       this.scout?.dispose(false, true)
       this.scout = undefined
     }
+    const enemyTile = view?.opponents?.[0]
+    if (enemyTile !== undefined) {
+      if (!this.opponent) {
+        this.opponent = MeshBuilder.CreateCylinder('opponent', { height: 0.8, diameterTop: 0.2, diameterBottom: 0.5, tessellation: 4 }, this.scene)
+        const material = new StandardMaterial('opponent-material', this.scene)
+        material.diffuseColor = Color3.FromHexString('#95c9f0')
+        material.emissiveColor = Color3.FromHexString('#35658a')
+        this.opponent.material = material
+        this.opponent.isPickable = false
+        this.opponent.renderingGroupId = 1
+      }
+      const tile = this.map.tiles[enemyTile]!
+      this.opponent.position.set(tile.x, surfaceHeight(tile) + 0.45, tile.z)
+    } else { this.opponent?.dispose(false, true); this.opponent = undefined }
     this.showHover()
     if (!previous || !view) this.showSelection()
   }
@@ -378,11 +404,29 @@ export class WorldRenderer {
     if (event.button !== 0) return
     this.canvas.focus()
     this.canvas.setPointerCapture(event.pointerId)
+    if (event.pointerType === 'touch') {
+      this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (this.touches.size >= 2 || this.pinched) {
+        this.pinched = true
+        this.pointer = undefined
+        this.pinchDistance = this.touchDistance()
+        return
+      }
+    }
     this.pointer = { id: event.pointerId, x: event.clientX, y: event.clientY,
       lastX: event.clientX, lastY: event.clientY, dragged: false }
   }
 
   private pointerMove(event: PointerEvent): void {
+    if (this.touches.has(event.pointerId)) {
+      this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (this.pinched) {
+        const distance = this.touchDistance()
+        if (distance && this.pinchDistance) this.zoom(this.pinchDistance / distance)
+        this.pinchDistance = distance
+        return
+      }
+    }
     const pointer = this.pointer
     if (pointer && pointer.id === event.pointerId) {
       pointer.dragged ||= Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5
@@ -393,12 +437,30 @@ export class WorldRenderer {
   }
 
   private pointerUp(event: PointerEvent): void {
+    this.touches.delete(event.pointerId)
+    if (this.pinched) {
+      this.cancelPointer(event)
+      if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId)
+      return
+    }
     const pointer = this.pointer
     if (!pointer || pointer.id !== event.pointerId) return
     const moved = Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5
     if (!pointer.dragged && !moved) this.showSelection(this.pick(event.clientX, event.clientY))
     this.pointer = undefined
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId)
+  }
+
+  private touchDistance(): number | undefined {
+    const [a, b] = [...this.touches.values()]
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : undefined
+  }
+
+  private cancelPointer(event: PointerEvent): void {
+    this.touches.delete(event.pointerId)
+    if (this.pointer?.id === event.pointerId) this.pointer = undefined
+    this.pinchDistance = this.touchDistance()
+    if (!this.touches.size) this.pinched = false
   }
 
   private pick(clientX: number, clientY: number): Tile | undefined {

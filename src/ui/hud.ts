@@ -1,4 +1,6 @@
 import { TERRAIN, type MapConfig, type Tile, type WorldMap } from '../game/map'
+import type { ConnectionState } from '../network/client'
+import type { PlayerView } from '../network/protocol'
 
 export interface ExpeditionSummary {
   faction: string
@@ -9,6 +11,8 @@ export interface ExpeditionSummary {
   total: number
   scoutSelected: boolean
   canOrder: boolean
+  canAct?: boolean
+  activeFaction?: string
 }
 
 export function createHud() {
@@ -22,6 +26,24 @@ export function createHud() {
         <div class="section-label">EXPEDITION CHART</div>
         <h2>A world of possibility.</h2>
         <p class="intro">Survey the shores. Trace the highlands.<br>An original strategy world takes shape.</p>
+        <details id="network-panel">
+          <summary>Online multiplayer</summary>
+          <p class="help">Private two-player game. Share an invitation with your friend. Your browser keeps your seat.</p>
+          <button id="resume-online">Connect / resume</button>
+          <button id="create-room">Create private game</button>
+          <label for="join-code">Invitation code</label>
+          <input id="join-code" autocomplete="off" spellcheck="false" maxlength="69" />
+          <button id="join-room">Join game</button>
+          <button id="replace-invite" hidden>Replace invitation</button>
+          <div id="invite-box" hidden>
+            <label for="share-invite">Share this private link</label>
+            <input id="share-invite" readonly />
+            <button id="copy-invite">Copy invitation</button>
+          </div>
+          <button id="forget-session">Forget this device's seat</button>
+          <p class="help">Forgetting is permanent: there is no account recovery. The abandoned seat stays reserved.</p>
+        </details>
+        <p id="connection-status" role="status" hidden></p>
         <button id="start-expedition" class="primary" disabled>Start expedition</button>
         <section id="expedition" class="expedition" aria-label="Expedition controls" hidden>
           <div class="section-label">SCOUT EXPEDITION</div>
@@ -42,7 +64,8 @@ export function createHud() {
           <p class="help">Select the gold scout, then a charted tile and Move scout here.
             N/E/S/W buttons also move the selected scout. Grassland costs 1, hills 2; water blocks movement.
             Dark tiles are uncharted, dim tiles remembered, bright tiles in sight.
-            Pale land is reachable this turn. Regenerating starts a new expedition.</p>
+            Pale land is reachable this turn. Online orders use visible tiles only; blue scouts are opponents.
+            Regenerating starts a new local expedition.</p>
         </section>
         <form id="map-form" novalidate>
           <label for="seed">World seed</label><input id="seed" maxlength="64" autocomplete="off" spellcheck="false" />
@@ -69,7 +92,7 @@ export function createHud() {
       </aside>
       <section class="atlas" aria-label="Isometric world map">
         <div class="atlas-heading"><span id="world-info">Preparing atlas…</span><span class="north">N ↖</span></div>
-        <canvas id="world" tabindex="0" aria-label="Voxel map. Drag to pan, scroll to zoom, click to select. Arrow keys pan; plus and minus zoom; R resets."></canvas>
+        <canvas id="world" tabindex="0" aria-label="Voxel map. Drag to pan, pinch or scroll to zoom, tap to select. Arrow keys pan; plus and minus zoom; R resets."></canvas>
         <div class="camera-tools" aria-label="Camera controls">
           <button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out">−</button><button id="reset">Reset view</button>
         </div>
@@ -99,17 +122,44 @@ export function createHud() {
     startExpedition: get<HTMLButtonElement>('start-expedition'), leaveExpedition: get<HTMLButtonElement>('leave-expedition'),
     selectScout: get<HTMLButtonElement>('select-scout'), moveScout: get<HTMLButtonElement>('move-scout'),
     endTurn: get<HTMLButtonElement>('end-turn'),
+    networkPanel: get<HTMLDetailsElement>('network-panel'),
+    resumeOnline: get<HTMLButtonElement>('resume-online'), createRoom: get<HTMLButtonElement>('create-room'),
+    joinRoom: get<HTMLButtonElement>('join-room'), joinCode: get<HTMLInputElement>('join-code'),
+    replaceInvite: get<HTMLButtonElement>('replace-invite'), forgetSession: get<HTMLButtonElement>('forget-session'),
+    copyInvite: get<HTMLButtonElement>('copy-invite'), shareInvite: get<HTMLInputElement>('share-invite'),
+    connection: (state: ConnectionState) => {
+      get('connection-status').hidden = false
+      if (get('connection-status').textContent !== state.message) get('connection-status').textContent = state.message
+      for (const id of ['create-room', 'join-room', 'resume-online', 'replace-invite']) get<HTMLButtonElement>(id).disabled = state.busy
+    },
+    online: (view?: PlayerView) => {
+      document.body.classList.toggle('online-game', !!view)
+      get('replace-invite').hidden = view?.status !== 'waiting' || view.factionId !== 'meridian'
+      get('leave-expedition').textContent = view ? 'Return to atlas (keep online seat)' : 'Return to atlas (discard expedition)'
+      if (view?.status !== 'waiting') { get('invite-box').hidden = true; get<HTMLInputElement>('share-invite').value = '' }
+      if (!view) return
+      get('world-info').textContent = `PRIVATE GAME / ${view.width} x ${view.height}`
+      get('map-status').textContent = `Revision ${view.revision} / ${view.status === 'waiting' ? 'Waiting for player 2' : `${view.activeFaction} turn`}`
+    },
+    invitation: (invite: string) => {
+      const url = new URL(location.pathname, location.origin)
+      url.hash = `invite=${invite}`
+      get<HTMLInputElement>('share-invite').value = url.href
+      get('invite-box').hidden = false
+      get<HTMLDetailsElement>('network-panel').open = true
+    },
     expedition: (summary?: ExpeditionSummary) => {
       document.body.classList.toggle('exploring', !!summary)
       get('expedition').hidden = !summary
       get('start-expedition').hidden = !!summary
       if (!summary) return
-      get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}`
+      get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}${summary.activeFaction ? ` / ${summary.activeFaction} to play` : ''}`
       get('scout-info').textContent = `Scout · ${summary.movement}/${summary.maxMovement} movement`
       get('exploration-info').textContent = `${summary.discovered}/${summary.total} tiles charted`
       get('select-scout').setAttribute('aria-pressed', String(summary.scoutSelected))
-      get<HTMLButtonElement>('move-scout').disabled = !summary.canOrder
-      for (const button of Object.values(directions)) button.disabled = !summary.scoutSelected
+      get<HTMLButtonElement>('move-scout').disabled = !summary.canOrder || summary.canAct === false
+      get<HTMLButtonElement>('end-turn').disabled = summary.canAct === false
+      for (const button of Object.values(directions)) button.disabled = !summary.scoutSelected || summary.canAct === false
     },
     order: (message: string, rejected = false) => {
       get('order-status').textContent = message
