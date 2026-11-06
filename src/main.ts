@@ -196,7 +196,8 @@ const offsets = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] } a
 for (const direction of Object.keys(offsets) as (keyof typeof offsets)[]) {
   hud.directions[direction].addEventListener('click', () => {
     if (onlineView) {
-      const tile = onlineView.tiles.find(tile => tile.id === onlineView.scout.tileId)!
+      const view = onlineView
+      const tile = view.tiles.find(tile => tile.id === view.scout.tileId)!
       const [dx, dz] = offsets[direction]
       const x = tile.x + dx, z = tile.z + dz
       if (x < 0 || z < 0 || x >= onlineView.width || z >= onlineView.height) { hud.order('Destination is outside the map.', true); return }

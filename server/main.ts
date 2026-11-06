@@ -10,7 +10,7 @@ const origin = process.env.PUBLIC_ORIGIN ?? `http://127.0.0.1:${port}`
 if (production && !origin.startsWith('https://')) throw new Error('Production requires an HTTPS PUBLIC_ORIGIN.')
 const database = resolve(process.env.POLARIS_DB ?? '.polaris/matches.sqlite')
 mkdirSync(dirname(database), { recursive: true, mode: 0o700 })
-const app = createApp({ database, origin, staticRoot: resolve('dist'), secureCookies: production })
+const app = createApp({ database, origin, staticRoot: resolve('dist') })
 if (process.platform !== 'win32') chmodSync(database, 0o600)
 app.server.listen(port, process.env.HOST ?? '127.0.0.1', () => {
   console.log(`Polaris listening on port ${port}; public origin ${origin}`)

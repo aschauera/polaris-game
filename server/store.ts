@@ -67,6 +67,11 @@ export class RoomStore {
     this.db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version
     if (version !== 0 && version !== 1) { this.db.close(); throw new Error('Unsupported room database schema.') }
+    const tables = this.db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()
+    if ((version === 0 && tables.length !== 0) || (version === 1 && tables.map(row => row.name).join(',') !== 'receipts,rooms,sessions')) {
+      this.db.close()
+      throw new Error('Unrecognized or incomplete room database schema.')
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS rooms (
         id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, revision INTEGER NOT NULL,

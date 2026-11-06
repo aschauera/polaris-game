@@ -1,6 +1,6 @@
 # Polaris · World Atlas & Expeditions
 
-An original voxel-isometric strategy **foundation**, not a complete 4X game. The deterministic atlas now includes an opt-in, playable scout expedition: movement, turns and terrain exploration, with chunked WebGL 2 rendering and an Art Deco HUD.
+An original voxel-isometric strategy **foundation**, not a complete 4X game. Play local scout expeditions or private, server-authoritative two-player games with alternating turns. The touch-friendly client is an installable Android/iOS **PWA**, with chunked WebGL 2 rendering and an Art Deco HUD.
 
 ![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
 
@@ -8,16 +8,18 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 
 - [Game design and planned first playable](docs/game-design.md)
 - [Architecture decisions, determinism, and performance targets](docs/architecture.md)
+- [Mobile multiplayer architecture, protocol and operating guide](docs/multiplayer-architecture.md)
+- [Editable multiplayer architecture diagram](docs/multiplayer-architecture.excalidraw)
 - [Dependency-ordered follow-up briefs](docs/roadmap.md)
 - [Initial original visual mockup](docs/visual-mockup.svg) — a direction-setting concept, not a rendered screenshot.
 
-**Implemented:** roadmap brief 6 / issue #7, deterministic commands/turns, movement, exploration, and fog. **Next planned milestone:** brief 7 / issue #8, founding, yields and production. Cities, combat, research, policies, diplomacy, and opponent AI are deliberately deferred.
+**Implemented:** roadmap brief 6 / issue #7, plus private multiplayer rooms, durable turn history, reconnect and a mobile PWA shell. **Next planned gameplay milestone:** brief 7 / issue #8, founding, yields and production. Cities, combat, research, policies, diplomacy, and opponent AI are deliberately deferred.
 
 ## Requirements and setup
 
 - **Node.js 24 LTS**, npm 11 (Node 24's bundled npm); other Node majors are not supported by this foundation.
-- Desktop-class current Chromium or Microsoft Edge with **WebGL 2** enabled. Windows is the initial target; this PR's automated evidence is Linux Chromium, not a claim of Windows hardware validation.
-- No editor, account, backend, GPU-equipped workstation, runtime CDN, or asset-authoring tool is required.
+- A current WebGL 2-capable browser: desktop Chromium/Edge, Android Chrome or iOS Safari. Automated browser-engine checks do not certify physical phones or GPU performance.
+- No account, runtime CDN or asset-authoring tool is required. Online games require the included Node server; the local atlas works without a backend and offline after the PWA shell has cached.
 
 On Windows, install Node 24, open PowerShell in this checkout, then:
 
@@ -30,10 +32,10 @@ Open the local URL printed by Vite. Run the same commands in a Linux/macOS shell
 
 ```powershell
 npm run build
-npm run preview
+npm start
 ```
 
-Deploy `dist/` to a static web host. Run through an HTTP server, not by opening `index.html` from disk. For subdirectory hosting, build with Vite's `--base` option.
+Open `http://127.0.0.1:4173`. This serves both `dist/` and the API; SQLite matches persist under `.polaris/` (not committed). For development, run `npm run server` beside `npm run dev`. `npm run preview` is static-only: online play is unavailable there. The current PWA/API deployment supports the origin root, not subdirectory hosting. Public operation requires HTTPS and a durable database volume; see the operating guide above.
 
 ## Commands and CI
 
@@ -44,33 +46,46 @@ Deploy `dist/` to a static web host. Run through an HTTP server, not by opening 
 | `npm run typecheck` | Strict TypeScript checks, including tests/configuration |
 | `npm run lint` | ESLint |
 | `npm run test:unit` | Vitest, Node-only domain tests; no DOM/Babylon |
-| `npm run test:e2e` | Playwright Chromium against a managed production build/server |
-| `npm run build` | Type-check and build static production output |
-| `npm run preview` | Serve the production output locally |
+| `npm run test:server` | Native Node tests: SQLite, HTTP, authority, retries and redaction |
+| `npm run test:e2e` | Playwright desktop/touch Chromium and mobile WebKit against a managed app/API |
+| `npm run build` | Type-check, bundle, generate icons and versioned offline shell |
+| `npm start` | Serve production app and persistent multiplayer API |
+| `npm run server` | Development API on port 3000, proxied by Vite |
+| `npm run preview` | Static-only preview; no multiplayer API |
 
 Before the first browser-test run:
 
 ```powershell
-npx playwright install chromium
+npx playwright install chromium webkit
 ```
 
-Linux CI uses `npx playwright install --with-deps chromium`. `.github/workflows/validate.yml` installs Node 24, runs `npm ci`, type-check, lint, unit tests, browser install, browser tests, and build. No manually started server is needed; stop a server already occupying port 4173 before browser tests.
+Linux CI uses `npx playwright install --with-deps chromium webkit`. `.github/workflows/validate.yml` installs Node 24 and runs type-check, lint, domain/server/browser tests and build. No manually started server is needed; stop a server already occupying port 4173 before browser tests.
 
 Headless tests explicitly use Chromium ANGLE **SwiftShader** via `--use-angle=swiftshader --enable-unsafe-swiftshader`. The latter opts into local software WebGL for testing; it is not an app requirement or a rendering bypass. Tests require actual WebGL 2, inspect nonuniform framebuffer pixels, check tile picks, and fail on **every unexpected console error or page error**. GPU performance warnings are not suppressed. Hardware-sensitive FPS is not a CI gate.
 
-Browser runs upload a `browser-evidence` artifact (14-day retention), including a fresh expedition screenshot and any failure traces. These are captures of the implemented app, not concept art.
+Browser runs upload `browser-evidence` (14 days), including screenshots and failure traces; successful runs also upload the built `mobile-app` (7 days). These are actual app captures, not concept art.
+
+## Play together on phones or desktop
+
+1. Use the same HTTPS server URL on both devices. Open **Online multiplayer > Create private game** on the first.
+2. Share its private invitation link. On the second device, open the link and choose **Join game**. Each browser gets one seat; two tabs in the same browser share that seat.
+3. Meridian starts. Move the gold scout using visible reachable tiles, then **End turn**. Lantern takes the next turn. Blue markers represent visible opponents; hidden terrain, seed and enemy positions never reach the other client.
+4. Reload or **Connect / resume** to restore the same device's seat. **Return to atlas** keeps it. **Forget this device's seat** permanently removes access; there is no account recovery.
+5. Install via Android Chrome's install menu or iOS Safari's **Share > Add to Home Screen**. Tap selects, drag pans, pinch or buttons zoom. The cached local atlas works offline; online orders do not. An already-sent order with a lost reply is retried using its original ID, never queued as a new offline action.
+
+Rooms have two scouts and no turn deadline, combat or victory yet. They expire after seven inactive days; sessions last 30 days. This is a PWA, **not an App Store/Play Store binary**. Public hosting, signing, native packaging and physical-device release testing remain separate work.
 
 ## Play a scout expedition
 
 1. Generate a world, then choose **Start expedition**. The ordinary atlas stays the default.
 2. Select the gold scout on the map or use **Select scout** (also centers the camera).
 3. Select a charted destination, inspect its route cost, then choose **Move scout here**. The **N/E/S/W** buttons offer keyboard-accessible single-step orders.
-4. The scout has **4 movement points** per turn. Entering grassland costs **1**, hills **2**; water is impassable. There are no diagonal moves, embarkation, combat or opponents yet.
+4. The scout has **4 movement points** per turn. Entering grassland costs **1**, hills **2**; water is impassable. There are no diagonal moves, embarkation or combat. The local mode has no opponents.
 5. **End turn** restores movement. Invalid orders show a reason and spend neither movement nor RNG state.
 
 Sight reaches two cardinal steps. Uncharted tiles have identical opaque flat surfaces, with terrain/trees hidden and no inspector/pick information. Dim tiles are remembered terrain; bright tiles are currently visible. Pale land is reachable using the current movement budget. Only charted, unoccupied terrain can be used for a route; no hidden-terrain pathfinding. A multi-step move remembers the sight area along its entire route and keeps only the final sight area visible. Static terrain is unchanged between turns.
 
-Regenerating during an expedition starts a fresh expedition on the new world. Invalid configuration preserves the current expedition. **Return to atlas (discard expedition)** removes fog and returns to free inspection; it does not save progress. The browser UI currently runs one Meridian scout without AI, faction bonuses, cities or victory conditions. The domain supports separate faction fog and deterministic turn rotation for subsequent milestones.
+Regenerating during a local expedition starts a fresh expedition on the new world. Invalid configuration preserves it. **Return to atlas (discard expedition)** removes fog and does not save local progress. Local mode runs one Meridian scout; online mode uses separate faction fog and deterministic turn rotation for two players. Neither mode has AI, faction bonuses, cities or victory conditions.
 
 ### Visual overview
 

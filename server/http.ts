@@ -4,7 +4,7 @@ import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { RoomStore, RequestError, SESSION_TTL } from './store.ts'
 import { isOrder, keys, record } from '../src/network/protocol.ts'
 
-interface ServerOptions { database: string; origin: string; staticRoot?: string; secureCookies?: boolean }
+interface ServerOptions { database: string; origin: string; staticRoot?: string }
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
@@ -36,8 +36,19 @@ async function body(request: IncomingMessage): Promise<unknown> {
 }
 
 export function createApp(options: ServerOptions) {
-  const origin = new URL(options.origin).origin
+  const parsedOrigin = new URL(options.origin)
+  const origin = parsedOrigin.origin
   if (origin !== options.origin) throw new Error('PUBLIC_ORIGIN must be an origin without path or trailing slash.')
+  const secureCookies = parsedOrigin.protocol === 'https:'
+  if (!secureCookies && (parsedOrigin.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(parsedOrigin.hostname))) {
+    throw new Error('PUBLIC_ORIGIN requires HTTPS outside loopback development.')
+  }
+  if (options.staticRoot && options.database !== ':memory:') {
+    const databasePath = relative(resolve(options.staticRoot), resolve(options.database))
+    if (databasePath !== '..' && !databasePath.startsWith(`..${sep}`) && !isAbsolute(databasePath)) {
+      throw new Error('The database must be outside the static root.')
+    }
+  }
   const store = new RoomStore(options.database)
   const rates = new Map<string, { count: number; until: number }>()
   const cleanup = setInterval(() => {
@@ -50,7 +61,7 @@ export function createApp(options: ServerOptions) {
     response.setHeader('X-Content-Type-Options', 'nosniff')
     response.setHeader('Referrer-Policy', 'no-referrer')
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-    if (options.secureCookies) response.setHeader('Strict-Transport-Security', 'max-age=31536000')
+    if (secureCookies) response.setHeader('Strict-Transport-Security', 'max-age=31536000')
     void handle(request, response).catch((error: unknown) => {
       if (response.writableEnded || response.destroyed) return
       if (error instanceof RequestError) json(response, error.status, { error: error.message })
@@ -79,7 +90,7 @@ export function createApp(options: ServerOptions) {
     if (request.headers.origin !== origin) throw new RequestError(403, 'Cross-origin orders are not allowed.')
     if (request.method === 'DELETE' && path === '/api/session') {
       store.forget(credential)
-      response.setHeader('Set-Cookie', `polaris_session=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0${options.secureCookies ? '; Secure' : ''}`)
+      response.setHeader('Set-Cookie', `polaris_session=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0${secureCookies ? '; Secure' : ''}`)
       json(response, 200, { view: null }); return
     }
     if (request.method !== 'POST') throw new RequestError(405, 'Method not allowed.')
@@ -89,7 +100,7 @@ export function createApp(options: ServerOptions) {
       if (path === '/api/session') {
         const session = store.connect(credential)
         if (session.fresh) response.setHeader('Set-Cookie',
-          `polaris_session=${session.token}; Path=/api; HttpOnly; SameSite=Strict; Max-Age=${SESSION_TTL / 1000}${options.secureCookies ? '; Secure' : ''}`)
+          `polaris_session=${session.token}; Path=/api; HttpOnly; SameSite=Strict; Max-Age=${SESSION_TTL / 1000}${secureCookies ? '; Secure' : ''}`)
         json(response, 200, store.view(session.token)); return
       }
       json(response, 200, path === '/api/rooms' ? store.create(credential) : store.invite(credential)); return

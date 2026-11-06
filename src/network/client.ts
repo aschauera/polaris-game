@@ -76,7 +76,7 @@ export class OnlineClient {
       this.clearPending()
       this.accept(reply)
     } catch (error) {
-      if (error instanceof HttpError && error.status < 500) {
+      if (error instanceof HttpError && [400, 403, 409, 422].includes(error.status)) {
         this.clearPending()
         this.accept(await this.request('session'))
       }

@@ -147,7 +147,7 @@ test('HTTP enforces origins, JSON, bounds, cookies, redaction and static boundar
   writeFileSync(join(root, 'index.html'), '<!doctype html><title>Polaris</title>')
   writeFileSync(join(dir, 'private.html'), 'private')
   const origin = 'https://polaris.example'
-  const app = createApp({ database: join(dir, 'rooms.sqlite'), origin, secureCookies: true, staticRoot: root })
+  const app = createApp({ database: join(dir, 'rooms.sqlite'), origin, staticRoot: root })
   app.server.listen(0, '127.0.0.1')
   await once(app.server, 'listening')
   t.after(async () => { await app.close(); rmSync(dir, { recursive: true, force: true }) })
@@ -184,7 +184,7 @@ test('HTTP enforces origins, JSON, bounds, cookies, redaction and static boundar
 })
 
 test('concurrent HTTP orders on one revision accept at most one', async t => {
-  const origin = 'http://polaris.example', app = createApp({ database: ':memory:', origin })
+  const origin = 'http://127.0.0.1', app = createApp({ database: ':memory:', origin })
   const { host } = players(app.store)
   app.server.listen(0, '127.0.0.1')
   await once(app.server, 'listening')
