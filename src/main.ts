@@ -68,7 +68,7 @@ function updateExpeditionHud(): void {
     hud.expedition({ faction: FACTIONS[view.factionId], activeFaction: FACTIONS[view.activeFaction],
       round: view.round, movement: view.scout.movement, maxMovement: SCOUT.movement,
       discovered: view.tiles.length, total: view.width * view.height, scoutSelected,
-      canOrder: scoutSelected && view.moves.some(move => move.tileId === selectedTile?.id),
+      canOrder: scoutSelected && selectedTile?.id !== view.scout.tileId && view.moves.some(move => move.tileId === selectedTile?.id),
       canAct: view.status === 'active' && view.activeFaction === view.factionId && connection.connected && !connection.busy })
     return
   }

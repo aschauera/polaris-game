@@ -20,7 +20,7 @@ No native Android/iOS binaries, store publication, paid hosting or public deploy
 
 ### Why HTTP polling rather than peer-to-peer or lockstep
 
-Players can suspend their phone or close the app between turns. Foreground clients poll for a revisioned snapshot; commands receive the authoritative result immediately. Resume always fetches current state. No continuously connected socket, deterministic browser lockstep, host phone or client clock is required. Polling is sufficient for a small turn-based room; SSE/WebSockets can later replace notification transport without changing authority or commands.
+Players can suspend their phone or close the app between turns. Foreground clients poll every 1.5 seconds for a revisioned snapshot; commands receive the authoritative result immediately. Failed connections retry after five seconds, and foreground/online transitions refresh immediately. Resume always fetches current state. No continuously connected socket, deterministic browser lockstep, host phone or client clock is required. Polling is sufficient for a small turn-based room; SSE/WebSockets can later replace notification transport without changing authority or commands.
 
 ## Protocol v1 and turn resolution
 
@@ -46,9 +46,9 @@ A command whose reply is lost stays in `sessionStorage` with its original reques
 
 ## Limits and safety
 
-- Same-origin JSON API; mutating requests require an exact allowed Origin and JSON content type. No permissive CORS.
+- Same-origin JSON API; all mutating requests require an exact allowed Origin, and POST bodies require JSON content type. No permissive CORS.
 - Strict request schemas and a 4 KiB body limit. Session/room/invite values are never interpolated into SQL.
-- Bounded request-rate tracking and room/session/command quotas limit this reference server's resource usage. Invitations are not logged and are shared in URL fragments, removed from browser history after reading.
+- A 240-request/minute per-address limit, bounded rate tracking and room/session/command quotas limit this reference server's resource usage. The limiter uses the socket address, not forwarded headers; behind a proxy its allowance is shared unless the topology changes. Invitations are not logged and are shared in URL fragments, removed from browser history after reading.
 - Rooms expire after seven inactive days; sessions after 30 days. Cleanup runs on startup and periodically. At most 128 rooms, 2,048 sessions and 5,000 accepted commands per room are supported by this preview.
 - API responses are `no-store`; the service worker excludes all API requests. The browser never persists a full authoritative world.
 - Cookies/capabilities are not a substitute for production account recovery, abuse controls, backups or operational monitoring. HTTPS and a durable database volume are mandatory outside loopback development.

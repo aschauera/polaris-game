@@ -74,6 +74,7 @@ test('phone players can join, hand off a turn and resume their seat', async ({ b
     await expect(page.locator('#end-turn')).toBeEnabled()
     await expect(guest.locator('#end-turn')).toBeDisabled()
     await page.locator('#select-scout').tap()
+    await expect(page.locator('#move-scout')).toBeDisabled()
     await page.screenshot({ path: info.outputPath('mobile-online.png') })
     await page.locator('#end-turn').tap()
     await expect(guest.locator('#end-turn')).toBeEnabled()
