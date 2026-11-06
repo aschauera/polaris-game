@@ -114,6 +114,7 @@ export class RoomStore {
     if (!row) throw new RequestError(410, 'This room expired. Forget this session to start again.')
     if (typeof row.id !== 'string' || typeof row.snapshot !== 'string' || typeof row.revision !== 'number' ||
       (row.status !== 'waiting' && row.status !== 'active') ||
+      (row.inviteHash !== null && typeof row.inviteHash !== 'string') ||
       (row.status === 'waiting' ? typeof row.inviteHash !== 'string' || !/^[0-9a-f]{64}$/.test(row.inviteHash)
         : row.inviteHash !== null)) throw new Error('Corrupt room record.')
     return { id: row.id, snapshot: row.snapshot, revision: row.revision, status: row.status, inviteHash: row.inviteHash }
