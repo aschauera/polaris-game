@@ -344,5 +344,26 @@ foreach ($scriptName in @('setup-container-app.ps1', 'setup-github-deployment.ps
         Write-Host "PASS: $scriptName / $scenario"
     }
 }
-Write-Host "Passed $count Azure setup scenarios."
+$workflowDirectory = Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) '.github') 'workflows'
+$deploymentWorkflows = @(Get-ChildItem $workflowDirectory -Filter '*-AutoDeployTrigger-*.yml')
+Assert-True ($deploymentWorkflows.Count -eq 1) 'Expected one Azure-generated deployment workflow.'
+$deploymentWorkflow = Get-Content $deploymentWorkflows[0].FullName -Raw
+$validationWorkflow = Get-Content (Join-Path $workflowDirectory 'validate.yml') -Raw
+$events = [regex]::Match($deploymentWorkflow, '(?ms)^on:\r?\n(.*?)(?=^\S)')
+Assert-True ($events.Success) 'Deployment workflow has no event configuration.'
+$eventNames = @([regex]::Matches($events.Groups[1].Value, '(?m)^  ([a-z_]+):') |
+    ForEach-Object { $_.Groups[1].Value })
+Assert-True ($eventNames.Count -eq 1 -and $eventNames[0] -eq 'release') 'Deployment must only trigger on releases, not pushes or manual dispatches.'
+Assert-True ($events.Groups[1].Value -match '(?m)^    types: \[published\]\s*$') 'Deployment must trigger only when a release is published.'
+Assert-True ($deploymentWorkflow -match '(?m)^    uses: \./\.github/workflows/validate\.yml\s*$') 'Release deployment must reuse the full validation suite.'
+Assert-True ($deploymentWorkflow -match '(?m)^    needs: validate\s*$') 'Release deployment must wait for successful validation.'
+Assert-True ($deploymentWorkflow -match '(?m)^          ref: \$\{\{ github\.event\.release\.tag_name \}\}\s*$') 'Deployment must build the released tag.'
+Assert-True ($validationWorkflow -match '(?m)^  workflow_call:\s*$') 'Validation must be callable by release CI.'
+Assert-True ($validationWorkflow -match '(?m)^          ref: \$\{\{ github\.event\.release\.tag_name \|\| github\.ref \}\}\s*$') 'Release validation must check the same released tag.'
+Assert-True ($deploymentWorkflow -match '(?m)^          imageToBuild: .*/polaris:release-\$\{\{ github\.event\.release\.id \}\}\s*$') 'Deployment images must be identified by release.'
+Assert-True ($deploymentWorkflow -notmatch '(?m)^\s+(if|continue-on-error):') 'Deployment must not bypass failed release validation.'
+Assert-True ($deploymentWorkflow -match '(?m)^  group: polaris-production\s*$' -and
+    $deploymentWorkflow -match '(?m)^  cancel-in-progress: false\s*$') 'Production release deployments must be serialized.'
+Write-Host 'PASS: release-only workflow, tagged validation, image and deployment gate'
+Write-Host "Passed $count Azure setup scenarios and release workflow checks."
 Remove-Variable PolarisAzureTestState -Scope Global

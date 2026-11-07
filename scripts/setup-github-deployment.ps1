@@ -10,6 +10,9 @@ registry selections invoke resource setup before configuring GitHub deployment.
 Requires rights to manage Entra applications, Azure role assignments and the
 GitHub repository's workflows/secrets. Reconfiguration appends an expiring
 credential to the dedicated deployment principal without invalidating old ones.
+Bootstrap only: Azure generates a push-triggered workflow and starts a build.
+Do not rerun against a release-managed app; rotate its repository secrets
+without regenerating the release-only workflow.
 .EXAMPLE
 .\scripts\setup-github-deployment.ps1 -SubscriptionId '<subscription-id>' -RegistryName 'polarisuniqueregistry' -WhatIf
 #>

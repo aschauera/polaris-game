@@ -1,25 +1,30 @@
-name: Trigger auto deployment for polaris
+name: Deploy Polaris release
 
-# When this action will be executed
 on:
-  # Automatically trigger it when detected changes in repo
-  push:
-    branches:
-      [ feat/azure-container-app-setup ]
-    paths:
-    - '**'
-    - '.github/workflows/polaris-AutoDeployTrigger-c3b2f5fd-10fe-45cb-83ab-78817662aa64.yml'
+  release:
+    types: [published]
 
-  # Allow manual trigger
-  workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: polaris-production
+  cancel-in-progress: false
 
 jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
   build-and-deploy:
+    needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout to the branch
-        uses: actions/checkout@v2
+      - name: Checkout the released version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Azure Login
         uses: azure/login@v2
@@ -37,8 +42,4 @@ jobs:
           registryPassword: ${{ secrets.POLARIS_REGISTRY_PASSWORD }}
           containerAppName: polaris
           resourceGroup: polaris-rg
-          imageToBuild: polarisgameanaschau.azurecr.io/polaris:${{ github.sha }}
-
-
-
-
+          imageToBuild: polarisgameanaschau.azurecr.io/polaris:release-${{ github.event.release.id }}

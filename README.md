@@ -47,7 +47,8 @@ credentials.
 
 Azure deployment is **setup-only locally**. The scripts provision the app and
 configure Azure Container Apps' built-in GitHub continuous deployment. Subsequent
-builds and deployments run automatically on GitHub, not on your workstation.
+builds and deployments run on GitHub **only when a GitHub release is published**,
+not on your workstation or on ordinary branch/tag pushes.
 Local Docker and local npm installation are not required for Azure setup.
 The Dockerfile and nginx configuration are **GitHub CI build/runtime inputs**,
 not a separate local Docker deployment path. Neither setup script runs Docker,
@@ -55,9 +56,10 @@ builds in ACR, or deploys a locally built game image.
 
 **Important:** Container Apps' built-in GitHub integration uses GitHub Actions.
 Azure CLI automatically creates a workflow in the selected GitHub repository and
-configures its secrets. No deployment workflow is hand-authored in this checkout,
-but the integration cannot operate without its generated workflow. The separate
-foundation validation workflow also runs offline Azure setup regression tests.
+configures its secrets. Its generated deployment workflow is maintained in this
+checkout with a release-only trigger. The separate foundation validation workflow
+runs on pushes and pull requests and is reused as the release deployment gate,
+including the offline Azure setup regression tests.
 
 **Prerequisites:** PowerShell 7+, a recent Azure CLI with
 `az containerapp github-action` commands, `az login`, permission to create Azure
@@ -105,8 +107,12 @@ incur Azure charges.
    Follow the interactive GitHub authentication prompt. Azure creates the
    workflow and repository secrets, and the script configures HTTPS ingress for
    nginx port 8080. The generated workflow builds the root Dockerfile and
-   publishes the image to ACR. Check the printed GitHub Actions URL for the
-   first deployment; future pushes to the selected branch redeploy automatically.
+   publishes the image to ACR. This is a **bootstrap operation**: Azure generates
+   a push-triggered workflow and can start an initial deployment. Apply the
+   release-only workflow configuration described below before using the app for
+   release deployments. Do not rerun bootstrap setup against a release-managed
+   app: it can overwrite the release trigger and start a push deployment.
+   Check the printed GitHub Actions URL for the bootstrap deployment.
    The app can be unavailable between changing the placeholder's port and the
    first successful game deployment.
 
@@ -147,9 +153,12 @@ dedicated group, and push permissions on the registry, rather than subscription-
 access. Its generated secret is passed directly to Azure's GitHub integration,
 not written to local files or printed. ACR admin credentials remain disabled.
 Reconfiguring appends a credential to the selected principal to avoid breaking
-in-flight deployments. These credentials expire (normally after one year);
-rerun GitHub setup before expiration and remove obsolete credentials in Entra.
-Protect the deploying branch: anyone able to modify its build/workflow can use
+in-flight deployments. These credentials expire (normally after one year).
+For a release-managed app, rotate the principal credential in Entra and update
+the Azure/registry credentials in GitHub repository secrets without regenerating
+the workflow; remove obsolete credentials after verifying the new ones.
+Protect release creation and the default branch: anyone able to publish releases
+or modify their build/workflow can use
 its deployment privileges. Never run setup with Azure CLI debug logging or a
 shell transcript that could capture credential arguments.
 
@@ -165,6 +174,42 @@ Errors stop setup without deleting resources. Allow new Azure role assignments
 to propagate before retrying a failed first workflow run. Inspect build failures
 in GitHub Actions and runtime failures with
 `az containerapp logs show --name polaris --resource-group polaris-rg`.
+
+### Publishing a game release
+
+The [Azure-generated deployment workflow](./.github/workflows/polaris-AutoDeployTrigger-c3b2f5fd-10fe-45cb-83ab-78817662aa64.yml)
+has one trigger: `release` with activity type `published`. Publishing a release
+(including a prerelease, or publishing a previously saved draft) validates the
+release tag with the full CI suite, then builds that exact tagged source and
+deploys it to the Container App. Failed validation prevents Azure login and
+deployment. Images use `polaris:release-<GitHub release ID>` so releases have
+distinct image names. Deployment runs are serialized for the single production
+app without cancelling an in-progress deployment.
+
+Branch pushes and pull requests still run validation. Creating or pushing a tag,
+editing a release, saving a draft, or a manual workflow dispatch does **not**
+deploy. Publishing a release is an explicit production deployment, including
+prereleases; do not publish one just to test the trigger.
+
+**Activation prerequisite:** merge the release workflow and reusable validation
+workflow into the repository's default branch (`main`) before publishing. GitHub
+only delivers release events to workflows present on the default branch.
+Release tags must also contain these workflow changes. No first release is
+created automatically, and the running game stays unchanged until publication.
+
+After merging and checking CI, choose a new version and the exact commit:
+
+```powershell
+git tag v0.1.0 '<validated-commit-sha>'
+git push origin v0.1.0
+gh release create v0.1.0 --repo aschauera/polaris-game `
+  --verify-tag --title 'Polaris v0.1.0' --generate-notes
+```
+
+Use GitHub's **Releases -> Draft a new release -> Publish release** instead if
+preferred. The tag push alone does not deploy. Check the **Deploy Polaris release**
+Actions run and the game's HTTPS `/healthz` endpoint after publishing. Correct a
+failed run and rerun that release run; there is no manual deployment trigger.
 
 Run the scripts' offline tests (mocked Azure, no cloud/GitHub changes):
 
