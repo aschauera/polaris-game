@@ -35,6 +35,125 @@ npm run preview
 
 Deploy `dist/` to a static web host. Run through an HTTP server, not by opening `index.html` from disk. For subdirectory hosting, build with Vite's `--base` option.
 
+### Docker and Azure Container Apps
+
+The [Dockerfile](./Dockerfile) builds with Node 24 and the locked dependencies,
+then serves the production game using non-root nginx on port **8080**.
+`/healthz` returns `ok`; missing assets return 404. Only build inputs are uploaded
+to the container build, excluding Git history, local environment files and npm
+credentials.
+
+To build and run locally with Docker:
+
+```powershell
+docker build --tag polaris:local .
+docker run --rm --publish 8080:8080 polaris:local
+```
+
+Open `http://localhost:8080`.
+
+Azure deployment is **setup-only locally**. The scripts provision the app and
+configure Azure Container Apps' built-in GitHub continuous deployment. Subsequent
+builds and deployments run automatically on GitHub, not on your workstation.
+Local Docker and local npm installation are not required for Azure setup.
+
+**Important:** Container Apps' built-in GitHub integration uses GitHub Actions.
+Azure CLI automatically creates a workflow in the selected GitHub repository and
+configures its secrets. No deployment workflow is hand-authored in this checkout,
+but the integration cannot operate without its generated workflow. The existing
+foundation validation workflow is unchanged.
+
+**Prerequisites:** PowerShell 7+, a recent Azure CLI with
+`az containerapp github-action` commands, `az login`, permission to create Azure
+resources/register providers/assign roles, permission to manage Entra
+applications, and GitHub access to write workflows and repository secrets.
+Repository branch protection or organization policies can prevent the
+integration from creating its workflow. The registry name must be globally
+unique, 5-50 lowercase letters/digits. Use a dedicated resource group; resources
+incur Azure charges.
+
+1. Commit and push the Dockerfile, nginx configuration, Docker ignore file and
+   application sources to the GitHub branch you want to deploy.
+2. Run [resource setup](./scripts/setup-container-app.ps1):
+
+   ```powershell
+   az login
+   .\scripts\setup-container-app.ps1 `
+     -SubscriptionId '<subscription-id>' `
+     -RegistryName '<globally-unique-registry-name>' `
+     -ResourceGroup 'polaris-rg' `
+     -Location 'westeurope'
+   ```
+
+   This creates or reuses ACR, a Log Analytics-backed `<AppName>-env` environment,
+   a pull identity and a public HTTPS app (default `polaris`). A new app initially
+   runs Microsoft's **placeholder**, not the game. Rerunning resource setup
+   preserves an existing app's image and ingress port.
+
+3. Run [GitHub deployment setup](./scripts/setup-github-deployment.ps1):
+
+   ```powershell
+   .\scripts\setup-github-deployment.ps1 `
+     -SubscriptionId '<subscription-id>' `
+     -RegistryName '<globally-unique-registry-name>' `
+     -ResourceGroup 'polaris-rg' `
+     -RepositoryUrl 'https://github.com/aschauera/polaris-game' `
+     -Branch 'main'
+   ```
+
+   Follow the interactive GitHub authentication prompt. Azure creates the
+   workflow and repository secrets, and the script configures HTTPS ingress for
+   nginx port 8080. The generated workflow builds the root Dockerfile and
+   publishes the image to ACR. Check the printed GitHub Actions URL for the
+   first deployment; future pushes to the selected branch redeploy automatically.
+   The app can be unavailable between changing the placeholder's port and the
+   first successful game deployment.
+
+Both scripts support `-WhatIf` without commands, network requests, credentials
+or resource changes, and explicitly target the supplied subscription without
+changing your Azure CLI default. The app uses 0.25 CPU / 0.5 GiB, single-revision
+mode and 0-1 replicas, so the first request after scaling to zero can be slower.
+
+The deployment principal has Contributor on the app, Reader on the dedicated
+group, and push permissions on the registry, rather than subscription-wide
+access. Its generated secret is passed directly to Azure's GitHub integration,
+not written to local files or printed. ACR admin credentials remain disabled.
+Reconfiguring appends a credential to the dedicated principal to avoid breaking
+in-flight deployments. These credentials expire (normally after one year);
+rerun GitHub setup before expiration and remove obsolete credentials in Entra.
+Protect the deploying branch: anyone able to modify its build/workflow can use
+its deployment privileges. Never run setup with Azure CLI debug logging or a
+shell transcript that could capture credential arguments.
+
+**Company package feed:** the Dockerfile defaults to
+`https://packagefeedproxy.microsoft.io/npm/`; there is no public-feed fallback.
+The GitHub runner must reach that endpoint and the feed must contain every locked
+dependency. The feed reported `vite@8.3.6`, `@babylonjs/core@9.34.0`, and
+`vitest@5.1.0` as unavailable during local setup. Azure setup can succeed without
+them, but the generated workflow cannot build until those versions are
+available. If the feed is internal-only or needs authentication, configure an
+appropriate GitHub runner and secure feed authentication separately; do not
+embed tokens in source files, Docker build arguments or URLs.
+
+Errors stop setup without deleting resources. Allow new Azure role assignments
+to propagate before retrying a failed first workflow run. Inspect build failures
+in GitHub Actions and runtime failures with
+`az containerapp logs show --name polaris --resource-group polaris-rg`.
+
+Run the scripts' offline tests (mocked Azure, no cloud/GitHub changes):
+
+```powershell
+pwsh -File .\scripts\azure-setup.tests.ps1
+```
+
+To clean up, disable/remove the generated GitHub workflow, delete the dedicated
+deployment principal in Entra, and then remove **all** resources in the dedicated
+group:
+
+```powershell
+az group delete --name polaris-rg --subscription '<subscription-id>'
+```
+
 ## Commands and CI
 
 | Command | Purpose |
