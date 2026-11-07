@@ -55,7 +55,11 @@ if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
 
 if ($NonInteractive -and -not $RegistryName) { throw 'Supply -RegistryName for -NonInteractive.' }
 $SubscriptionId = Select-AzureSubscription -Id $SubscriptionId -NonInteractive:$NonInteractive
-$null = Invoke-Azure -Arguments @('account', 'show')
+$account = Invoke-Azure -Arguments @('account', 'show')
+$activeAccount = Invoke-Azure -Arguments @('account', 'show') -UseDefaultAccount
+if ($account.tenantId -ne $activeAccount.tenantId) {
+    throw 'Azure CLI must be logged into the selected subscription tenant before configuring Entra deployment principals. The default subscription was not changed.'
+}
 $group = Resolve-AzureResourceGroup -Name $ResourceGroup -NonInteractive:$NonInteractive
 $ResourceGroup = $group.name
 $registrySelection = Select-AzureResource -ResourceType 'container registry' -Name $RegistryName `

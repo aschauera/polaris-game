@@ -66,7 +66,12 @@ function az {
     }
     switch ($key) {
         'account list --only-show-errors' { '[{"id":"test-subscription","name":"Test subscription","state":"Enabled"}]'; return }
-        'account show --subscription' { '{"id":"test-subscription"}'; return }
+        'account show --subscription' { '{"id":"test-subscription","tenantId":"test-tenant"}'; return }
+        'account show --only-show-errors' {
+            if ($state.Scenario -eq 'wrong-tenant') { '{"id":"other-subscription","tenantId":"other-tenant"}' }
+            else { '{"id":"test-subscription","tenantId":"test-tenant"}' }
+            return
+        }
         'group list --subscription' {
             if ($hasExistingResources) { '[{"id":"/group","name":"polaris-rg","location":"westeurope"}]' } else { '[]' }
             return
@@ -171,7 +176,7 @@ foreach ($scriptName in @('setup-container-app.ps1', 'setup-github-deployment.ps
     } else {
         @('what-if', 'new', 'existing', 'abac', 'principal-prefix', 'ambiguous-principal', 'failure', 'empty-json',
             'wrong-repository', 'new-resources', 'interactive-existing', 'interactive-new', 'interactive-new-with-existing',
-            'missing-noninteractive', 'missing-registry', 'named-principal', 'github-cli')
+            'missing-noninteractive', 'missing-registry', 'named-principal', 'github-cli', 'wrong-tenant')
     }
     foreach ($scenario in $scenarios) {
         $script:scenario = $scenario
@@ -226,16 +231,21 @@ foreach ($scriptName in @('setup-container-app.ps1', 'setup-github-deployment.ps
         }
         if ($scenario -eq 'what-if') {
             Assert-True ($script:commands.Count -eq 0 -and $null -eq $failure) 'WhatIf invoked Azure or failed.'
-        } elseif ($scenario -in @('ambiguous-principal', 'failure', 'empty-json', 'wrong-repository', 'wrong-environment', 'missing-noninteractive', 'missing-registry')) {
+        } elseif ($scenario -in @('ambiguous-principal', 'failure', 'empty-json', 'wrong-repository', 'wrong-environment', 'missing-noninteractive', 'missing-registry', 'wrong-tenant')) {
             Assert-True ($null -ne $failure -and $null -eq $result) "$scenario did not fail explicitly."
             Assert-True ($failure.Exception.Message -notmatch 'TEST-SECRET') 'Failure exposed a generated secret.'
             if ($scenario -in @('missing-noninteractive', 'missing-registry')) {
                 Assert-True ($script:commands.Count -eq 0 -and $script:prompts.Count -eq 0) 'Missing automation parameters triggered Azure commands or prompts.'
             }
+            if ($scenario -eq 'wrong-tenant') {
+                Assert-True (@($script:commands | Where-Object { $_[0] -ne 'account' }).Count -eq 0) 'Tenant mismatch changed Azure resources or Entra principals.'
+            }
         } else {
             if ($failure) { throw $failure }
             foreach ($command in $script:commands) {
-                if ($command[0] -ne 'account' -or $command[1] -ne 'list') {
+                if ($command[0] -eq 'ad') {
+                    Assert-True (-not ($command -contains '--subscription')) 'Tenant-scoped Entra command used an unsupported subscription argument.'
+                } elseif (-not ($command[0] -eq 'account' -and ($command[1] -eq 'list' -or $command[2] -eq '--only-show-errors'))) {
                     Assert-True ((Get-Argument $command '--subscription') -eq 'test-subscription') 'Command targeted the wrong subscription.'
                 }
                 Assert-True (-not ($command[0] -eq 'acr' -and $command[1] -eq 'build')) 'Setup built an image locally or in ACR.'

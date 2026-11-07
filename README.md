@@ -136,7 +136,9 @@ It requires subscription and registry names and uses documented Polaris defaults
 for other omitted names. Both scripts support `-WhatIf` without commands, prompts,
 network requests, credentials
 or resource changes, and explicitly target the supplied subscription without
-changing your Azure CLI default. The app uses 0.25 CPU / 0.5 GiB, single-revision
+changing your Azure CLI default. Entra operations are tenant-scoped; GitHub setup
+checks that your active Azure CLI account belongs to the selected subscription's
+tenant before managing principals. The app uses 0.25 CPU / 0.5 GiB, single-revision
 mode and 0-1 replicas, so the first request after scaling to zero can be slower.
 
 The deployment principal has Contributor on the app, Reader on the dedicated

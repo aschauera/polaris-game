@@ -93,10 +93,16 @@ function Invoke-Azure {
         [string[]] $Arguments,
 
         [ValidateSet('json', 'none')]
-        [string] $OutputMode = 'json'
+        [string] $OutputMode = 'json',
+
+        [switch] $UseDefaultAccount
     )
 
-    $result = & az @Arguments --subscription $SubscriptionId --only-show-errors --output $OutputMode
+    $subscriptionArguments = @()
+    if (-not $UseDefaultAccount -and $Arguments[0] -ne 'ad') {
+        $subscriptionArguments = @('--subscription', $SubscriptionId)
+    }
+    $result = & az @Arguments @subscriptionArguments --only-show-errors --output $OutputMode
     if ($LASTEXITCODE -ne 0) {
         # Only show the command name: arguments may contain generated credentials.
         throw "Azure CLI failed (exit $LASTEXITCODE): az $($Arguments[0..1] -join ' '). Setup stopped."
