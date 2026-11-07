@@ -4,7 +4,7 @@
 
 An original, browser-first, turn-based 4X game about rival societies rebuilding a fractured world. Explore readable voxel landscapes, grow cities, and choose between cooperation and conquest. Art Deco geometry gives the world civic grandeur without copying an existing game's art, names, factions, or rules.
 
-**This PR delivers only the map prototype:** seeded terrain, an interactive camera, tile inspection, and a visual foundation. No units, turns, cities, ownership simulation, fog rules, or victory logic are implemented here. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
+**Implemented scope:** seeded terrain, an interactive camera, tile inspection, and an opt-in scout expedition with movement, turns and basic faction fog (roadmap brief 6). Cities, ownership simulation, combat and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
 
 ## Map contract
 
@@ -14,7 +14,7 @@ An original, browser-first, turn-based 4X game about rival societies rebuilding 
 - Seeds are strings of **1–64 ASCII letters, digits, underscores, or hyphens**; preserve case and reject invalid input rather than silently rewriting it.
 - Default showcase: **32 × 32**. Stress fixture: **256 × 256**.
 - A seed, dimensions, generator version, and rules/content versions identify a reproducible map.
-- Implemented generator version 1 hashes the ASCII seed with FNV-1a and uses Mulberry32. Planned movement traversal order is north, east, south, west.
+- Implemented generator version 2 hashes the ASCII seed with FNV-1a and uses Mulberry32. Movement traversal order is north, east, south, west.
 - Target terrain vocabulary: plains, forest, hills, mountains, and water. The current renderer uses three terrain material types and two marker materials on shared boxes; the richer silhouettes below are art direction, not a claim of implemented assets. Prototype resource markers are decorative or inspectable data only, not an economy.
 
 ## Planned core loop
@@ -41,6 +41,14 @@ The full loop is **explore → develop → negotiate or fight → progress → w
 
 Costs, ranges, yields, and thresholds belong in versioned definitions, not UI code. Each new rule needs an observable explanation and domain tests before added complexity.
 
+### Implemented exploration slice (rules version 1)
+
+The atlas is unchanged by default; **Start expedition** starts one Meridian scout on the largest connected landmass, nearest the map center (ties use canonical tile ID). The scout has 4 movement points and Manhattan sight radius 2, with no terrain occlusion at this stage. Grassland costs 1 and hills 2 to enter; water is blocked. Trees are decorative and add no movement cost.
+
+A* finds a destination route, bounded by remaining movement; Dijkstra produces the reachable range. Both use charted, unoccupied terrain only, N/E/S/W neighbor insertion and FIFO ties at equal priority. Movement resolves immediately, reveals sight along the route, and leaves only current scout sight visible. End-turn activates the next faction in declared order and refreshes only its movement; the round increments on wrapping to the first faction. With one faction, each end-turn increments the round. Static terrain needs no end-turn fog recomputation.
+
+Commands carry faction and monotonically increasing sequence IDs. Invalid orders leave state, history and RNG unchanged. No command currently consumes randomness. Accepted commands are retained in memory for deterministic tests; this is not a save/replay format. The UI offers one scout without opponent AI or faction bonuses. Multi-faction turn order, occupancy and separate fog are domain-tested foundations, not a claim of a complete match.
+
 ## First playable: two representative factions
 
 - **Meridian Union:** one civic feature—its first food improvement also reduces local unrest. Demonstrates the economy/policy/unrest connection.
@@ -65,6 +73,6 @@ Begin at peace; offer a ten-turn nonaggression pledge or declare war to contest 
 
 Forest uses clustered stepped crowns; hills use broad terraces; mountains use taller narrow peaks; water stays low and flat. Terrain identity must not rely on color alone.
 
-Selection is a high-contrast gold perimeter plus inspector text. Future ownership uses inset border patterns and faction symbols, distinct from selection. Future fog uses subdued explored tiles and opaque unseen tiles; never expose hidden units through picking or tooltips. Provide readable labels, keyboard-accessible controls, and a non-color selection indicator.
+Selection is a high-contrast gold perimeter plus inspector text. Future ownership uses inset border patterns and faction symbols, distinct from selection. Expedition fog uses subdued explored tiles and opaque uniform unseen tiles, hiding terrain silhouettes, trees, picking and tooltips. Provide readable labels, keyboard-accessible controls, and a non-color selection indicator.
 
 Prototype controls: bounded pan, bounded zoom, click/tap to inspect, reset view, seed/dimension inputs with inline errors. Keep the camera's orthographic orientation fixed. Display tile coordinates, canonical ID, terrain, and any resource; don't imply future gameplay is already available.

@@ -3,11 +3,18 @@ import {
   Mesh, MeshBuilder, Scene, SceneInstrumentation, StandardMaterial, Vector3, Viewport,
 } from '@babylonjs/core'
 import { TERRAIN, type Terrain, type Tile, type WorldMap } from '../game/map'
+import type { Visibility } from '../game/expedition'
 
 export const CHUNK_SIZE = 16
 const COLORS: Record<Terrain, string> = { grassland: '#609b83', water: '#387c9b', hills: '#bdab86' }
 
-interface Batch { mesh: Mesh; ids: number[] }
+interface Batch { mesh: Mesh; ids: number[]; matrices: Float32Array; colors: Float32Array }
+interface TreeInstance { mesh: Mesh; index: number; matrix: Matrix; color: Color3 }
+export interface ExplorationView {
+  readonly fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
+  readonly scoutTileId: number
+  readonly reachable: readonly number[]
+}
 
 function surfaceHeight(tile: Tile): number {
   return TERRAIN[tile.terrain].height + (tile.terrain === 'water' ? 0 : (tile.elevation - 1) * 0.24)
@@ -24,6 +31,7 @@ export interface RenderStats {
   drawCalls: number
   frameMs: number
   webGLVersion: number
+  fogUpdates: number
 }
 
 export class WorldRenderer {
@@ -37,6 +45,11 @@ export class WorldRenderer {
   private readonly selection: Mesh
   private batches: Batch[] = []
   private treeMeshes: Mesh[] = []
+  private readonly tileInstances = new Map<number, { batch: Batch; index: number }>()
+  private readonly treeInstances = new Map<number, TreeInstance[]>()
+  private exploration?: ExplorationView
+  private scout?: Mesh
+  private fogUpdates = 0
   private batchIds = new Map<AbstractMesh, number[]>()
   private map?: WorldMap
   private target = Vector3.Zero()
@@ -74,14 +87,14 @@ export class WorldRenderer {
     // Babylon camera inputs are deliberately not attached; only canvas listeners below can move it.
     for (const terrain of Object.keys(TERRAIN) as Terrain[]) {
       const material = new StandardMaterial(terrain, this.scene)
-      material.diffuseColor = Color3.FromHexString(COLORS[terrain])
+      material.diffuseColor = Color3.White()
       material.specularColor = Color3.Black()
       material.freeze()
       this.materials.set(terrain, material)
     }
-    for (const color of ['#725943', '#315d53']) {
+    for (let index = 0; index < 2; index++) {
       const material = new StandardMaterial(`tree-${this.treeMaterials.length}`, this.scene)
-      material.diffuseColor = Color3.FromHexString(color)
+      material.diffuseColor = Color3.White()
       material.specularColor = Color3.Black()
       material.freeze()
       this.treeMaterials.push(material)
@@ -140,6 +153,9 @@ export class WorldRenderer {
   }
 
   setMap(map: WorldMap): void {
+    this.exploration = undefined
+    this.scout?.dispose(false, true)
+    this.scout = undefined
     this.pointer = undefined
     this.showHover()
     this.showSelection()
@@ -151,6 +167,8 @@ export class WorldRenderer {
     this.batches = []
     this.treeMeshes = []
     this.batchIds.clear()
+    this.tileInstances.clear()
+    this.treeInstances.clear()
     this.bufferBytes = 0
     this.map = map
     for (let cz = 0; cz < map.height; cz += CHUNK_SIZE) {
@@ -170,17 +188,23 @@ export class WorldRenderer {
           const mesh = MeshBuilder.CreateBox(name, { size: 1 }, this.scene)
           mesh.material = this.materials.get(terrain)!
           const matrices = new Float32Array(tiles.length * 16)
+          const colors = new Float32Array(tiles.length * 4)
           for (const [index, tile] of tiles.entries()) {
             const height = surfaceHeight(tile)
             Matrix.Scaling(0.96, height, 0.96).multiply(Matrix.Translation(tile.x, height / 2, tile.z))
               .copyToArray(matrices, index * 16)
+            const color = Color3.FromHexString(COLORS[terrain])
+            colors.set([color.r, color.g, color.b, 1], index * 4)
           }
-          mesh.thinInstanceSetBuffer('matrix', matrices, 16, true)
+          mesh.thinInstanceSetBuffer('matrix', matrices, 16, false)
+          mesh.thinInstanceSetBuffer('color', colors, 4, false)
           mesh.thinInstanceEnablePicking = true
           mesh.freezeWorldMatrix()
           const ids = tiles.map(tile => tile.id)
           this.batchIds.set(mesh, ids)
-          this.batches.push({ mesh, ids })
+          const batch = { mesh, ids, matrices, colors }
+          this.batches.push(batch)
+          ids.forEach((id, index) => this.tileInstances.set(id, { batch, index }))
           this.bufferBytes += matrices.byteLength
         }
       }
@@ -208,14 +232,90 @@ export class WorldRenderer {
       mesh.material = definition.material
       mesh.isPickable = false
       const matrices = new Float32Array(trees.length * 16)
+      const colors = new Float32Array(trees.length * 4)
+      const color = Color3.FromHexString(definition.name === 'tree-trunks' ? '#725943' : '#315d53')
       for (const [index, tree] of trees.entries()) {
         const height = surfaceHeight(tree.tile) + definition.offset
-        Matrix.Translation(tree.x, height, tree.z).copyToArray(matrices, index * 16)
+        const matrix = Matrix.Translation(tree.x, height, tree.z)
+        matrix.copyToArray(matrices, index * 16)
+        colors.set([color.r, color.g, color.b, 1], index * 4)
+        const instances = this.treeInstances.get(tree.tile.id) ?? []
+        instances.push({ mesh, index, matrix, color })
+        this.treeInstances.set(tree.tile.id, instances)
       }
-      mesh.thinInstanceSetBuffer('matrix', matrices, 16, true)
+      mesh.thinInstanceSetBuffer('matrix', matrices, 16, false)
+      mesh.thinInstanceSetBuffer('color', colors, 4, false)
+      mesh.setEnabled(trees.length > 0)
       mesh.freezeWorldMatrix()
       this.treeMeshes.push(mesh)
     }
+  }
+
+  setExploration(view?: ExplorationView, dirtyTiles?: readonly number[]): void {
+    if (!this.map) return
+    const previous = this.exploration
+    this.exploration = view
+    const ids = dirtyTiles && previous && view
+      ? new Set([...dirtyTiles, ...previous.reachable, ...view.reachable])
+      : new Set(this.map.tiles.map(tile => tile.id))
+    const reachable = new Set(view?.reachable)
+    const changed = new Set<Mesh>()
+    for (const id of ids) {
+      const tile = this.map.tiles[id]!
+      const { batch, index } = this.tileInstances.get(id)!
+      const visibility = view ? view.fog[id] ?? 'unseen' : 'visible'
+      const height = visibility === 'unseen' ? 0.65 : surfaceHeight(tile)
+      const matrix = Matrix.Scaling(0.96, height, 0.96).multiply(Matrix.Translation(tile.x, height / 2, tile.z))
+      // Update Babylon's CPU picking cache as well as the affected GPU buffer slice.
+      batch.mesh.thinInstanceSetMatrixAt(index, matrix, false)
+      batch.mesh.thinInstancePartialBufferUpdate('matrix', batch.matrices.subarray(index * 16, index * 16 + 16), index * 16)
+      let color = visibility === 'unseen' ? Color3.FromHexString('#263b4a') : Color3.FromHexString(COLORS[tile.terrain])
+      if (visibility === 'explored') color = color.scale(0.4)
+      if (reachable.has(id)) color = Color3.Lerp(color, Color3.FromHexString('#b9dda1'), 0.35)
+      batch.colors.set([color.r, color.g, color.b, 1], index * 4)
+      batch.mesh.thinInstancePartialBufferUpdate('color', batch.colors.subarray(index * 4, index * 4 + 4), index * 4)
+      changed.add(batch.mesh)
+      for (const tree of this.treeInstances.get(id) ?? []) {
+        const transform = visibility === 'unseen' ? Matrix.Scaling(0, 0, 0) : tree.matrix
+        tree.mesh.thinInstanceSetMatrixAt(tree.index, transform, false)
+        tree.mesh.thinInstancePartialBufferUpdate('matrix', Float32Array.from(transform.asArray()), tree.index * 16)
+        const tint = tree.color.scale(visibility === 'explored' ? 0.4 : 1)
+        tree.mesh.thinInstancePartialBufferUpdate('color', new Float32Array([tint.r, tint.g, tint.b, 1]), tree.index * 4)
+      }
+    }
+    for (const mesh of changed) mesh.thinInstanceRefreshBoundingInfo()
+    this.fogUpdates += ids.size
+    if (view) {
+      if (!this.scout) {
+        this.scout = MeshBuilder.CreateCylinder('scout', { height: 0.8, diameterTop: 0.2, diameterBottom: 0.5, tessellation: 4 }, this.scene)
+        const material = new StandardMaterial('scout-material', this.scene)
+        material.diffuseColor = Color3.FromHexString('#f0c873')
+        material.emissiveColor = Color3.FromHexString('#856124')
+        this.scout.material = material
+        this.scout.isPickable = false
+        // The own-unit indicator must remain legible above decorative trees.
+        this.scout.renderingGroupId = 1
+      }
+      const tile = this.map.tiles[view.scoutTileId]!
+      this.scout.position.set(tile.x, surfaceHeight(tile) + 0.45, tile.z)
+    } else {
+      this.scout?.dispose(false, true)
+      this.scout = undefined
+    }
+    this.showHover()
+    if (!previous || !view) this.showSelection()
+  }
+
+  selectTile(id: number): void {
+    this.showSelection(this.exploration && !this.exploration.fog[id] ? undefined : this.map?.tiles[id])
+  }
+
+  focusTile(id: number): void {
+    const tile = this.map?.tiles[id]
+    if (!tile) return
+    this.target.set(tile.x, 0, tile.z)
+    this.halfHeight = Math.min(7, this.maxHalfHeight)
+    this.updateCamera()
   }
 
   private resize(): void {
@@ -308,7 +408,7 @@ export class WorldRenderer {
     const result = this.scene.pick(x, y, mesh => this.batchIds.has(mesh), false, this.camera)
     if (!result?.hit || !result.pickedMesh || result.thinInstanceIndex < 0) return
     const id = this.batchIds.get(result.pickedMesh)?.[result.thinInstanceIndex]
-    return id === undefined ? undefined : this.map?.tiles[id]
+    return id === undefined || (this.exploration && !this.exploration.fog[id]) ? undefined : this.map?.tiles[id]
   }
 
   private placeMarker(marker: Mesh, tile?: Tile): void {
@@ -326,6 +426,7 @@ export class WorldRenderer {
       instanceBufferBytes: this.bufferBytes, disposedBatches: this.disposedBatches,
       drawCalls: this.engine._drawCalls.current,
       frameMs: this.instrumentation.frameTimeCounter.current, webGLVersion: this.engine.webGLVersion,
+      fogUpdates: this.fogUpdates,
     }
   }
 
@@ -333,7 +434,8 @@ export class WorldRenderer {
   projectTile(id: number): { x: number; y: number } | undefined {
     const tile = this.map?.tiles[id]
     if (!tile) return
-    const projected = Vector3.Project(new Vector3(tile.x, surfaceHeight(tile), tile.z),
+    const height = this.exploration && !this.exploration.fog[id] ? 0.65 : surfaceHeight(tile)
+    const projected = Vector3.Project(new Vector3(tile.x, height, tile.z),
       Matrix.Identity(), this.scene.getTransformMatrix(),
       new Viewport(0, 0, this.engine.getRenderWidth(), this.engine.getRenderHeight()))
     const rect = this.canvas.getBoundingClientRect()
@@ -359,5 +461,7 @@ export class WorldRenderer {
     this.materials.clear()
     this.treeMaterials.length = 0
     this.treeMeshes = []
+    this.tileInstances.clear()
+    this.treeInstances.clear()
   }
 }
