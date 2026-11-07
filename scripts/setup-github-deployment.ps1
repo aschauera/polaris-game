@@ -114,6 +114,13 @@ try {
     Ensure-AzureRole -PrincipalId $principal.id -Role 'Contributor' -Scope $app.id
     Ensure-AzureRole -PrincipalId $principal.id -Role 'Reader' -Scope $group.id
     Ensure-AzureRole -PrincipalId $principal.id -Role (Get-RegistryRole $registry -Push) -Scope $registry.id
+    Ensure-AzureRole -PrincipalId $principal.id -Role 'Contributor' -Scope (Get-ContainerAppEnvironmentId $app)
+    $appIdentity = $app.PSObject.Properties['identity']
+    if ($appIdentity -and $appIdentity.Value.userAssignedIdentities) {
+        foreach ($identity in $appIdentity.Value.userAssignedIdentities.PSObject.Properties) {
+            Ensure-AzureRole -PrincipalId $principal.id -Role 'Managed Identity Operator' -Scope $identity.Name
+        }
+    }
 
     $githubAuthentication = @('--login-with-github')
     if ($UseGitHubCli) {
@@ -125,6 +132,10 @@ try {
     } else {
         Write-Host 'Authenticate with GitHub when prompted. Azure CLI will create the workflow and configure its secrets.'
     }
+    Invoke-Azure -Arguments @(
+        'containerapp', 'ingress', 'enable', '--resource-group', $ResourceGroup, '--name', $AppName,
+        '--type', 'external', '--target-port', '8080', '--transport', 'http', '--allow-insecure', 'false'
+    ) -OutputMode none
     Invoke-Azure -Arguments (@(
         'containerapp', 'github-action', 'add', '--resource-group', $ResourceGroup, '--name', $AppName,
         '--repo-url', $RepositoryUrl, '--branch', $Branch, '--context-path', './',
@@ -139,10 +150,6 @@ try {
     $githubAuthentication = $null
 }
 
-Invoke-Azure -Arguments @(
-    'containerapp', 'ingress', 'enable', '--resource-group', $ResourceGroup, '--name', $AppName,
-    '--type', 'external', '--target-port', '8080', '--transport', 'http', '--allow-insecure', 'false'
-) -OutputMode none
 $configuration = Invoke-Azure -Arguments @(
     'containerapp', 'github-action', 'show', '--resource-group', $ResourceGroup, '--name', $AppName
 )

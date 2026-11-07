@@ -141,8 +141,9 @@ checks that your active Azure CLI account belongs to the selected subscription's
 tenant before managing principals. The app uses 0.25 CPU / 0.5 GiB, single-revision
 mode and 0-1 replicas, so the first request after scaling to zero can be slower.
 
-The deployment principal has Contributor on the app, Reader on the dedicated
-group, and push permissions on the registry, rather than subscription-wide
+The deployment principal has Contributor on the app and its environment,
+Managed Identity Operator on the app's attached pull identities, Reader on the
+dedicated group, and push permissions on the registry, rather than subscription-wide
 access. Its generated secret is passed directly to Azure's GitHub integration,
 not written to local files or printed. ACR admin credentials remain disabled.
 Reconfiguring appends a credential to the selected principal to avoid breaking

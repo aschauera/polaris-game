@@ -51,6 +51,7 @@ function az {
     }
     $app = @{
         id = '/app'; name = 'polaris'
+        identity = @{ userAssignedIdentities = @{ '/identity' = @{} } }
         properties = @{
             provisioningState = 'Succeeded'; managedEnvironmentId = '/environment'
             configuration = @{ ingress = @{ fqdn = 'polaris.example.test' } }
@@ -307,6 +308,20 @@ foreach ($scriptName in @('setup-container-app.ps1', 'setup-github-deployment.ps
                 Assert-True ((Get-Argument $integration '--registry-username') -eq 'client-id') 'CD setup used registry admin credentials.'
                 $ingress = $script:commands | Where-Object { $_[0] -eq 'containerapp' -and $_[1] -eq 'ingress' }
                 Assert-True ((Get-Argument $ingress '--target-port') -eq '8080') 'CD setup did not configure the game port.'
+                Assert-True ($script:commands.IndexOf($ingress) -lt $script:commands.IndexOf($integration)) 'GitHub deployment started before the game ingress port was configured.'
+                if ($scenario -ne 'existing') {
+                    foreach ($expectedRole in @(
+                        @{ Scope = '/environment'; Role = 'Contributor' },
+                        @{ Scope = '/identity'; Role = 'Managed Identity Operator' }
+                    )) {
+                        $assignment = @($script:commands | Where-Object {
+                            $_[0] -eq 'role' -and $_[2] -eq 'create' -and
+                            (Get-Argument $_ '--scope') -eq $expectedRole.Scope -and
+                            (Get-Argument $_ '--assignee-object-id') -eq 'deployment-principal'
+                        })
+                        Assert-True ($assignment.Count -eq 1 -and (Get-Argument $assignment[0] '--role') -eq $expectedRole.Role) "Deployment principal cannot use $($expectedRole.Scope)."
+                    }
+                }
                 if ($scenario -in @('existing', 'interactive-existing', 'named-principal')) {
                     $rotation = $script:commands | Where-Object { $_[0] -eq 'ad' -and $_[2] -eq 'credential' }
                     Assert-True ($rotation -contains '--append') 'Credential rotation invalidated existing workflow secrets.'
