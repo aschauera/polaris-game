@@ -1,0 +1,45 @@
+name: Deploy Polaris release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: polaris-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  build-and-deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout the released version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.POLARIS_AZURE_CREDENTIALS }}
+
+      - name: Build and push container image to registry
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}
+          dockerfilePath: Dockerfile
+          targetPort: 8080
+          registryUrl: polarisgameanaschau.azurecr.io
+          registryUsername: ${{ secrets.POLARIS_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.POLARIS_REGISTRY_PASSWORD }}
+          containerAppName: polaris
+          resourceGroup: polaris-rg
+          imageToBuild: polarisgameanaschau.azurecr.io/polaris:release-${{ github.event.release.id }}

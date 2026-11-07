@@ -33,7 +33,9 @@ npm run build
 npm run preview
 ```
 
-Deploy `dist/` to a static web host. Run through an HTTP server, not by opening `index.html` from disk. For subdirectory hosting, build with Vite's `--base` option.
+The production deployment uses Azure Container Apps with GitHub continuous
+deployment, as described below. Local previews run through an HTTP server, not
+by opening `index.html` from disk.
 
 ### Docker and Azure Container Apps
 
@@ -43,25 +45,21 @@ then serves the production game using non-root nginx on port **8080**.
 to the container build, excluding Git history, local environment files and npm
 credentials.
 
-To build and run locally with Docker:
-
-```powershell
-docker build --tag polaris:local .
-docker run --rm --publish 8080:8080 polaris:local
-```
-
-Open `http://localhost:8080`.
-
 Azure deployment is **setup-only locally**. The scripts provision the app and
 configure Azure Container Apps' built-in GitHub continuous deployment. Subsequent
-builds and deployments run automatically on GitHub, not on your workstation.
+builds and deployments run on GitHub **only when a GitHub release is published**,
+not on your workstation or on ordinary branch/tag pushes.
 Local Docker and local npm installation are not required for Azure setup.
+The Dockerfile and nginx configuration are **GitHub CI build/runtime inputs**,
+not a separate local Docker deployment path. Neither setup script runs Docker,
+builds in ACR, or deploys a locally built game image.
 
 **Important:** Container Apps' built-in GitHub integration uses GitHub Actions.
 Azure CLI automatically creates a workflow in the selected GitHub repository and
-configures its secrets. No deployment workflow is hand-authored in this checkout,
-but the integration cannot operate without its generated workflow. The existing
-foundation validation workflow is unchanged.
+configures its secrets. Its generated deployment workflow is maintained in this
+checkout with a release-only trigger. The separate foundation validation workflow
+runs on pushes and pull requests and is reused as the release deployment gate,
+including the offline Azure setup regression tests.
 
 **Prerequisites:** PowerShell 7+, a recent Azure CLI with
 `az containerapp github-action` commands, `az login`, permission to create Azure
@@ -74,71 +72,144 @@ incur Azure charges.
 
 1. Commit and push the Dockerfile, nginx configuration, Docker ignore file and
    application sources to the GitHub branch you want to deploy.
-2. Run [resource setup](./scripts/setup-container-app.ps1):
+2. Run [resource setup](./scripts/setup-container-app.ps1) interactively:
 
    ```powershell
    az login
-   .\scripts\setup-container-app.ps1 `
-     -SubscriptionId '<subscription-id>' `
-     -RegistryName '<globally-unique-registry-name>' `
-     -ResourceGroup 'polaris-rg' `
-     -Location 'westeurope'
+   .\scripts\setup-container-app.ps1
    ```
 
-   This creates or reuses ACR, a Log Analytics-backed `<AppName>-env` environment,
-   a pull identity and a public HTTPS app (default `polaris`). A new app initially
+   Each omitted resource name lists existing resources and **`0) (new)`**:
+   resource group, ACR, Container Apps environment, Container App, and pull
+   managed identity. A new environment also offers existing or new Log Analytics
+   workspaces; an existing environment keeps its logging configuration.
+   Resource lists are scoped to the chosen group; deployment principals are
+   tenant-scoped. The subscription menu lists enabled subscriptions only: creating
+   a subscription requires separate account/billing setup and is not offered.
+   New resource groups prompt for a region (default `westeurope`).
+
+   This creates or reuses the selected resources and a public HTTPS app
+   (new-name default `polaris`). A new app initially
    runs Microsoft's **placeholder**, not the game. Rerunning resource setup
    preserves an existing app's image and ingress port.
 
 3. Run [GitHub deployment setup](./scripts/setup-github-deployment.ps1):
 
    ```powershell
-   .\scripts\setup-github-deployment.ps1 `
-     -SubscriptionId '<subscription-id>' `
-     -RegistryName '<globally-unique-registry-name>' `
-     -ResourceGroup 'polaris-rg' `
-     -RepositoryUrl 'https://github.com/aschauera/polaris-game' `
-     -Branch 'main'
+   .\scripts\setup-github-deployment.ps1
    ```
 
+   Select the same subscription, group, registry and app. These resource menus
+   also include **(new)**; selecting a new registry or app runs resource setup.
+   Select an existing GitHub deployment service principal or **(new)**.
+   Reusing a principal appends a credential and grants deployment roles, so only
+   select a dedicated principal you are authorized to configure.
    Follow the interactive GitHub authentication prompt. Azure creates the
    workflow and repository secrets, and the script configures HTTPS ingress for
    nginx port 8080. The generated workflow builds the root Dockerfile and
-   publishes the image to ACR. Check the printed GitHub Actions URL for the
-   first deployment; future pushes to the selected branch redeploy automatically.
+   publishes the image to ACR. This is a **bootstrap operation**: Azure generates
+   a push-triggered workflow and can start an initial deployment. Apply the
+   release-only workflow configuration described below before using the app for
+   release deployments. Do not rerun bootstrap setup against a release-managed
+   app: it can overwrite the release trigger and start a push deployment.
+   Check the printed GitHub Actions URL for the bootstrap deployment.
    The app can be unavailable between changing the placeholder's port and the
    first successful game deployment.
 
-Both scripts support `-WhatIf` without commands, network requests, credentials
+Supply a name to bypass its menu (an absent name is created). Optional resource
+setup parameters include `-EnvironmentName`, `-PullIdentityName`, and
+`-LogAnalyticsWorkspaceName`; GitHub setup accepts `-DeploymentPrincipalName`,
+`-RepositoryUrl`, and `-Branch` (defaults to this repository and `main`).
+For unattended resource selection, use explicit names and `-NonInteractive`:
+
+```powershell
+.\scripts\setup-container-app.ps1 `
+  -SubscriptionId '<subscription-id>' `
+  -RegistryName '<globally-unique-registry-name>' `
+  -ResourceGroup 'polaris-rg' -AppName 'polaris' -NonInteractive
+
+.\scripts\setup-github-deployment.ps1 `
+  -SubscriptionId '<subscription-id>' `
+  -RegistryName '<globally-unique-registry-name>' `
+  -ResourceGroup 'polaris-rg' -AppName 'polaris' -Branch 'main' -NonInteractive
+```
+
+`-NonInteractive` suppresses resource menus, not the GitHub authentication prompt.
+To reuse an authenticated GitHub CLI account instead of interactive GitHub login,
+pass `-UseGitHubCli` to GitHub setup. Its token must be allowed to write repository
+workflows and secrets; it is not printed or written to local files.
+It requires subscription and registry names and uses documented Polaris defaults
+for other omitted names. Both scripts support `-WhatIf` without commands, prompts,
+network requests, credentials
 or resource changes, and explicitly target the supplied subscription without
-changing your Azure CLI default. The app uses 0.25 CPU / 0.5 GiB, single-revision
+changing your Azure CLI default. Entra operations are tenant-scoped; GitHub setup
+checks that your active Azure CLI account belongs to the selected subscription's
+tenant before managing principals. The app uses 0.25 CPU / 0.5 GiB, single-revision
 mode and 0-1 replicas, so the first request after scaling to zero can be slower.
 
-The deployment principal has Contributor on the app, Reader on the dedicated
-group, and push permissions on the registry, rather than subscription-wide
+The deployment principal has Contributor on the app and its environment,
+Managed Identity Operator on the app's attached pull identities, Reader on the
+dedicated group, and push permissions on the registry, rather than subscription-wide
 access. Its generated secret is passed directly to Azure's GitHub integration,
 not written to local files or printed. ACR admin credentials remain disabled.
-Reconfiguring appends a credential to the dedicated principal to avoid breaking
-in-flight deployments. These credentials expire (normally after one year);
-rerun GitHub setup before expiration and remove obsolete credentials in Entra.
-Protect the deploying branch: anyone able to modify its build/workflow can use
+Reconfiguring appends a credential to the selected principal to avoid breaking
+in-flight deployments. These credentials expire (normally after one year).
+For a release-managed app, rotate the principal credential in Entra and update
+the Azure/registry credentials in GitHub repository secrets without regenerating
+the workflow; remove obsolete credentials after verifying the new ones.
+Protect release creation and the default branch: anyone able to publish releases
+or modify their build/workflow can use
 its deployment privileges. Never run setup with Azure CLI debug logging or a
 shell transcript that could capture credential arguments.
 
-**Company package feed:** the Dockerfile defaults to
-`https://packagefeedproxy.microsoft.io/npm/`; there is no public-feed fallback.
-The GitHub runner must reach that endpoint and the feed must contain every locked
-dependency. The feed reported `vite@8.3.6`, `@babylonjs/core@9.34.0`, and
-`vitest@5.1.0` as unavailable during local setup. Azure setup can succeed without
-them, but the generated workflow cannot build until those versions are
-available. If the feed is internal-only or needs authentication, configure an
-appropriate GitHub runner and secure feed authentication separately; do not
-embed tokens in source files, Docker build arguments or URLs.
+**Package source:** GitHub CI builds use the public npm registry by default,
+preserving the committed dependency versions. The company proxy was missing
+`vite@8.3.6`, `@babylonjs/core@9.34.0`, and `vitest@5.1.0`; it is not used as an
+automatic fallback. The Dockerfile's `NPM_REGISTRY` build argument can select
+another feed if it contains every locked dependency and is reachable by the
+GitHub runner. Configure secure feed authentication separately if needed; do
+not embed tokens in source files, Docker build arguments or URLs.
 
 Errors stop setup without deleting resources. Allow new Azure role assignments
 to propagate before retrying a failed first workflow run. Inspect build failures
 in GitHub Actions and runtime failures with
 `az containerapp logs show --name polaris --resource-group polaris-rg`.
+
+### Publishing a game release
+
+The [Azure-generated deployment workflow](./.github/workflows/polaris-AutoDeployTrigger-c3b2f5fd-10fe-45cb-83ab-78817662aa64.yml)
+has one trigger: `release` with activity type `published`. Publishing a release
+(including a prerelease, or publishing a previously saved draft) validates the
+release tag with the full CI suite, then builds that exact tagged source and
+deploys it to the Container App. Failed validation prevents Azure login and
+deployment. Images use `polaris:release-<GitHub release ID>` so releases have
+distinct image names. Deployment runs are serialized for the single production
+app without cancelling an in-progress deployment.
+
+Branch pushes and pull requests still run validation. Creating or pushing a tag,
+editing a release, saving a draft, or a manual workflow dispatch does **not**
+deploy. Publishing a release is an explicit production deployment, including
+prereleases; do not publish one just to test the trigger.
+
+**Activation prerequisite:** merge the release workflow and reusable validation
+workflow into the repository's default branch (`main`) before publishing. GitHub
+only delivers release events to workflows present on the default branch.
+Release tags must also contain these workflow changes. No first release is
+created automatically, and the running game stays unchanged until publication.
+
+After merging and checking CI, choose a new version and the exact commit:
+
+```powershell
+git tag v0.1.0 '<validated-commit-sha>'
+git push origin v0.1.0
+gh release create v0.1.0 --repo aschauera/polaris-game `
+  --verify-tag --title 'Polaris v0.1.0' --generate-notes
+```
+
+Use GitHub's **Releases -> Draft a new release -> Publish release** instead if
+preferred. The tag push alone does not deploy. Check the **Deploy Polaris release**
+Actions run and the game's HTTPS `/healthz` endpoint after publishing. Correct a
+failed run and rerun that release run; there is no manual deployment trigger.
 
 Run the scripts' offline tests (mocked Azure, no cloud/GitHub changes):
 
@@ -146,8 +217,10 @@ Run the scripts' offline tests (mocked Azure, no cloud/GitHub changes):
 pwsh -File .\scripts\azure-setup.tests.ps1
 ```
 
-To clean up, disable/remove the generated GitHub workflow, delete the dedicated
-deployment principal in Entra, and then remove **all** resources in the dedicated
+To clean up, disable/remove the generated GitHub workflow and delete only dedicated
+deployment resources you created. Never delete a reused principal or shared group.
+If the entire group and principal are dedicated to Polaris, remove the dedicated
+deployment principal in Entra and then remove **all** resources in that dedicated
 group:
 
 ```powershell

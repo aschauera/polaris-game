@@ -1,5 +1,25 @@
 # Copilot instructions
 
+## Azure deployment
+
+Deploy Polaris as an **Azure Container App**, not a static website or App Service.
+Local setup provisions or reuses Azure resources; the Container App is configured
+for built-in GitHub continuous deployment. Azure generates the GitHub Actions
+workflow and secrets; the Azure-generated workflow is maintained in this repo.
+GitHub builds the root Dockerfile and deploys **only when a GitHub release is
+published**, after validating its tagged commit. Pushes, tag pushes, drafts and
+manual dispatches must not deploy. Do not replace this with local image builds
+or another deployment workflow. Keep the release workflow on the default branch;
+Azure setup regenerates push triggers, so do not rerun bootstrap setup against a
+release-managed app.
+
+Keep both Azure setup scripts interactive by default: list existing resources
+at each resource-selection step and include a **(new)** option. Preserve explicit
+parameters, `-NonInteractive`, and side-effect-free `-WhatIf` for automation.
+Subscriptions are an existing-account prerequisite, not resources these scripts
+create. See [deployment documentation](../README.md#docker-and-azure-container-apps)
+and run `pwsh -File .\scripts\azure-setup.tests.ps1` after script changes.
+
 ## Authoritative visual and world reference
 
 For all visual and world changes, treat `docs/showcase.png` as the authoritative root reference from which to derive visual world design and layout. Inspect it before planning or implementing changes. Derive terrain forms, spatial composition, scale, palette, and world presentation from this reference; other images, mockups, and visual briefs are supplementary and must not override it.
