@@ -1,6 +1,6 @@
 # Polaris: implementation roadmap
 
-Dependency-ordered implementation briefs. The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented; briefs 8–14 have follow-up issues #9–#15. The renderer retains 16×16 chunk/type box instances. Briefs below retain acceptance gates rather than implying every later gate is verified.
+Dependency-ordered implementation briefs. The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented; briefs 8–14 have follow-up issues #9–#15. The renderer draws voxel terrain in 64×64-column chunks (`src/rendering/voxels.ts`). Briefs below retain acceptance gates rather than implying every later gate is verified.
 
 Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 days, **L** 6–10 days. Split an L brief before execution if acceptance cannot be reviewed together. Dependencies refer to brief numbers.
 
@@ -10,7 +10,7 @@ Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 day
 | --- | --- | --- | --- | --- |
 | **1. Establish browser shell**: strict TS, Vite, Babylon WebGL2, Node Vitest, Playwright | None | One package; `src/game`, `src/rendering`, `src/ui`; no gameplay | App boots; unsupported WebGL2 has useful message; existing scripts support typecheck, domain and browser checks | S |
 | **2. Build deterministic map model**: implemented generator/tests; retain regression gate | 1 | No DOM/rendering; 8–256 integer dimensions; seed 1–64 ASCII alphanumeric/underscore/hyphen; version 2 FNV-1a/Mulberry32 | Fixed fixtures repeat; invalid inputs rejected; rectangular IDs equal `z * width + x`; explicit PRNG state and stable iteration tested | M |
-| **3. Render voxel terrain**: Art Deco materials and silhouettes | 2 | 16×16 spatial chunk/type thin instances; no units or economy | All terrain distinguishable; 32×32 showcase and 256×256 fixture render; regeneration disposes old resources; instance→tile mapping checked | M |
+| **3. Render voxel terrain**: Art Deco materials and silhouettes | 2 | Greedy-meshed voxel chunks of 64×64 columns; no units or economy | All terrain distinguishable; 32×32 showcase and 256×256 fixture render; regeneration disposes old resources; heightfield picking returns canonical tile IDs | M |
 | **4. Make map inspectable**: fixed orthographic camera, bounded pan/zoom, picking and inputs | 3 | No rotation; no movement; future HUD controls not presented as functional | Resize/touch/mouse work; corner picks resolve canonical IDs; reset and regeneration clear stale selection; validation errors visible; keyboard-accessible inputs | M |
 | **5. Verify prototype**: browser regression and measured benchmark report | 4 | No gameplay expansion or speculative optimization; initial shorter software-rendered runner evidence is not the full future device protocol | Domain/browser checks pass; sample duration/environment and limitations published; measured results separate from provisional budgets; regeneration and WebGL2 fallback covered; unperformed full-protocol checks explicitly pending | M |
 
