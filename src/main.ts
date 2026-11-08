@@ -150,9 +150,11 @@ hud.endTurn.addEventListener('click', () => {
   if (expedition) order({ type: 'end-turn', factionId: expedition.activeFaction, sequence: expedition.commands.length + 1 })
 })
 hud.foundCity.addEventListener('click', () => {
-  const founder = expedition?.founders.find(unit => unit.factionId === expedition.activeFaction)
-  if (expedition && founder) order({ type: 'found-city', factionId: expedition.activeFaction,
-    sequence: expedition.commands.length + 1, founderId: founder.id })
+  const state = expedition
+  if (!state) return
+  const founder = state.founders.find(unit => unit.factionId === state.activeFaction)
+  if (founder) order({ type: 'found-city', factionId: state.activeFaction,
+    sequence: state.commands.length + 1, founderId: founder.id })
 })
 hud.queueProduction.addEventListener('click', () => {
   if (!expedition) return

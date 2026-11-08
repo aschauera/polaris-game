@@ -170,7 +170,11 @@ export function createHud() {
       document.body.classList.toggle('exploring', !!summary)
       get('expedition').hidden = !summary
       get('start-expedition').hidden = !!summary
-      if (!summary) { get('city-controls').hidden = true; get('found-city').disabled = true; return }
+      if (!summary) {
+        get('city-controls').hidden = true
+        get<HTMLButtonElement>('found-city').disabled = true
+        return
+      }
       get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}`
       get('scout-info').textContent = `Scout · ${summary.movement}/${summary.maxMovement} movement`
       get('exploration-info').textContent = `${summary.discovered}/${summary.total} tiles charted`
