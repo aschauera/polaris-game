@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { applyCommand, movementRange, type Expedition, type ProductionItemId } from './expedition'
 import {
-  compactCommand, createMatch, exportMatch, mapHash, MATCH_FORMAT, MATCH_LIMITS, openMatch, receiveTurn, stateHash,
-  type LocalMatch, type MatchPackage,
+  compactCommand, createMatch, exportMatch, mapHash, MATCH_FORMAT, MATCH_LIMITS, matchIdOf, matchProgress, openMatch,
+  receiveTurn, stateHash, type LocalMatch, type MatchPackage,
 } from './match'
 
 const MATCH_ID = 'match-0123456789'
@@ -290,5 +290,23 @@ describe('receiving the opponent turn', () => {
     expect(receiveTurn({ format: 9 })).toMatchObject({ ok: false, kind: 'invalid' })
     expect(receiveTurn({ ...first, stateHash: '0'.repeat(14) }, localMatch(host, 'meridian')))
       .toMatchObject({ ok: false, kind: 'invalid', reason: expect.stringMatching(/ended differently/) })
+  })
+})
+
+describe('reading a package without replaying it', () => {
+  it('tells the round and the side on turn exactly as the replay does', () => {
+    for (const turns of [0, 1, 2, 3, 8]) {
+      const state = play(turns)
+      expect(matchProgress(exportMatch(MATCH_ID, state)), `${turns} turns`).toEqual({ round: state.round, active: state.activeFaction })
+    }
+    const moving = step(play(3))
+    expect(matchProgress(exportMatch(MATCH_ID, moving))).toEqual({ round: moving.round, active: moving.activeFaction })
+  })
+
+  it('reads the match identifier only from a well-formed package', () => {
+    expect(matchIdOf(exportMatch(MATCH_ID, createMatch(WORLD)))).toBe(MATCH_ID)
+    for (const input of [undefined, null, 'text', [], {}, { matchId: 42 }, { matchId: 'short' }, { matchId: 'has spaces in it' }]) {
+      expect(matchIdOf(input)).toBeUndefined()
+    }
   })
 })

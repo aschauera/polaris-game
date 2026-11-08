@@ -132,7 +132,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseMatch(input: unknown): { readonly ok: true; readonly value: MatchPackage } | Failure {
+export function matchIdOf(input: unknown): string | undefined {
+  return isRecord(input) && typeof input.matchId === 'string' && MATCH_ID.test(input.matchId) ? input.matchId : undefined
+}
+
+// Checks only the shape of a package; openMatch also rebuilds and verifies it.
+export function parseMatch(input: unknown): { readonly ok: true; readonly value: MatchPackage } | Failure {
   const fail = (reason: string): Failure => ({ ok: false, reason })
   if (!isRecord(input) || input.format !== MATCH_FORMAT) {
     return fail('This is not a Polaris turn, or it was made by a newer version of the game.')
@@ -165,6 +170,13 @@ function parseMatch(input: unknown): { readonly ok: true; readonly value: MatchP
     format: MATCH_FORMAT, matchId, rules: RULES_VERSION, generator, seed, width, height,
     factions: MATCH_FACTIONS, commands: Object.freeze(orders), mapHash: world, stateHash: result,
   }) }
+}
+
+// Factions take turns in package order and a round ends with the last of them, so the number of finished
+// turns tells whose turn it is without replaying the match.
+export function matchProgress(pkg: Pick<MatchPackage, 'factions' | 'commands'>): { readonly round: number; readonly active: FactionId } {
+  const ended = pkg.commands.filter(order => order[0] === 'e').length
+  return { round: Math.floor(ended / pkg.factions.length) + 1, active: pkg.factions[ended % pkg.factions.length]! }
 }
 
 export function createMatch(config: MapConfig): Expedition {
@@ -223,7 +235,7 @@ export function receiveTurn(input: unknown, local?: LocalMatch): ReceiveResult {
   const faction = state.activeFaction
   if (!local) return { ok: true, state, matchId, faction, newOrders: commands.length }
   if (local.matchId !== matchId) {
-    return { ok: false, kind: 'other-match', reason: 'This turn belongs to a different match than the one in progress. Leave the current match to open it.' }
+    return { ok: false, kind: 'other-match', reason: 'This turn belongs to a different match.' }
   }
   const shared = Math.min(commands.length, local.commands.length)
   for (let index = 0; index < shared; index++) {

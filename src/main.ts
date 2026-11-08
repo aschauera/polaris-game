@@ -4,9 +4,12 @@ import {
   applyCommand, CITY_RULES, cityYields, createExpedition, FACTIONS, findPath, movementRange, PRODUCTION_ITEMS,
   SCOUT, visibilityAt, type Command, type Expedition, type FactionId, type ProductionItemId,
 } from './game/expedition'
-import { compactCommand, exportMatch, MATCH_FACTIONS, receiveTurn, stateHash } from './game/match'
+import { compactCommand, exportMatch, MATCH_FACTIONS, matchIdOf, receiveTurn, stateHash } from './game/match'
 import { decodeTurn, encodeTurn, linkedTurn, turnLink } from './exchange/turn-code'
-import { clearMatch, restoreMatch, saveMatch } from './exchange/match-storage'
+import {
+  currentMatchId, forgetMatch, listMatches, MATCH_NAME_LIMIT, migrateLegacyMatch, restoreMatch, saveMatch, setCurrentMatch,
+  type MatchSummary,
+} from './exchange/match-storage'
 import { WorldRenderer } from './rendering/world'
 import { createHud } from './ui/hud'
 import { createMessengerPanel } from './ui/messenger'
@@ -16,6 +19,9 @@ const messenger = createMessengerPanel(hud.messenger, {
   start: () => startMatch(),
   open: text => { void receive(text) },
   openFile: file => { void openFile(file) },
+  resume: matchId => continueMatch(matchId),
+  rename: name => renameMatch(name),
+  shelve: () => shelveMatch(),
   leave: () => leaveMatch(),
 })
 let renderer: WorldRenderer | undefined
@@ -25,8 +31,10 @@ let renderSetupMs = 0
 let expedition: Expedition | undefined
 let selectedTile: Tile | undefined
 let scoutSelected = false
-// The local side of a messenger match. A solo expedition has none and simply plays whichever faction is active.
-let match: { readonly id: string; readonly faction: FactionId } | undefined
+// The open messenger match. A solo expedition has none and simply plays whichever faction is active.
+// Other matches stay saved on this device until they are opened again.
+interface OpenMatch { readonly id: string; readonly faction: FactionId; readonly name: string }
+let match: OpenMatch | undefined
 let outboxToken = 0
 
 const viewerOf = (state: Expedition): FactionId => match?.faction ?? state.activeFaction
@@ -111,9 +119,12 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
   updateExpeditionHud()
 }
 
+// Saving also makes the match the one that reopens after a reload.
 function persist(): void {
   const storage = browserStorage()
-  if (storage && match && expedition) saveMatch(storage, { faction: match.faction, match: exportMatch(match.id, expedition) })
+  if (!storage || !match || !expedition) return
+  saveMatch(storage, { faction: match.faction, name: match.name, match: exportMatch(match.id, expedition) })
+  setCurrentMatch(storage, match.id)
 }
 
 function order(command: Command): void {
@@ -196,16 +207,36 @@ function begin(state: Expedition): void {
   syncMessenger()
 }
 
+const matchTitle = (open: Pick<OpenMatch, 'id' | 'name'>) => open.name || `Match ${open.id.slice(0, 4).toUpperCase()}`
+
+// The identifier travels with every turn, so both players see the same default title for a match.
+function describeMatch(saved: MatchSummary) {
+  const yourTurn = saved.active === saved.faction
+  const when = saved.savedAt ? ` · ${new Date(saved.savedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}` : ''
+  return {
+    matchId: saved.matchId,
+    title: matchTitle({ id: saved.matchId, name: saved.name }),
+    detail: `${yourTurn ? 'Your turn' : `Waiting for ${FACTIONS[saved.active]}`} · turn ${saved.round} · you play ` +
+      `${FACTIONS[saved.faction]} · ${saved.seed} ${saved.width}×${saved.height}${when}`,
+    yourTurn,
+  }
+}
+
 function syncMessenger(): void {
   const token = ++outboxToken
   const state = expedition
-  if (!state) { messenger.idle(!!map); return }
+  if (!state) {
+    const storage = browserStorage()
+    messenger.idle(!!map, storage ? listMatches(storage).matches.map(describeMatch) : [])
+    return
+  }
   if (!match) { messenger.hide(); return }
   const own = FACTIONS[match.faction]
   const waiting = !canAct(state)
   const view = {
-    status: waiting ? `You play ${own}. Waiting for ${FACTIONS[state.activeFaction]}.` : `You play ${own}. It's your turn.`,
-    waiting,
+    status: `${matchTitle(match)} · ` +
+      (waiting ? `You play ${own}. Waiting for ${FACTIONS[state.activeFaction]}.` : `You play ${own}. It's your turn.`),
+    matchId: match.id, name: match.name, nameLimit: MATCH_NAME_LIMIT, waiting,
   }
   messenger.match(view)
   if (!waiting) return
@@ -229,7 +260,7 @@ function newMatchId(): string {
 function startMatch(): void {
   if (!map || !renderer || match) return
   try {
-    match = { id: newMatchId(), faction: MATCH_FACTIONS[0]! }
+    match = { id: newMatchId(), faction: MATCH_FACTIONS[0]!, name: '' }
     syncForm(map)
     hud.worldLocked(true)
     begin(createExpedition(map, MATCH_FACTIONS))
@@ -243,12 +274,10 @@ function startMatch(): void {
   }
 }
 
-function leaveMatch(): void {
-  if (!match) return
+// Returns to the atlas and the match list. Whether the match stays saved is up to the caller.
+function closeMatch(): void {
   match = undefined
   outboxToken++
-  const storage = browserStorage()
-  if (storage) clearMatch(storage)
   expedition = undefined
   scoutSelected = false
   hud.worldLocked(false)
@@ -256,14 +285,61 @@ function leaveMatch(): void {
   renderer?.reset()
   messenger.fill('')
   syncMessenger()
+}
+
+function shelveMatch(): void {
+  if (!match) return
+  const storage = browserStorage()
+  if (storage) setCurrentMatch(storage)
+  closeMatch()
+  messenger.notice(storage ? 'The match is saved. Continue it from Your matches, or open your opponent\'s next turn.'
+    : 'This browser cannot keep matches. Open the latest turn from your messenger to continue this one.')
+}
+
+function leaveMatch(): void {
+  if (!match) return
+  const storage = browserStorage()
+  if (storage) forgetMatch(storage, match.id)
+  closeMatch()
   messenger.notice('You left the match. This device forgot it; your opponent still has their copy.')
 }
 
-function resume(saved: { readonly matchId: string; readonly faction: FactionId; readonly state: Expedition }): void {
-  match = { id: saved.matchId, faction: saved.faction }
-  syncForm(saved.state.map)
+function renameMatch(name: string): void {
+  if (!match) return
+  match = { ...match, name: name.trim().slice(0, MATCH_NAME_LIMIT) }
+  persist()
+  syncMessenger()
+}
+
+// Opens a match on its own world. Any match that was open before has been saved after its last order.
+function resume(next: OpenMatch, state: Expedition): void {
+  match = next
+  syncForm(state.map)
   hud.worldLocked(true)
-  show(saved.state.map, saved.state)
+  show(state.map, state)
+  const storage = browserStorage()
+  if (storage) setCurrentMatch(storage, next.id)
+  hud.order(canAct(state) ? 'Your move. Select the gold scout to begin.'
+    : `Waiting for ${FACTIONS[state.activeFaction]}. Open their turn from your messenger to continue.`)
+}
+
+function storedMatch(matchId: string): { readonly open: OpenMatch; readonly state: Expedition } | { readonly reason: string } | undefined {
+  const storage = browserStorage()
+  const saved = storage ? restoreMatch(storage, matchId) : undefined
+  if (!saved) return
+  return saved.ok ? { open: { id: saved.matchId, faction: saved.faction, name: saved.name }, state: saved.state } : saved
+}
+
+function continueMatch(matchId: string): void {
+  if (expedition) return
+  const saved = storedMatch(matchId)
+  if (saved && 'open' in saved) {
+    resume(saved.open, saved.state)
+    messenger.notice('')
+    return
+  }
+  syncMessenger()
+  messenger.notice(saved?.reason ?? 'This match is no longer saved on this device.', true)
 }
 
 const lastSender = (state: Expedition) => {
@@ -285,36 +361,52 @@ async function receive(text: string): Promise<void> {
     hud.order('A solo expedition is running. Return to the atlas before opening a messenger turn.', true)
     return
   }
+  // Every turn names its match, so it is checked against that match whether or not it is the open one.
+  // A saved copy that no longer verifies has been discarded, and the turn then opens the match afresh.
+  const matchId = matchIdOf(decoded.value)
+  const open = match && state && match.id === matchId ? { open: match, state } : undefined
+  const found = open || !matchId ? undefined : storedMatch(matchId)
+  const saved = found && 'open' in found ? found : undefined
+  const local = open ?? saved
   let result: ReturnType<typeof receiveTurn>
   try {
-    result = receiveTurn(decoded.value, match && state
-      ? { matchId: match.id, faction: match.faction, commands: state.commands.map(compactCommand) }
+    result = receiveTurn(decoded.value, local
+      ? { matchId: local.open.id, faction: local.open.faction, commands: local.state.commands.map(compactCommand) }
       : undefined)
   } catch {
     reject('This turn could not be opened.')
     return
   }
   if (!result.ok) {
-    if (result.kind === 'known') messenger.notice(result.reason)
-    else reject(result.reason)
+    if (result.kind !== 'known') { reject(result.reason); return }
+    // An old message of another saved match still brings that match up.
+    if (saved) resume(saved.open, saved.state)
+    messenger.notice(result.reason)
+    return
+  }
+  // Without storage the open match lives only on screen, so it is not silently replaced by another one.
+  if (match && !open && !browserStorage()) {
+    reject('This turn belongs to another match. This browser cannot keep matches, so choose All matches first. ' +
+      'You can bring the current match back later by opening its latest turn.')
     return
   }
   const sender = lastSender(result.state)
-  if (match) {
+  const received = `${sender}'s turn (${orderCount(result.newOrders)})`
+  const previous = open ? undefined : match
+  if (open) {
     expedition = result.state
     // The opponent's orders never change what this player has charted, so only the reachable area is redrawn.
     renderExpedition([])
-    hud.order('Your move. Select the gold scout to begin.')
     syncMessenger()
-    messenger.notice(`Received ${sender}'s turn (${orderCount(result.newOrders)}).`)
   } else {
-    match = { id: result.matchId, faction: result.faction }
-    syncForm(result.state.map)
-    hud.worldLocked(true)
-    show(result.state.map, result.state)
-    hud.order('You joined the match. Select the gold scout to begin.')
-    messenger.notice(`Joined as ${FACTIONS[result.faction]}. ${sender} played ${orderCount(result.newOrders)}.`)
+    resume(saved?.open ?? { id: result.matchId, faction: result.faction, name: '' }, result.state)
   }
+  hud.order(local ? 'Your move. Select the gold scout to begin.' : 'You joined the match. Select the gold scout to begin.')
+  const switched = previous ? ` ${matchTitle(previous)} stays saved under All matches.` : ''
+  const lost = found && !('open' in found) ? `${found.reason} ` : ''
+  messenger.notice(open ? `Received ${received}.`
+    : saved ? `Opened ${matchTitle(saved.open)} and received ${received}.${switched}`
+      : `${lost}Joined as ${FACTIONS[result.faction]}. ${sender} played ${orderCount(result.newOrders)}.${switched}`)
   messenger.fill('')
   persist()
 }
@@ -416,12 +508,19 @@ hud.inputs.width.value = params.get('width') ?? '32'
 hud.inputs.height.value = params.get('height') ?? '32'
 messenger.idle(false)
 const storage = browserStorage()
-const saved = storage ? restoreMatch(storage) : undefined
-if (saved?.ok) resume(saved)
+const problems: string[] = []
+if (storage) {
+  migrateLegacyMatch(storage)
+  problems.push(...listMatches(storage).discarded.map(reason => `A saved match was discarded. ${reason}`))
+}
+const current = storage ? currentMatchId(storage) : undefined
+const saved = current ? storedMatch(current) : undefined
+if (saved && 'open' in saved) resume(saved.open, saved.state)
 else {
   regenerate()
-  if (saved) messenger.notice(saved.reason, true)
+  if (saved) problems.push(saved.reason)
 }
+if (problems.length) messenger.notice(problems.join(' '), true)
 takeLinkedTurn()
 
 // Opt-in, read-only diagnostics work in production benchmarks without exposing state mutation.
@@ -444,7 +543,7 @@ if (params.get('diagnostics') === '1') {
       }
     },
     match: () => match && expedition ? {
-      id: match.id, faction: match.faction, active: expedition.activeFaction,
+      id: match.id, faction: match.faction, name: match.name, active: expedition.activeFaction,
       commandCount: expedition.commands.length, stateHash: stateHash(expedition),
     } : undefined,
   }

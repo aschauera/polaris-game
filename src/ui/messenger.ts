@@ -2,7 +2,18 @@ export interface MessengerHandlers {
   start(): void
   open(text: string): void
   openFile(file: File): void
+  resume(matchId: string): void
+  rename(name: string): void
+  // Back to the match list; the match stays saved on this device.
+  shelve(): void
   leave(): void
+}
+
+export interface SavedMatchEntry {
+  readonly matchId: string
+  readonly title: string
+  readonly detail: string
+  readonly yourTurn: boolean
 }
 
 export interface Outbox {
@@ -12,7 +23,10 @@ export interface Outbox {
 }
 
 export interface MatchView {
+  readonly matchId: string
   readonly status: string
+  readonly name: string
+  readonly nameLimit: number
   // While the opponent is on turn, this device holds a finished turn to send and waits for the answer.
   readonly waiting: boolean
   // Unset while the finished turn is still being packed.
@@ -52,8 +66,17 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
     <div class="section-label">PLAY BY MESSENGER</div>
     <p id="messenger-status" class="messenger-status" aria-live="polite" hidden></p>
     <div id="messenger-intro">
-      <p>Two players, no server: finish your turn, send it through any messenger, and your opponent answers the same way.</p>
+      <p>Two players, no server: finish your turn, send it through any messenger, and your opponent answers the same way.
+        Run as many matches as you like; each one is kept on this device.</p>
       <button id="messenger-start" type="button" disabled>Start messenger match</button>
+    </div>
+    <div id="messenger-saved" hidden>
+      <p class="messenger-subhead">Your matches</p>
+      <ul id="messenger-saved-list" class="saved-matches"></ul>
+    </div>
+    <div id="messenger-name-group" hidden>
+      <label for="messenger-name">Match name, only on this device</label>
+      <input id="messenger-name" type="text" autocomplete="off" spellcheck="false" placeholder="For example your opponent's name" />
     </div>
     <div id="messenger-outbox" hidden>
       <p id="messenger-outbox-text"></p>
@@ -80,7 +103,10 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
     </details>
     <p id="messenger-notice" class="messenger-notice" aria-live="polite" aria-atomic="true" hidden></p>
     <div id="messenger-leave-group" hidden>
-      <button id="messenger-leave" type="button">Leave match</button>
+      <div id="messenger-exit" class="messenger-actions">
+        <button id="messenger-shelve" type="button">All matches</button>
+        <button id="messenger-leave" type="button">Leave match</button>
+      </div>
       <div id="messenger-confirm" hidden>
         <p>Leave this match? This device forgets it; your opponent keeps their copy.</p>
         <div class="messenger-actions">
@@ -107,16 +133,40 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
   const file = get<HTMLInputElement>('messenger-file')
   const noticeLine = get('messenger-notice')
   const leaveGroup = get('messenger-leave-group')
+  const exitActions = get('messenger-exit')
   const leave = get<HTMLButtonElement>('messenger-leave')
   const confirm = get('messenger-confirm')
+  const savedGroup = get('messenger-saved')
+  const savedList = get<HTMLUListElement>('messenger-saved-list')
+  const nameGroup = get('messenger-name-group')
+  const nameField = get<HTMLInputElement>('messenger-name')
   let outbox: Outbox | undefined
+  let shownMatchId: string | undefined
 
   const notice = (text: string, rejected = false) => {
     noticeLine.textContent = text
     noticeLine.hidden = !text
     noticeLine.classList.toggle('rejected', rejected)
   }
-  const resetConfirm = () => { confirm.hidden = true; leave.hidden = false }
+  const resetConfirm = () => { confirm.hidden = true; exitActions.hidden = false }
+  // Names are typed by the player, so entries are built as text nodes and never parsed as markup.
+  const savedEntry = (entry: SavedMatchEntry) => {
+    const item = document.createElement('li')
+    item.className = entry.yourTurn ? 'saved-match your-turn' : 'saved-match'
+    const title = document.createElement('strong')
+    title.textContent = entry.title
+    const detail = document.createElement('span')
+    detail.textContent = entry.detail
+    const text = document.createElement('div')
+    text.append(title, detail)
+    const resume = document.createElement('button')
+    resume.type = 'button'
+    resume.textContent = 'Continue'
+    resume.setAttribute('aria-label', `Continue ${entry.title}`)
+    resume.addEventListener('click', () => handlers.resume(entry.matchId))
+    item.append(text, resume)
+    return item
+  }
 
   share.hidden = typeof navigator.share !== 'function'
   start.addEventListener('click', () => handlers.start())
@@ -163,31 +213,50 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
     setTimeout(() => URL.revokeObjectURL(url), 1000)
     notice('Turn saved as a file. Attach it in your messenger.')
   })
-  leave.addEventListener('click', () => { leave.hidden = true; confirm.hidden = false })
+  leave.addEventListener('click', () => { exitActions.hidden = true; confirm.hidden = false })
   get('messenger-leave-no').addEventListener('click', () => { resetConfirm(); leave.focus() })
   get('messenger-leave-yes').addEventListener('click', () => { resetConfirm(); handlers.leave() })
+  get('messenger-shelve').addEventListener('click', () => handlers.shelve())
+  nameField.addEventListener('change', () => {
+    nameField.value = nameField.value.trim()
+    handlers.rename(nameField.value)
+  })
 
   return {
     hide() { root.hidden = true },
-    // No match running: offer to start one, or to open a turn received from someone else.
-    idle(canStart: boolean) {
+    // No match open: offer to start one, continue a saved one, or open a turn received from someone else.
+    idle(canStart: boolean, saved: readonly SavedMatchEntry[] = []) {
       root.hidden = false
       intro.hidden = false
       start.disabled = !canStart
       status.hidden = true
+      savedGroup.hidden = !saved.length
+      savedList.replaceChildren(...saved.map(savedEntry))
+      nameGroup.hidden = true
       outboxGroup.hidden = true
       inboxGroup.hidden = false
       leaveGroup.hidden = true
       outbox = undefined
+      shownMatchId = undefined
       resetConfirm()
     },
     match(view: MatchView) {
+      // A received turn can switch matches; a pending leave or a half-typed name belongs to the previous one.
+      const switched = view.matchId !== shownMatchId
+      shownMatchId = view.matchId
+      if (switched) resetConfirm()
       root.hidden = false
       intro.hidden = true
+      savedGroup.hidden = true
       status.textContent = view.status
       status.hidden = false
+      nameGroup.hidden = false
+      nameField.maxLength = view.nameLimit
+      // Re-rendering the same match while the player types would throw their edit away.
+      if (switched || document.activeElement !== nameField) nameField.value = view.name
       outboxGroup.hidden = !view.waiting
-      inboxGroup.hidden = !view.waiting
+      // A turn for another match can arrive at any time, so the inbox stays available, folded on your turn.
+      inboxGroup.hidden = false
       if (view.waiting) inboxGroup.open = true
       leaveGroup.hidden = false
       outbox = view.outbox

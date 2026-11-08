@@ -53,7 +53,14 @@ input, textarea { width: 100%; padding: 10px; color: #f4f1dc; background: #0f232
 .messenger { margin-top: 18px; padding-top: 16px; border-top: 1px solid #61756a; }
 .messenger p { font-size: 12px; line-height: 1.5; color: #afc0ba; margin: 10px 0; }
 .messenger .messenger-status { color: #d7deb7; }
-.messenger #messenger-intro > button, #messenger-leave-group > button { width: 100%; font-size: 12px; }
+.messenger #messenger-intro > button { width: 100%; font-size: 12px; }
+.messenger .messenger-subhead { font-size: 11px; color: #c0cdc6; margin: 16px 0 6px; }
+.saved-matches { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.saved-match { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 8px 8px 10px; background: #10252f; border: 1px solid #3b5550; }
+.saved-match.your-turn { border-color: #d8bb7d; }
+.saved-match strong { display: block; font-size: 12px; font-weight: 600; color: #ecede0; overflow-wrap: anywhere; }
+.saved-match span { display: block; font-size: 11px; line-height: 1.4; color: #afc0ba; margin-top: 2px; }
+.saved-match button { font-size: 12px; padding: 8px 10px; }
 .messenger-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
 .messenger-actions button { font-size: 12px; padding: 9px 6px; }
 .messenger textarea { font-size: 11px; line-height: 1.4; resize: vertical; overflow-wrap: anywhere; }

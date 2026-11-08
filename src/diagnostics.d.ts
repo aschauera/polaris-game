@@ -15,7 +15,7 @@ declare global {
         fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
         reachable: readonly number[]
       } | undefined
-      match(): { id: string; faction: FactionId; active: FactionId; commandCount: number; stateHash: string } | undefined
+      match(): { id: string; faction: FactionId; name: string; active: FactionId; commandCount: number; stateHash: string } | undefined
     }
   }
 }
