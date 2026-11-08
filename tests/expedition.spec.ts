@@ -95,6 +95,30 @@ test('selects a scout, spends movement, explores, rejects orders and restores mo
   await page.screenshot({ path: testInfo.outputPath('expedition-explored.png') })
 })
 
+test('founds a city, inspects its economy and completes queued production', async ({ page }, testInfo) => {
+  await start(page)
+  await page.getByRole('button', { name: /^Found city at/ }).click()
+  await expect(page.locator('#city-info')).toContainText('Population 1')
+  await expect(page.locator('#city-info')).toContainText(/Food 0 \(\+\d+\/turn/)
+  await expect(page.locator('#city-info')).toContainText(/\+\d+\/turn\) · \d+ claimed tiles/)
+  expect((await snapshot(page))!.cities).toHaveLength(1)
+  expect((await snapshot(page))!.founders).toHaveLength(0)
+
+  await page.getByLabel('Production', { exact: true }).selectOption('guard')
+  await page.getByRole('button', { name: 'Queue production' }).click()
+  await expect(page.locator('#city-info')).toContainText(/Queue: Guard · 0\/8 materials/)
+  for (let turn = 0; turn < 6 && !(await snapshot(page))!.units.length; turn++) {
+    await page.getByRole('button', { name: 'End turn', exact: true }).click()
+  }
+  const completed = (await snapshot(page))!
+  expect(completed.units).toHaveLength(1)
+  expect(completed.units[0]).toMatchObject({ type: 'guard', id: 'unit-meridian-1' })
+  expect(completed.cities[0]!.production).toBeUndefined()
+  await expect(page.locator('#order-status')).toContainText('completed Guard')
+  await expect(page.locator('#city-info')).toContainText('Units: Guard at')
+  await page.screenshot({ path: testInfo.outputPath('city-production.png') })
+})
+
 const SCOUT_MOVEMENT_LIMIT = 4
 
 test('unknown land and water have identical opaque surfaces, no trees or inspection leaks', async ({ page }, testInfo) => {

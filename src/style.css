@@ -41,6 +41,10 @@ input { width: 100%; padding: 10px; color: #f4f1dc; background: #0f232e; border:
 .expedition { margin-top: 18px; border-bottom: 1px solid #61756a; padding-bottom: 16px; }
 .expedition p { font-size: 12px; line-height: 1.5; }
 .expedition > button { width: 100%; margin-top: 8px; font-size: 12px; }
+#city-controls { margin-top: 14px; padding-top: 12px; border-top: 1px solid #49645f; }
+#city-controls select { width: 100%; padding: 8px; color: #e8ebdf; background: #0f232e; border: 1px solid #506862; }
+#city-info { color: #d7deb7; overflow-wrap: anywhere; }
+#city-controls > button { width: 100%; margin-top: 8px; font-size: 12px; }
 .direction-tools { display: flex; gap: 6px; margin-top: 10px; }
 .direction-tools button { flex: 1; }
 #order-status { color: #d7deb7; min-height: 54px; }

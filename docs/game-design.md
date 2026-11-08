@@ -4,7 +4,7 @@
 
 An original, browser-first, turn-based 4X game about rival societies rebuilding a fractured world. Explore readable voxel landscapes, grow cities, and choose between cooperation and conquest. Art Deco geometry gives the world civic grandeur without copying an existing game's art, names, factions, or rules.
 
-**Implemented scope:** seeded terrain, an interactive camera, tile inspection, and an opt-in scout expedition with movement, turns and basic faction fog (roadmap brief 6). Cities, ownership simulation, combat and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
+**Implemented scope:** seeded terrain, an interactive camera, tile inspection, scout movement and faction fog, plus the first city founding/economy/production slice (roadmap briefs 6–7). Combat, workers, research, diplomacy, AI and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
 
 ## Map contract
 
@@ -48,6 +48,14 @@ The atlas is unchanged by default; **Start expedition** starts one Meridian scou
 A* finds a destination route, bounded by remaining movement; Dijkstra produces the reachable range. Both use charted, unoccupied terrain only, N/E/S/W neighbor insertion and FIFO ties at equal priority. Movement resolves immediately, reveals sight along the route, and leaves only current scout sight visible. End-turn activates the next faction in declared order and refreshes only its movement; the round increments on wrapping to the first faction. With one faction, each end-turn increments the round. Static terrain needs no end-turn fog recomputation.
 
 Commands carry faction and monotonically increasing sequence IDs. Invalid orders leave state, history and RNG unchanged. No command currently consumes randomness. Accepted commands are retained in memory for deterministic tests; this is not a save/replay format. The UI offers one scout without opponent AI or faction bonuses. Multi-faction turn order, occupancy and separate fog are domain-tested foundations, not a claim of a complete match.
+
+### Implemented city economy slice (rules version 2)
+
+Each faction starts with one scout and one stationary founder on adjacent land. Founding consumes the founder. A founder may settle only explored land outside every existing city's claims and at least five Manhattan tiles from another city; a city claims unowned land within Manhattan radius 1. Each faction is capped at two cities.
+
+Claimed grassland yields 2 food and 1 material per turn; hills yield 1 food and 2 materials; water cannot be claimed. At each active faction's end turn, its cities resolve in founding order: add yields, consume 2 food per population, grow by at most one population if the remaining food reaches `8 + 4 × current population`, then apply materials to the single production queue. If available food cannot cover consumption, the stockpile becomes zero and population does not grow or decline. These initial values are explicit rules-versioned definitions, not balance claims.
+
+The queue choices are **Guard (8 materials)**, **Worker (10)**, and **Storehouse (12)**. A completed Guard or Worker appears on the first free adjacent land tile in N/E/S/W order. If all adjacent land is occupied, the completed item remains at full progress and retries on a later turn; unspent materials remain in the city's stockpile. A Storehouse adds 1 material per turn after completion. Guard combat and Worker actions are not implemented. The HUD exposes city population, food/material stockpiles and yields, claim size, queue choice/cost, progress, and explicit order rejection or completion messages.
 
 ## First playable: two representative factions
 
