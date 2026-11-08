@@ -300,6 +300,18 @@ How it behaves:
 - Two tabs of one browser profile share the stored match and overwrite each other.
 - Only desktop Chromium is automated (two isolated browser contexts acting as two devices). Phone browsers and messenger apps are not validated.
 
+### Visual overview
+
+Fresh production-app captures from [validation run 42521598334](https://github.com/aschauera/polaris-game/actions/runs/42521598334), application commit `366d1a8`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader. The idle panel is 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
+
+![The atlas with the Play by messenger panel before a match: start a match or open a received turn](docs/messenger-idle.png)
+
+![The host after End turn: the finished turn offered as link, code and file while the match waits for Lantern Compact](docs/messenger-host-outbox.png)
+
+![The guest after opening the link: the match opens as Lantern Compact, and it is their turn](docs/messenger-guest-joined.png)
+
+These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **85 unit tests**, **16 browser tests**, type-check, lint and production build in that run.
+
 ## Map inputs and controls
 
 - Seed: **1–64 ASCII letters, digits, `_`, or `-`**; case-sensitive.
