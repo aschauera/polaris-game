@@ -362,7 +362,7 @@ describe('faction exploration', () => {
   it('hides unknown tiles and reveals only the traveled sight regions', () => {
     const state = createExpedition(plainMap())
     const start = state.scouts[0]!.tileId
-    const to = start - 16
+    const to = start + 1
     expect(knownTile(state, 'meridian', 0)).toBeUndefined()
     const result = applyCommand(state, move(state, to))
     expect(result.ok).toBe(true)
