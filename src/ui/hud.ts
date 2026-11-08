@@ -154,7 +154,7 @@ export function createHud() {
       const city = cities.find(item => item.id === cityChoice.value)
       const info = get('city-info')
       if (!city) { info.textContent = ''; return }
-      const foodStatus = city.foodYield >= city.foodConsumption ? 'fed' : 'not fully fed'
+      const foodStatus = city.food + city.foodYield >= city.foodConsumption ? 'fed' : 'not fully fed'
       const production = city.production
         ? `Queue: ${city.production.name} · ${city.production.progress}/${city.production.cost} materials`
         : 'No production queued'
