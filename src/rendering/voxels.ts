@@ -15,6 +15,9 @@ const SOURCE = {
   leafTeal: '#2f9a7c', leafTealLight: '#43b391', leafGreen: '#3f9b3a', leafGreenLight: '#57b34b',
   leafDark: '#23735f', leafDarkLight: '#2f8a70', leafLime: '#86c94a', leafLimeLight: '#a3dc5f',
   tuft: '#7dd05a', flowerWhite: '#f1eee4', flowerYellow: '#f1cf4b', flowerRed: '#d9554b', flowerViolet: '#9b72cf',
+  path: '#cfb07a', wall: '#efe4cc', timber: '#9c7a55', door: '#5b3f2a', window: '#3f4b57',
+  roof: '#c8473b', roofRidge: '#a5372e', plank: '#a8743f', thatch: '#d9ad4e', thatchRidge: '#bf9238',
+  castle: '#aeaca5', castleDark: '#8f8d86', bannerGold: '#f0c873', bannerBlue: '#5a7fe0',
 } as const
 
 export type VoxelKind = keyof typeof SOURCE
@@ -54,6 +57,22 @@ export interface VoxelWorld {
   /** Columns a tree may extend beyond its own tile. */
   readonly reach: number
   readonly seed: number
+  /** Per-tile settlement codes from `siteCode`; 0 means none. Callers update them and remesh `affectedChunks`. */
+  readonly sites: Uint8Array
+}
+
+export interface Settlement {
+  /** Dwellings around the keep, 1–3. */
+  readonly houses: number
+  readonly storehouse: boolean
+  /** Banner colour: 0 gold, 1 blue. */
+  readonly banner: 0 | 1
+}
+
+export function siteCode(settlement?: Settlement): number {
+  if (!settlement) return 0
+  const houses = Math.max(1, Math.min(3, Math.floor(settlement.houses)))
+  return 1 | (houses - 1) << 1 | (settlement.storehouse ? 8 : 0) | settlement.banner << 4
 }
 
 export interface ChunkMesh {
@@ -99,6 +118,7 @@ export function createVoxelWorld(map: WorldMap, chunkColumns = CHUNK_COLUMNS): V
     map, scale, size: 1 / scale, columnsX, columnsZ, base, layers: base + highest + tree + 1, chunkColumns,
     chunksX: Math.ceil(columnsX / chunkColumns), chunksZ: Math.ceil(columnsZ / chunkColumns),
     reach: Math.ceil(shape.radius + shape.radiusVariance) + 1, seed: seedState(map.seed),
+    sites: new Uint8Array(map.width * map.height),
   }
 }
 
@@ -153,6 +173,13 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
     return { top: waterLevel(scale), surface: shore ? VOXEL.shallow : VOXEL.water, body: 'water', tile, known: true }
   }
   const level = landLevel(scale, tile.terrain, tile.elevation)
+  if (world.sites[tile.id]) {
+    // A settlement levels its tile; paths separate the building plots.
+    const path = scale >= 8 && (gx - tile.x * scale === 3 || gz - tile.z * scale === 3)
+    const hills = tile.terrain === 'hills'
+    return { top: level, surface: path ? VOXEL.path : hills ? VOXEL.hillGrass : VOXEL.grass,
+      body: hills ? 'cliff' : 'dirt', tile, known: true }
+  }
   if (tile.terrain === 'grassland') {
     const beach = scale >= 4 && tile.elevation === 1 && noise(seed, 6, gx, gz, 3) > 0.42
       && neighborAcross(world, known, tile, gx, gz, neighbor => neighbor.terrain === 'water')
@@ -204,6 +231,82 @@ function place(volume: Volume, gx: number, layer: number, gz: number, kind: numb
   if (index < volume.data.length && volume.data[index] === 0) volume.data[index] = kind
 }
 
+interface Roofing { wall: number; roof: number; ridge: number }
+const DWELLING: Roofing = { wall: VOXEL.wall, roof: VOXEL.roof, ridge: VOXEL.roofRidge }
+const STOREHOUSE: Roofing = { wall: VOXEL.plank, roof: VOXEL.thatch, ridge: VOXEL.thatchRidge }
+
+/** A gabled building; doors and windows face the camera (+z and +x). */
+function stampHouse(volume: Volume, gx: number, gz: number, ground: number, size: number, walls: number,
+  ridge: 'x' | 'z', style: Roofing): void {
+  const last = size - 1
+  for (let dz = 0; dz < size; dz++) {
+    for (let dx = 0; dx < size; dx++) {
+      for (let layer = 0; layer < walls; layer++) {
+        let kind = style.wall
+        if (size >= 3 && layer === 0 && dz === last && dx === 1) kind = VOXEL.door
+        else if (size >= 3 && layer === walls - 1 && dx === last && dz === 1) kind = VOXEL.window
+        place(volume, gx + dx, ground + layer, gz + dz, kind)
+      }
+      place(volume, gx + dx, ground + walls, gz + dz, style.roof)
+      if (size >= 3 && (ridge === 'x' ? dz : dx) === 1) place(volume, gx + dx, ground + walls + 1, gz + dz, style.ridge)
+    }
+  }
+}
+
+/** A stone keep with crenellations and a banner in the owner's colour. */
+function stampKeep(volume: Volume, gx: number, gz: number, ground: number, size: number, height: number, banner: number): void {
+  const last = size - 1
+  for (let dz = 0; dz < size; dz++) {
+    for (let dx = 0; dx < size; dx++) {
+      for (let layer = 0; layer < height; layer++) {
+        let kind = (dx + dz + layer) % 3 === 0 ? VOXEL.castleDark : VOXEL.castle
+        if (size >= 3 && layer === 0 && dz === last && dx === 1) kind = VOXEL.door
+        else if (size >= 3 && layer === height - 2 && ((dx === last && dz === 1) || (dz === last && dx === 1))) kind = VOXEL.window
+        place(volume, gx + dx, ground + layer, gz + dz, kind)
+      }
+      if (size >= 3 && (dx === 0 || dx === last) && (dz === 0 || dz === last)) place(volume, gx + dx, ground + height, gz + dz, VOXEL.castle)
+    }
+  }
+  if (size < 3) {
+    place(volume, gx, ground + height, gz, banner)
+    return
+  }
+  place(volume, gx + 1, ground + height, gz + 1, VOXEL.timber)
+  place(volume, gx + 1, ground + height + 1, gz + 1, banner)
+  place(volume, gx + 2, ground + height + 1, gz + 1, banner)
+}
+
+function stampSettlements(world: VoxelWorld, known: Uint8Array, volume: Volume): void {
+  const { map, scale, base, sites } = world
+  const left = Math.max(0, Math.floor((volume.x0 - 1) / scale))
+  const right = Math.min(map.width - 1, Math.floor((volume.x0 + volume.width) / scale))
+  const top = Math.max(0, Math.floor((volume.z0 - 1) / scale))
+  const bottom = Math.min(map.height - 1, Math.floor((volume.z0 + volume.depth) / scale))
+  for (let tz = top; tz <= bottom; tz++) {
+    for (let tx = left; tx <= right; tx++) {
+      const tile = map.tiles[tz * map.width + tx]!
+      const code = sites[tile.id]!
+      if (!code || known[tile.id] !== 1 || tile.terrain === 'water') continue
+      const ground = base + landLevel(scale, tile.terrain, tile.elevation)
+      const x = tx * scale
+      const z = tz * scale
+      const banner = code & 16 ? VOXEL.bannerBlue : VOXEL.bannerGold
+      const houses = ((code >> 1) & 3) + 1
+      if (scale >= 8) {
+        // Plots of 3 × 3 columns around the path cross at local column/row 3.
+        stampKeep(volume, x + 4, z, ground, 3, 4, banner)
+        stampHouse(volume, x, z, ground, 3, 2, 'x', DWELLING)
+        if (houses >= 2) stampHouse(volume, x, z + 4, ground, 3, 2, 'z', DWELLING)
+        if (code & 8) stampHouse(volume, x + 4, z + 4, ground, 3, 2, 'x', STOREHOUSE)
+        else if (houses >= 3) stampHouse(volume, x + 4, z + 4, ground, 3, 2, 'x', DWELLING)
+      } else if (scale >= 4) {
+        stampHouse(volume, x, z + 1, ground, 3, 2, 'x', DWELLING)
+        stampKeep(volume, x + 3, z, ground, 1, 2, banner)
+      } else stampHouse(volume, x, z, ground, 2, 1, 'x', DWELLING)
+    }
+  }
+}
+
 function stampTrees(world: VoxelWorld, known: Uint8Array, volume: Volume): void {
   const { map, scale, seed, base, reach } = world
   const shape = treeShape(scale)
@@ -214,7 +317,7 @@ function stampTrees(world: VoxelWorld, known: Uint8Array, volume: Volume): void 
   for (let tz = top; tz <= bottom; tz++) {
     for (let tx = left; tx <= right; tx++) {
       const tile = map.tiles[tz * map.width + tx]!
-      if (!tile.trees || known[tile.id] !== 1) continue
+      if (!tile.trees || known[tile.id] !== 1 || world.sites[tile.id]) continue
       for (const [index, [fx, fz]] of TREE_SPOTS[tile.trees]!.entries()) {
         const jitter = scale >= 8 ? 1 : 0
         const cx = tx * scale + Math.floor(fx * scale) + Math.round((hash(seed, tile.id, 10 + index, 0) * 2 - 1) * jitter)
@@ -257,7 +360,7 @@ function stampDetails(world: VoxelWorld, volume: Volume, columns: (Column | unde
   for (let z = 0; z < volume.depth + 2; z++) {
     for (let x = 0; x < volume.width + 2; x++) {
       const info = columns[z * (volume.width + 2) + x]
-      if (!info?.known) continue
+      if (!info?.known || world.sites[info.tile.id]) continue
       const gx = volume.x0 + x - 1
       const gz = volume.z0 + z - 1
       const roll = hash(seed, gx, 70, gz)
@@ -290,6 +393,7 @@ function fillVolume(world: VoxelWorld, known: Uint8Array, chunk: number): Volume
       }
     }
   }
+  stampSettlements(world, known, volume)
   stampTrees(world, known, volume)
   stampDetails(world, volume, columns)
   return volume

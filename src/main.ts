@@ -111,10 +111,16 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
   const state = expedition
   if (!state) { renderer?.setExploration(); updateExpeditionHud(); return }
   const scout = scoutOf(state)
+  const viewer = viewerOf(state)
+  const fog = state.factions.find(item => item.id === viewer)!.fog
   renderer?.setExploration({
-    fog: state.factions.find(item => item.id === viewerOf(state))!.fog, scoutTileId: scout.tileId,
+    fog, scoutTileId: scout.tileId,
     // Only the active faction can move, so this stays empty while the opponent is on turn.
     reachable: [...movementRange(state, scout.id).keys()],
+    // Rival cities show only while in sight; remembering them belongs to last-known-state rendering.
+    settlements: state.cities.filter(city => city.factionId === viewer || fog[city.tileId] === 'visible')
+      .map(city => ({ tileId: city.tileId, houses: city.population, storehouse: city.storehouse,
+        banner: city.factionId === 'lantern' ? 1 : 0 })),
   }, dirtyTiles)
   updateExpeditionHud()
 }

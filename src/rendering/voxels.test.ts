@@ -3,8 +3,8 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
 import { CreateBoxVertexData } from '@babylonjs/core/Meshes/Builders/boxBuilder'
 import { generateMap, type Tile, type WorldMap } from '../game/map'
 import {
-  FACE_DIRECTIONS, PALETTE, VOXEL, affectedChunks, createVoxelWorld, meshChunk, pickTile, tileSurface, voxelScale,
-  type ChunkMesh, type VoxelWorld,
+  AO_LIGHT, FACE_DIRECTIONS, PALETTE, VOXEL, affectedChunks, createVoxelWorld, meshChunk, pickTile, siteCode, tileSurface,
+  voxelScale, type ChunkMesh, type VoxelWorld,
 } from './voxels'
 
 const allKnown = (map: WorldMap) => new Uint8Array(map.tiles.length).fill(1)
@@ -37,6 +37,17 @@ function surfaceSignature(meshes: ChunkMesh[]): Map<string, number> {
   }
   for (const [key, value] of area) area.set(key, Math.round(value * 1e6) / 1e6)
   return area
+}
+
+/** Whether any face shows the palette colour of `kind`, at any ambient-occlusion level. */
+function shows(meshes: ChunkMesh[], kind: number): boolean {
+  return meshes.some(mesh => {
+    for (let v = 0; v < mesh.colors.length / 4; v++) {
+      if (AO_LIGHT.some(light => [0, 1, 2].every(c =>
+        Math.abs(mesh.colors[v * 4 + c]! - PALETTE[kind * 3 + c]! * light) < 1e-6))) return true
+    }
+    return false
+  })
 }
 
 describe('voxel terrain mesher', () => {
@@ -97,11 +108,63 @@ describe('voxel terrain mesher', () => {
     const map = generateMap({ seed: 'North_Star-7', width: 16, height: 16 })
     const known = new Uint8Array(map.tiles.length)
     for (const tile of map.tiles) known[tile.id] = (tile.x * 7 + tile.z * 3) % 5 === 0 ? 0 : 1
-    const whole = surfaceSignature(meshAll(createVoxelWorld(map, 128), known))
+    const settle = (world: VoxelWorld) => {
+      for (const id of [3 * 16 + 3, 3 * 16 + 4, 5 * 16 + 11, 12 * 16 + 7]) world.sites[id] = siteCode({ houses: 3, storehouse: id % 2 === 0, banner: 1 })
+      return world
+    }
+    const whole = surfaceSignature(meshAll(settle(createVoxelWorld(map, 128)), known))
     for (const chunkColumns of [32, 48]) {
-      const world = createVoxelWorld(map, chunkColumns)
+      const world = settle(createVoxelWorld(map, chunkColumns))
       expect(world.chunksX * world.chunksZ).toBeGreaterThan(1)
       expect(surfaceSignature(meshAll(world, known))).toEqual(whole)
+    }
+  })
+
+  it('builds a settlement with its keep, banner and storehouse in place of the tile trees', () => {
+    const map = flatMap(4, 4, { 5: { trees: 3 }, 10: { terrain: 'hills', elevation: 3 } })
+    const known = allKnown(map)
+    const world = createVoxelWorld(map)
+    expect(shows(meshAll(world, known), VOXEL.trunk)).toBe(true)
+    expect(shows(meshAll(world, known), VOXEL.roof)).toBe(false)
+    world.sites[5] = siteCode({ houses: 1, storehouse: false, banner: 1 })
+    const village = meshAll(world, known)
+    expect([VOXEL.roof, VOXEL.castle, VOXEL.bannerBlue, VOXEL.path].map(kind => shows(village, kind))).toEqual([true, true, true, true])
+    expect([VOXEL.trunk, VOXEL.bannerGold, VOXEL.thatch].map(kind => shows(village, kind))).toEqual([false, false, false])
+    world.sites[5] = siteCode({ houses: 3, storehouse: true, banner: 0 })
+    const town = meshAll(world, known)
+    expect([VOXEL.thatch, VOXEL.bannerGold].map(kind => shows(town, kind))).toEqual([true, true])
+    expect(town[0]!.quads).toBeGreaterThan(village[0]!.quads)
+    // Hill settlements are levelled so buildings stand on the pickable surface.
+    world.sites[5] = 0
+    world.sites[10] = siteCode({ houses: 2, storehouse: false, banner: 0 })
+    const tops = new Set<number>()
+    for (const mesh of meshAll(world, known)) {
+      for (let v = 0; v < mesh.positions.length / 3; v++) {
+        const [x, y, z] = [mesh.positions[v * 3]!, mesh.positions[v * 3 + 1]!, mesh.positions[v * 3 + 2]!]
+        if (mesh.normals[v * 3 + 1] === 1 && x > 1.5 && x < 2.5 && z > 1.5 && z < 2.5) tops.add(y)
+      }
+    }
+    expect(Math.min(...tops)).toBe(tileSurface(world, map.tiles[10]!, true) * world.size)
+  })
+
+  it('never shows a settlement on an uncharted tile', () => {
+    const map = flatMap(4, 4)
+    const known = allKnown(map)
+    known[5] = 0
+    const world = createVoxelWorld(map)
+    const plain = meshAll(world, known)
+    world.sites[5] = siteCode({ houses: 3, storehouse: true, banner: 1 })
+    expect(meshAll(world, known)).toEqual(plain)
+  })
+
+  it('fits settlements at every voxel scale', () => {
+    for (const size of [32, 128, 256]) {
+      const map = flatMap(size, size)
+      const world = createVoxelWorld(map)
+      world.sites[0] = siteCode({ houses: 3, storehouse: false, banner: 0 })
+      const mesh = [meshChunk(world, allKnown(map), 0)]
+      expect(shows(mesh, VOXEL.roof), `${size}`).toBe(true)
+      expect(shows(mesh, VOXEL.bannerGold), `${size}`).toBe(world.scale >= 4)
     }
   })
 

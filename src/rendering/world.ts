@@ -6,12 +6,21 @@ import {
 } from '@babylonjs/core'
 import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
-import { PALETTE, VOXEL, affectedChunks, createVoxelWorld, meshChunk, pickTile, tileSurface, type VoxelWorld } from './voxels'
+import {
+  PALETTE, VOXEL, affectedChunks, createVoxelWorld, meshChunk, pickTile, siteCode, tileSurface,
+  type Settlement, type VoxelWorld,
+} from './voxels'
+
+export interface SettlementView extends Settlement {
+  readonly tileId: number
+}
 
 export interface ExplorationView {
   readonly fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
   readonly scoutTileId: number
   readonly reachable: readonly number[]
+  /** Cities the viewer may see; tiles that are not charted never show one. */
+  readonly settlements?: readonly SettlementView[]
 }
 
 export interface RenderStats {
@@ -25,6 +34,7 @@ export interface RenderStats {
   vertexBufferBytes: number
   disposedChunks: number
   remeshedChunks: number
+  settlements: number
   drawCalls: number
   frameMs: number
   webGLVersion: number
@@ -324,7 +334,16 @@ export class WorldRenderer {
       this.tileStateData[id * 4 + 1] = reachable.has(id) ? 255 : 0
     }
     tileState.update(this.tileStateData)
-    const remesh = affectedChunks(world, charted)
+    const sites = new Map<number, number>()
+    for (const settlement of view?.settlements ?? []) sites.set(settlement.tileId, siteCode(settlement))
+    const settled: number[] = []
+    for (let id = 0; id < world.sites.length; id++) {
+      const code = sites.get(id) ?? 0
+      if (world.sites[id] === code) continue
+      world.sites[id] = code
+      settled.push(id)
+    }
+    const remesh = affectedChunks(world, [...charted, ...settled])
     for (const chunk of remesh) this.buildChunk(chunk)
     this.remeshedChunks += remesh.size
     this.fogUpdates += ids.size
@@ -514,6 +533,7 @@ export class WorldRenderer {
       quads: this.chunks.reduce((sum, chunk) => sum + chunk.quads, 0),
       vertexBufferBytes: this.chunks.reduce((sum, chunk) => sum + chunk.bytes, 0),
       disposedChunks: this.disposedChunks, remeshedChunks: this.remeshedChunks,
+      settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code ? 1 : 0), 0) : 0,
       drawCalls: this.engine._drawCalls.current,
       frameMs: this.instrumentation.frameTimeCounter.current, webGLVersion: this.engine.webGLVersion,
       fogUpdates: this.fogUpdates,
