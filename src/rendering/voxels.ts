@@ -203,6 +203,8 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
 
 function layerKind(world: VoxelWorld, layer: number, info: Column): number {
   const { base } = world
+  // Uncharted columns stay fog down to the bottom, so the diorama grows out of the unknown as it is charted.
+  if (info.body === 'fog') return VOXEL.fog
   if (layer < base) {
     const depth = base - 1 - layer
     // The diorama base shows stratified soil like a cut-out terrain sample.
@@ -210,7 +212,6 @@ function layerKind(world: VoxelWorld, layer: number, info: Column): number {
   }
   const level = layer - base
   if (level === info.top - 1) return info.surface
-  if (info.body === 'fog') return VOXEL.fog
   if (info.body === 'water') return VOXEL.water
   const band = Math.floor(level / 2) % 3 === 2
   if (info.body === 'cliff') return band ? VOXEL.cliffDark : VOXEL.cliff

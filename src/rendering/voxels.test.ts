@@ -180,14 +180,20 @@ describe('voxel terrain mesher', () => {
     expect(meshAll(createVoxelWorld(altered), known)).toEqual(meshAll(createVoxelWorld(map), known))
   })
 
-  it('renders uncharted tiles as flat, unshaded, flagged fog', () => {
+  it('renders uncharted tiles as flat, unshaded, flagged fog down to the diorama base', () => {
     const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
     const world = createVoxelWorld(map)
-    const mesh = meshChunk(world, new Uint8Array(map.tiles.length), 5)
     const fog = Array.from(PALETTE.slice(VOXEL.fog * 3, VOXEL.fog * 3 + 3))
-    for (let v = 0; v < mesh.colors.length / 4; v++) {
-      expect(Array.from(mesh.colors.slice(v * 4, v * 4 + 3))).toEqual(fog)
-      expect(mesh.colors[v * 4 + 3]).toBe(0)
+    // Chunk 15 holds the map's +x/+z corner, whose base sides face the camera.
+    const edge = meshChunk(world, new Uint8Array(map.tiles.length), 15)
+    expect(Array.from({ length: edge.normals.length / 3 }, (_, v) => v)
+      .some(v => edge.normals[v * 3] === 1 && edge.positions[v * 3 + 1]! < 0)).toBe(true)
+    const mesh = meshChunk(world, new Uint8Array(map.tiles.length), 5)
+    for (const chunk of [mesh, edge]) {
+      for (let v = 0; v < chunk.colors.length / 4; v++) {
+        expect(Array.from(chunk.colors.slice(v * 4, v * 4 + 3))).toEqual(fog)
+        expect(chunk.colors[v * 4 + 3]).toBe(0)
+      }
     }
     const tops = new Set<number>()
     for (let v = 0; v < mesh.normals.length / 3; v++) if (mesh.normals[v * 3 + 1] === 1) tops.add(mesh.positions[v * 3 + 1]!)
