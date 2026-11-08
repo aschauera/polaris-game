@@ -10,6 +10,10 @@ export interface ExpeditionSummary {
   total: number
   scoutSelected: boolean
   canOrder: boolean
+  // Messenger matches lock the controls while the opponent is on turn; a solo expedition always may act.
+  canAct?: boolean
+  inMatch?: boolean
+  status?: string
 }
 
 export interface CitySummary {
@@ -42,6 +46,7 @@ export function createHud() {
         <h2>A world of possibility.</h2>
         <p class="intro">Survey the shores. Trace the highlands.<br>An original strategy world takes shape.</p>
         <button id="start-expedition" class="primary" disabled>Start expedition</button>
+        <section id="messenger" class="messenger" aria-label="Play by messenger" hidden></section>
         <section id="expedition" class="expedition" aria-label="Expedition controls" hidden>
           <div class="section-label">SCOUT EXPEDITION</div>
           <p id="turn-info" aria-live="polite" aria-atomic="true"></p>
@@ -69,7 +74,7 @@ export function createHud() {
           <p class="help">Select the gold scout, then a charted tile and Move scout here.
             N/E/S/W buttons also move the selected scout. Grassland costs 1, hills 2; water blocks movement.
             Dark tiles are uncharted, dim tiles remembered, bright tiles in sight.
-            Pale land is reachable this turn. Regenerating starts a new expedition.</p>
+            Pale land is reachable this turn.<span id="help-regenerate"> Regenerating starts a new expedition.</span></p>
         </section>
         <form id="map-form" novalidate>
           <label for="seed">World seed</label><input id="seed" maxlength="64" autocomplete="off" spellcheck="false" />
@@ -81,6 +86,7 @@ export function createHud() {
           <button class="primary" type="submit">Regenerate atlas <span aria-hidden="true">↗</span></button>
         </form>
         <div class="presets"><button id="showcase">32² showcase</button><button id="fixture">256² fixture</button></div>
+        <p id="world-lock" class="lock-note" hidden>The world is fixed while a messenger match is running.</p>
         <p id="error" role="alert" hidden></p>
         <section class="tile-card" aria-labelledby="tile-heading">
           <div class="section-label" id="tile-heading">SELECTED TERRITORY</div>
@@ -126,6 +132,7 @@ export function createHud() {
   }
   return {
     inputs, selection, hover, directions,
+    messenger: get('messenger'),
     canvas: get<HTMLCanvasElement>('world'), form: get<HTMLFormElement>('map-form'),
     reset: get<HTMLButtonElement>('reset'), zoomIn: get<HTMLButtonElement>('zoom-in'),
     zoomOut: get<HTMLButtonElement>('zoom-out'), fixture: get<HTMLButtonElement>('fixture'),
@@ -136,9 +143,9 @@ export function createHud() {
     cityChoice: get<HTMLSelectElement>('city-choice'), productionChoice,
     queueProduction: get<HTMLButtonElement>('queue-production'),
     selectedCityId: () => get<HTMLSelectElement>('city-choice').value,
-    cities: (cities: readonly CitySummary[], founder?: FounderSummary) => {
+    cities: (cities: readonly CitySummary[], founder?: FounderSummary, canAct = true) => {
       const founderButton = get<HTMLButtonElement>('found-city')
-      founderButton.disabled = !founder
+      founderButton.disabled = !founder || !canAct
       founderButton.textContent = founder ? `Found city at (${founder.x}, ${founder.z})` : 'Found city'
       const controls = get('city-controls')
       controls.hidden = !cities.length
@@ -164,7 +171,7 @@ export function createHud() {
         `Units: ${city.units.length ? city.units.join(', ') : 'none'}`
       const choice = get<HTMLSelectElement>('production-choice')
       const duplicateStorehouse = choice.value === 'storehouse' && city.storehouse
-      get<HTMLButtonElement>('queue-production').disabled = !!city.production || duplicateStorehouse
+      get<HTMLButtonElement>('queue-production').disabled = !canAct || !!city.production || duplicateStorehouse
     },
     expedition: (summary?: ExpeditionSummary) => {
       document.body.classList.toggle('exploring', !!summary)
@@ -175,12 +182,16 @@ export function createHud() {
         get<HTMLButtonElement>('found-city').disabled = true
         return
       }
-      get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}`
+      const canAct = summary.canAct !== false
+      get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}${summary.status ? ` · ${summary.status}` : ''}`
       get('scout-info').textContent = `Scout · ${summary.movement}/${summary.maxMovement} movement`
       get('exploration-info').textContent = `${summary.discovered}/${summary.total} tiles charted`
       get('select-scout').setAttribute('aria-pressed', String(summary.scoutSelected))
       get<HTMLButtonElement>('move-scout').disabled = !summary.canOrder
-      for (const button of Object.values(directions)) button.disabled = !summary.scoutSelected
+      for (const button of Object.values(directions)) button.disabled = !summary.scoutSelected || !canAct
+      get<HTMLButtonElement>('end-turn').disabled = !canAct
+      get('leave-expedition').hidden = !!summary.inMatch
+      get('help-regenerate').hidden = !!summary.inMatch
     },
     order: (message: string, rejected = false) => {
       get('order-status').textContent = message
@@ -188,6 +199,13 @@ export function createHud() {
     },
     config: (): MapConfig => ({ seed: inputs.seed.value, width: inputs.width.valueAsNumber, height: inputs.height.valueAsNumber }),
     dimensions: (size: number) => { inputs.width.value = String(size); inputs.height.value = String(size) },
+    // The seed and size belong to the match once it started, so the world form must not change them.
+    worldLocked: (locked: boolean) => {
+      for (const control of document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('#map-form input, #map-form button, .presets button')) {
+        control.disabled = locked
+      }
+      get('world-lock').hidden = !locked
+    },
     error: (message: string) => {
       get('error').textContent = message
       get('error').hidden = false
