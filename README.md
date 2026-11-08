@@ -55,6 +55,16 @@ is active.
 To try a real phone on the same Wi-Fi, run `npm run dev -- --host` and open the
 printed *Network* URL on the phone.
 
+Mobile captures from [validation run 42523224406](https://github.com/aschauera/polaris-game/actions/runs/42523224406), application commit `0c051b6`, seed `polaris`, Linux Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
+
+![Phone portrait atlas: map above the independently scrolling controls](docs/mobile-phone-portrait-atlas.png)
+
+![Phone portrait messenger match after End turn, with the turn ready to share](docs/mobile-phone-portrait-messenger.png)
+
+![Phone landscape atlas using the desktop-style side-by-side layout](docs/mobile-phone-landscape-atlas.png)
+
+These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **85 unit tests** and **19 browser tests**, plus type-check, lint and production build.
+
 ### Docker and Azure Container Apps
 
 The [Dockerfile](./Dockerfile) builds with Node 24 and the locked dependencies,
