@@ -4,6 +4,8 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 
 ![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
 
+*This image is the project's authoritative visual reference and predates the voxel renderer. The voxel renderer keeps its landforms, composition, scale and camera but deliberately uses a brighter diorama palette with soft shadows (see the [expedition captures](#visual-overview)); adopting it as the new reference is an open decision.*
+
 ## Plan and visual direction
 
 - [Game design and planned first playable](docs/game-design.md)
@@ -55,7 +57,7 @@ is active.
 To try a real phone on the same Wi-Fi, run `npm run dev -- --host` and open the
 printed *Network* URL on the phone.
 
-Mobile captures from [validation run 42527914483](https://github.com/aschauera/polaris-game/actions/runs/42527914483), application commit `d9b6a3d`, seed `polaris`, Linux Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
+Mobile captures from [validation run 42536336077](https://github.com/aschauera/polaris-game/actions/runs/42536336077), application commit `68781f1`, seed `polaris`, Linux Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
 
 ![Phone portrait atlas: map above the independently scrolling controls](docs/mobile-phone-portrait-atlas.png)
 
@@ -63,7 +65,7 @@ Mobile captures from [validation run 42527914483](https://github.com/aschauera/p
 
 ![Phone landscape atlas using the desktop-style side-by-side layout](docs/mobile-phone-landscape-atlas.png)
 
-These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **91 unit tests** and **21 browser tests**, plus type-check, lint and production build.
+These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **106 unit tests** and **21 browser tests**, plus type-check, lint and production build.
 
 ### Docker and Azure Container Apps
 
@@ -294,13 +296,15 @@ Regenerating during an expedition starts a fresh expedition on the new world. In
 
 ### Visual overview
 
-Fresh production-app captures from [validation run 42239574200](https://github.com/aschauera/polaris-game/actions/runs/42239574200), application commit `a767df2`, seed `polaris`, 32 × 32, 1440 × 900 viewport, Linux Chromium/SwiftShader:
+Fresh production-app captures from [validation run 42536336077](https://github.com/aschauera/polaris-game/actions/runs/42536336077), application commit `68781f1`, seed `polaris`, 32 × 32, 1440 × 900 viewport, Linux Chromium/SwiftShader:
 
 ![Turn 1: the selected scout and its initial sight area, surrounded by uniform uncharted terrain](docs/expedition.png)
 
 ![Turn 2: explored terrain stays dim, current sight remains bright, and the scout stays readable among trees](docs/expedition-explored.png)
 
-These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **39 unit tests**, **10 browser tests**, type-check, lint and production build in that run.
+![Turn 3: the founded city drawn as a voxel settlement, a stone keep with a gold banner and red-roofed houses for population 2, after its Guard completed](docs/expedition-city.png)
+
+These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **106 unit tests**, **21 browser tests**, type-check, lint and production build in that run.
 
 ## Play by messenger
 
@@ -331,7 +335,7 @@ How it behaves:
 
 ### Visual overview
 
-Fresh production-app captures from [validation run 42527914483](https://github.com/aschauera/polaris-game/actions/runs/42527914483), application commit `d9b6a3d`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader. The idle panel and the match list are 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
+Fresh production-app captures from [validation run 42536336077](https://github.com/aschauera/polaris-game/actions/runs/42536336077), application commit `68781f1`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader. The idle panel and the match list are 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
 
 ![The atlas with the Play by messenger panel before a match: start a match or open a received turn](docs/messenger-idle.png)
 
@@ -341,7 +345,7 @@ Fresh production-app captures from [validation run 42527914483](https://github.c
 
 ![Your matches on one device: the match named Andreas is marked in gold because it is your turn, the other waits for Lantern Compact](docs/messenger-match-list.png)
 
-These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **91 unit tests**, **21 browser tests**, type-check, lint and production build in that run.
+These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **106 unit tests**, **21 browser tests**, type-check, lint and production build in that run.
 
 ## Map inputs and controls
 
