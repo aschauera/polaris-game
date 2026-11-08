@@ -79,3 +79,31 @@ footer { height: 46px; display: flex; justify-content: space-between; align-item
   .map-caption span:last-child, footer span:last-child { display: none; }
   .atlas-heading { left: 14px; right: 14px; }
 }
+@media (max-width: 600px), (pointer: coarse) {
+  button { min-height: 44px; }
+}
+@media (max-width: 600px) {
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .masthead { height: 56px; } .star { font-size: 28px; } h1 { font-size: 20px; }
+  main { height: calc(100dvh - 56px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); min-height: 480px;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(240px, 52%) minmax(0, 1fr); }
+  .atlas { grid-row: 1; }
+  .panel { grid-row: 2; border-right: 0; border-top: 1px solid #61756a; padding: 16px; overscroll-behavior: contain; }
+  .panel > .section-label, .panel > h2, .panel > .intro, footer { display: none; }
+  input { font-size: 16px; min-height: 44px; }
+  .atlas-heading { top: 14px; letter-spacing: .04em; }
+  .map-caption { bottom: 12px; left: 14px; right: 14px; letter-spacing: 0; }
+  .camera-tools { right: 14px; bottom: 36px; }
+  .camera-tools button { min-width: 44px; }
+  .expedition { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .expedition > * { grid-column: 1 / -1; }
+  .expedition > .section-label { display: none; }
+  .expedition > #turn-info, .expedition > #scout-info, .expedition > #select-scout, .expedition > #move-scout { grid-column: auto; }
+  .expedition > p, .expedition > button, .expedition > .direction-tools { margin: 0; }
+  #order-status { min-height: 36px; }
+}
+@media (max-height: 500px) and (min-width: 601px) and (pointer: coarse) {
+  .masthead { height: 50px; } .edition, .prototype, footer { display: none; }
+  main { height: calc(100dvh - 50px); min-height: 0; grid-template-columns: 240px minmax(0, 1fr); }
+  input { font-size: 16px; }
+}

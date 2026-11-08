@@ -17,6 +17,7 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 
 - **Node.js 24 LTS**, npm 11 (Node 24's bundled npm); other Node majors are not supported by this foundation.
 - Desktop-class current Chromium or Microsoft Edge with **WebGL 2** enabled. Windows is the initial target; this PR's automated evidence is Linux Chromium, not a claim of Windows hardware validation.
+- Phone browsers are an early target: portrait/landscape layout and touch gestures are checked in emulated Chromium only. Real Android/iOS devices are not validated.
 - No editor, account, backend, GPU-equipped workstation, runtime CDN, or asset-authoring tool is required.
 
 On Windows, install Node 24, open PowerShell in this checkout, then:
@@ -36,6 +37,23 @@ npm run preview
 The production deployment uses Azure Container Apps with GitHub continuous
 deployment, as described below. Local previews run through an HTTP server, not
 by opening `index.html` from disk.
+
+### Trying the phone layout in a desktop browser
+
+Run `npm run dev` (or `npm run preview` after a build), open the URL in Chrome or
+Edge, press **F12**, toggle the device toolbar (**Ctrl+Shift+M**) and pick a phone
+such as *iPhone 14* or *Pixel 7*. Reload after switching devices so touch emulation
+is active.
+
+- **Tap** selects a tile, **one finger** pans and **two fingers** pinch-zoom. The
+  **+ / − / Reset view** buttons also work.
+- Below 600 px width the map sits above the controls. Expedition buttons use larger
+  touch targets; the controls panel scrolls independently.
+- Emulation checks layout and input only. It cannot measure real mobile GPU speed,
+  iOS Safari behaviour or battery use.
+
+To try a real phone on the same Wi-Fi, run `npm run dev -- --host` and open the
+printed *Network* URL on the phone.
 
 ### Docker and Azure Container Apps
 
@@ -319,7 +337,7 @@ These are functional UI captures, not concept art or evidence of native-GPU perf
 - **Regenerate atlas** repeats exactly the same map for the same inputs and resets camera/selection.
 - **256² fixture** loads 65,536 tiles using the current seed; **32² showcase** returns to the small fixture.
 - Deep link: `/?seed=polaris&width=256&height=256` (append to the local server URL).
-- Click a visible tile to select; hover to inspect. Coordinates are zero-based `(x, z)`; canonical ID is `z * width + x`.
+- Click or tap a visible tile to select; hover to inspect. On touch screens one finger pans and two fingers pinch-zoom. Coordinates are zero-based `(x, z)`; canonical ID is `z * width + x`.
 - Left-drag to pan; movement over 5 CSS pixels is a drag, not a selection. Scroll to zoom. Buttons provide zoom/reset.
 - With the canvas focused: arrows pan, `+`/`-` zoom, `R` resets. Orientation is fixed; there is no rotation.
 - HUD inputs/buttons do not send camera events. Pan target is bounded to map tile centers; zoom is bounded between inspection and whole-map fit. Resize preserves relative zoom.
@@ -377,7 +395,7 @@ For CI-equivalent software measurements, use the Chromium flags documented above
 
 - Only exploration, city founding and a production queue are playable. No combat, worker actions, research, policies, diplomacy, AI, general save/load, live multiplayer, physics, or external services.
 - A solo expedition uses one faction and is lost when the page closes; only a messenger match is stored, in `localStorage` (see [Limits of a serverless match](#limits-of-a-serverless-match)). Drawing cities and the opponent's units, hidden enemy units and mutable last-known terrain belong to later milestones.
-- Only Chromium is automated. Windows Edge hardware, Firefox/Safari, long-duration profiling, touch/mobile UX, assistive-technology map navigation, and WebGPU are unvalidated/deferred.
+- Only Chromium is automated; phone viewports and touch input run as Chromium emulation. Windows Edge hardware, Firefox/Safari, real Android/iOS devices and mobile GPUs, long-duration profiling, assistive-technology map navigation, and WebGPU are unvalidated/deferred.
 - Continents and tree clusters are seeded procedural shapes, not a climate or hydrology simulation; rivers, bridges and settlements are not yet represented. At full stress-map zoom tiles are intentionally tiny; zoom in to inspect them.
 - Thin-instance picking and scene upload remain synchronous; large-map interactions must be profiled before promising larger maps. The 256² fixture is not a finished-game performance promise.
 - The recorded SwiftShader 256² frame intervals are seconds, not a smooth-play claim; native GPU validation and focused rendering profiling remain open.
