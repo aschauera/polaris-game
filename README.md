@@ -55,7 +55,7 @@ is active.
 To try a real phone on the same Wi-Fi, run `npm run dev -- --host` and open the
 printed *Network* URL on the phone.
 
-Mobile captures from [validation run 42523224406](https://github.com/aschauera/polaris-game/actions/runs/42523224406), application commit `0c051b6`, seed `polaris`, Linux Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
+Mobile captures from [validation run 42527914483](https://github.com/aschauera/polaris-game/actions/runs/42527914483), application commit `d9b6a3d`, seed `polaris`, Linux Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
 
 ![Phone portrait atlas: map above the independently scrolling controls](docs/mobile-phone-portrait-atlas.png)
 
@@ -63,7 +63,7 @@ Mobile captures from [validation run 42523224406](https://github.com/aschauera/p
 
 ![Phone landscape atlas using the desktop-style side-by-side layout](docs/mobile-phone-landscape-atlas.png)
 
-These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **85 unit tests** and **19 browser tests**, plus type-check, lint and production build.
+These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **91 unit tests** and **21 browser tests**, plus type-check, lint and production build.
 
 ### Docker and Azure Container Apps
 
@@ -331,7 +331,7 @@ How it behaves:
 
 ### Visual overview
 
-Fresh production-app captures from [validation run 42521598334](https://github.com/aschauera/polaris-game/actions/runs/42521598334), application commit `366d1a8`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader. The idle panel is 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
+Fresh production-app captures from [validation run 42527914483](https://github.com/aschauera/polaris-game/actions/runs/42527914483), application commit `d9b6a3d`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader. The idle panel and the match list are 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
 
 ![The atlas with the Play by messenger panel before a match: start a match or open a received turn](docs/messenger-idle.png)
 
@@ -339,7 +339,9 @@ Fresh production-app captures from [validation run 42521598334](https://github.c
 
 ![The guest after opening the link: the match opens as Lantern Compact, and it is their turn](docs/messenger-guest-joined.png)
 
-These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **85 unit tests**, **16 browser tests**, type-check, lint and production build in that run.
+![Your matches on one device: the match named Andreas is marked in gold because it is your turn, the other waits for Lantern Compact](docs/messenger-match-list.png)
+
+These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **91 unit tests**, **21 browser tests**, type-check, lint and production build in that run.
 
 ## Map inputs and controls
 
