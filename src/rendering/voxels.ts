@@ -12,9 +12,11 @@ const SOURCE = {
   dirt: '#8c5c33', dirtDark: '#744a29', soil: '#5c4630', soilDark: '#4a3925', bedrock: '#382c20',
   hillGrass: '#8fa64c', hillGrassDark: '#7f9744', rock: '#a29d90', rockDark: '#857f73',
   cliff: '#9a6a45', cliffDark: '#7d5438', stone: '#bcb7ab',
-  water: '#397fa8', shallow: '#a0e3e8', shoal: '#55c5d6', shelf: '#4b9fc2',
+  water: '#237fa7', shallow: '#b1efe8', shoal: '#64e3de', shelf: '#32c5d6',
+  waterSurface: '#31c5d7', waterEdge: '#d3faf0',
   path: '#cfb07a',
   trunk: '#6b4a2b',
+  underwaterRock: '#568987',
   leafTeal: '#2f9a7c', leafTealLight: '#43b391', leafGreen: '#3f9b3a', leafGreenLight: '#57b34b',
   leafDark: '#23735f', leafDarkLight: '#2f8a70', leafLime: '#86c94a', leafLimeLight: '#a3dc5f',
   tuft: '#76c457', flowerWhite: '#f1eee4', flowerYellow: '#f1cf4b', flowerRed: '#d9554b', flowerViolet: '#9b72cf',
@@ -45,7 +47,8 @@ const FLOWERS = [VOXEL.flowerWhite, VOXEL.flowerYellow, VOXEL.flowerRed, VOXEL.f
 // Ambient occlusion per face corner: 0 = enclosed corner, 3 = open.
 export const AO_LIGHT = [0.52, 0.68, 0.84, 1] as const
 /** Vertex colour alpha tells the shader what a face shows. */
-export const FACE_FLAG = { fog: 0, decoration: 0.5, ground: 1, water: 1.5 } as const
+export const FACE_FLAG = { fog: 0, decoration: 0.5, ground: 1, water: 1.5, waterSurface: 2, waterEdge: 2.25 } as const
+const isWaterSurface = (kind: number | undefined) => kind === VOXEL.waterSurface || kind === VOXEL.waterEdge
 
 export interface VoxelWorld {
   readonly map: WorldMap
@@ -110,6 +113,8 @@ export interface ChunkMesh {
   readonly normals: Float32Array
   readonly colors: Float32Array
   readonly indices: Uint32Array
+  /** Transparent water indices follow all opaque indices in the same chunk geometry. */
+  readonly waterIndexCount: number
   readonly quads: number
 }
 
@@ -135,7 +140,7 @@ function treeShape(scale: number): TreeShape {
   return { trunk: 0, trunkVariance: 0, radius: 0.6, radiusVariance: 0, layers: 2, layerVariance: 0, spots: 1 }
 }
 
-function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
+export function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
 /** Columns of turquoise shoal water around charted land, beyond the shallow rim; none at the coarsest scale. */
 function shoalReach(scale: number): number { return scale >= 8 ? 4 : scale >= 4 ? 2 : 0 }
 function fogLevel(scale: number): number { return Math.max(1, Math.round(0.65 * scale)) }
@@ -212,7 +217,9 @@ function noise(seed: number, salt: number, x: number, z: number, cell: number): 
   return top * (1 - tz) + bottom * tz
 }
 
-interface Column { top: number; surface: number; body: 'fog' | 'water' | 'dirt' | 'cliff'; tile: Tile; known: boolean }
+type Column = { top: number; surface: number; tile: Tile; known: boolean } & (
+  { body: 'water'; floor: number; rockTop: number } | { body: 'fog' | 'dirt' | 'cliff' }
+)
 
 const AXES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const
 
@@ -268,7 +275,23 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
       if (nearChartedLand(world, known, gx, gz, shoalRadius)) surface = VOXEL.shoal
       else if (nearChartedLand(world, known, gx, gz, shelfRadius, shoalRadius)) surface = VOXEL.shelf
     }
-    return { top: waterLevel(scale), surface, body: 'water', tile, known: true }
+    const top = waterLevel(scale)
+    const depth = surface === VOXEL.shallow ? 1 : surface === VOXEL.shoal ? 3 : surface === VOXEL.shelf ? 5 : 7
+    let floor = Math.max(1 - world.base, top - Math.max(1, Math.round(depth * scale / 8)))
+    if (scale >= 4 && surface !== VOXEL.water && hash(seed, gx, 83, gz) < 0.24) {
+      floor = Math.max(1 - world.base, Math.min(top - 1, floor + (surface === VOXEL.shallow ? -1 : 1)))
+    }
+    let rockTop = floor
+    if (scale >= 4 && hash(seed, tile.x, 81, tile.z) < 0.022) {
+      const [cx, cz] = centreColumn(world, tile)
+      const dx = gx - cx, dz = gz - cz
+      const radius = Math.max(Math.abs(dx), Math.abs(dz))
+      const shape = hash(seed, gx, 82, gz)
+      if (radius <= scale / 4 && shape > 0.25) {
+        rockTop = Math.max(floor, top - 1 - Math.floor(shape * 3) - radius)
+      }
+    }
+    return { top, surface, body: 'water', floor, rockTop, tile, known: true }
   }
   const level = landLevel(scale, tile.terrain, tile.elevation)
   if (world.sites[id]) {
@@ -311,7 +334,12 @@ function layerKind(world: VoxelWorld, layer: number, info: Column): number {
   const { base } = world
   // Uncharted columns stay fog down to the bottom, so the diorama grows out of the unknown as it is charted.
   if (info.body === 'fog') return VOXEL.fog
-  if (info.body === 'water') return layer === base + info.top - 1 ? info.surface : VOXEL.water
+  if (info.body === 'water') {
+    const level = layer - base
+    if (level < info.floor) return info.surface
+    if (level < info.rockTop) return VOXEL.underwaterRock
+    return level === info.top - 1 && info.surface === VOXEL.shallow ? VOXEL.waterEdge : VOXEL.waterSurface
+  }
   if (layer < base) {
     const depth = base - 1 - layer
     // The diorama base shows stratified soil like a cut-out terrain sample.
@@ -596,6 +624,8 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
   const colors = new Buffer(1 << 14)
   let indices = new Uint32Array(1 << 13)
   let indexCount = 0
+  const waterIndices: number[] = []
+  const opaque = (index: number) => !!data[index] && !isWaterSurface(data[index])
   let quads = 0
   const point = [0, 0, 0]
   for (const [a, sign] of FACE_DIRECTIONS) {
@@ -613,17 +643,21 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
         for (let ju = lo[u]!; ju < hi[u]!; ju++) {
           const index = i * strides[a]! + ju * su + jv * sv
           const kind = data[index]!
-          if (!kind || data[index + sa]) { mask[cell++] = 0; continue }
-          if (kind === VOXEL.fog) { mask[cell++] = kind | (0xff << 8); continue }
+          const neighbor = data[index + sa]
+          if (!kind || (neighbor && (isWaterSurface(kind) || !isWaterSurface(neighbor)))) {
+            mask[cell++] = 0
+            continue
+          }
+          if (kind === VOXEL.fog || isWaterSurface(kind)) { mask[cell++] = kind | (0xff << 8); continue }
           const q = index + sa
           let ao = 0
           let uniform = true
           let first = -1
           for (let k = 0; k < 4; k++) {
             const [du, dv] = CORNERS[k]!
-            const side1 = data[q + du * su] ? 1 : 0
-            const side2 = data[q + dv * sv] ? 1 : 0
-            const diagonal = data[q + du * su + dv * sv] ? 1 : 0
+            const side1 = opaque(q + du * su) ? 1 : 0
+            const side2 = opaque(q + dv * sv) ? 1 : 0
+            const diagonal = opaque(q + du * su + dv * sv) ? 1 : 0
             const level = side1 && side2 ? 0 : 3 - side1 - side2 - diagonal
             if (first < 0) first = level
             else if (level !== first) uniform = false
@@ -646,13 +680,17 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
             }
           }
           for (let dy = 0; dy < h; dy++) mask.fill(0, n + dy * nu, n + dy * nu + w)
-          const kind = key & 0xff
+          const waterSurface = isWaterSurface(key & 0xff) && a === 1
+          // The diorama cut edge is a blue volume wall, not a transparent view through the map.
+          const kind = isWaterSurface(key & 0xff) && !waterSurface ? VOXEL.water : key & 0xff
           const ao = (key >> 8) & 0xff
           const base = positions.length / 3
           const plane = i + (sign > 0 ? 1 : 0)
           const fog = kind === VOXEL.fog
-          const water = kind === VOXEL.water || kind === VOXEL.shallow || kind === VOXEL.shoal || kind === VOXEL.shelf
-          const flag = fog ? FACE_FLAG.fog : water ? FACE_FLAG.water
+          const water = kind === VOXEL.water || kind === VOXEL.shallow || kind === VOXEL.shoal
+            || kind === VOXEL.shelf || kind === VOXEL.underwaterRock
+          const flag = fog ? FACE_FLAG.fog : kind === VOXEL.waterEdge ? FACE_FLAG.waterEdge
+            : waterSurface ? FACE_FLAG.waterSurface : water ? FACE_FLAG.water
             : kind >= FIRST_DECORATION ? FACE_FLAG.decoration : FACE_FLAG.ground
           for (let k = 0; k < 4; k++) {
             point[a] = plane
@@ -676,15 +714,19 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
           const order = ao0 + ao2 >= ao1 + ao3
             ? sign > 0 ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]
             : sign > 0 ? [1, 3, 2, 1, 0, 3] : [1, 2, 3, 1, 3, 0]
-          for (const vertex of order) indices[indexCount++] = base + vertex
+          if (waterSurface) for (const vertex of order) waterIndices.push(base + vertex)
+          else for (const vertex of order) indices[indexCount++] = base + vertex
           quads++
         }
       }
     }
   }
+  const combinedIndices = new Uint32Array(indexCount + waterIndices.length)
+  combinedIndices.set(indices.subarray(0, indexCount))
+  combinedIndices.set(waterIndices, indexCount)
   return {
     positions: positions.values.slice(0, positions.length), normals: normals.values.slice(0, normals.length),
-    colors: colors.values.slice(0, colors.length), indices: indices.slice(0, indexCount), quads,
+    colors: colors.values.slice(0, colors.length), indices: combinedIndices, waterIndexCount: waterIndices.length, quads,
   }
 }
 

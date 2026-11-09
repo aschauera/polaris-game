@@ -1,7 +1,7 @@
 import {
   Camera, Color3, Color4, Constants, DirectionalLight, Engine, FreeCamera, HemisphericLight, MaterialPluginBase, Matrix,
-  Mesh, RawTexture, RenderTargetTexture, Scene, SceneInstrumentation, ShaderLanguage, ShadowGenerator,
-  StandardMaterial, Texture, Vector3, VertexData, Viewport,
+  Mesh, MultiMaterial, RawTexture, RenderTargetTexture, Scene, SceneInstrumentation, ShaderLanguage, ShadowGenerator,
+  StandardMaterial, SubMesh, Texture, Vector3, VertexData, Viewport,
   type Material, type MaterialDefines, type UniformBuffer,
 } from '@babylonjs/core'
 import { HEX_RADIUS, HEX_ROW, hexCenter } from '../game/hex'
@@ -10,6 +10,7 @@ import type { Visibility } from '../game/expedition'
 import { figureMesh, type FigureKind } from './figures'
 import {
   PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, siteCode, territoryCode, tileSurface,
+  waterLevel,
   type ChunkMesh, type Settlement, type VoxelWorld,
 } from './voxels'
 
@@ -48,6 +49,7 @@ export interface RenderStats {
   voxelsPerTile: number
   vertices: number
   quads: number
+  waterSurfaceQuads: number
   vertexBufferBytes: number
   disposedChunks: number
   remeshedChunks: number
@@ -58,7 +60,7 @@ export interface RenderStats {
   fogUpdates: number
 }
 
-interface Chunk { mesh: Mesh; quads: number; bytes: number }
+interface Chunk { mesh: Mesh; quads: number; waterQuads: number; bytes: number }
 
 // Key light travel direction: lit from the upper left of the screen, shadows fall to the right.
 const SUN = new Vector3(-0.35, -1, 0.55).normalize()
@@ -90,6 +92,7 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   originZ = 0
   columnsX = 1
   columnsZ = 1
+  waterTop = 0
   readonly fogColor = new Color3(PALETTE[VOXEL.fog * 3], PALETTE[VOXEL.fog * 3 + 1], PALETTE[VOXEL.fog * 3 + 2])
 
   constructor(material: Material) {
@@ -104,14 +107,14 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
 
   override getUniforms() {
     return {
-      ubo: [{ name: 'polarisVoxel', size: 3, type: 'vec3' }, { name: 'polarisGrid', size: 4, type: 'vec4' },
+      ubo: [{ name: 'polarisVoxel', size: 4, type: 'vec4' }, { name: 'polarisGrid', size: 4, type: 'vec4' },
         { name: 'polarisFog', size: 3, type: 'vec3' }],
-      fragment: 'uniform vec3 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;',
+      fragment: 'uniform vec4 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;',
     }
   }
 
   override bindForSubMesh(uniformBuffer: UniformBuffer): void {
-    uniformBuffer.updateFloat3('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight)
+    uniformBuffer.updateFloat4('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight, this.waterTop)
     uniformBuffer.updateFloat4('polarisGrid', this.originX, this.originZ, this.columnsX, this.columnsZ)
     uniformBuffer.updateColor3('polarisFog', this.fogColor)
     if (this.tileState) uniformBuffer.setTexture('polarisTileState', this.tileState)
@@ -147,22 +150,13 @@ uint polarisHash = uint(polarisCell.x) * 73856093u ^ uint(polarisCell.y) * 19349
 polarisHash = (polarisHash ^ (polarisHash >> 13u)) * 1274126177u;
 float polarisNoise = float((polarisHash >> 8u) & 255u) / 255.0;
 float polarisWater = step(1.25, vPolarisFlag);
-if (polarisWater > 0.5) {
-  // Keep the square voxel faces readable even where coplanar faces were greedily merged.
-  vec3 polarisWaterCell = (vPositionW - vec3(polarisGrid.x, 0.0, polarisGrid.y)) / polarisVoxel.x;
-  vec2 polarisFace = abs(normalW.y) > 0.5 ? polarisWaterCell.xz
-    : abs(normalW.x) > 0.5 ? polarisWaterCell.zy : polarisWaterCell.xy;
-  vec2 polarisPixel = max(fwidth(polarisFace), vec2(1e-4));
-  float polarisDetail = 1.0 - smoothstep(0.15, 0.85, max(polarisPixel.x, polarisPixel.y));
-  vec2 polarisUv = fract(polarisFace);
-  vec2 polarisLow = 1.0 - smoothstep(vec2(0.08), vec2(0.08) + polarisPixel, polarisUv);
-  vec2 polarisHigh = smoothstep(vec2(0.92) - polarisPixel, vec2(0.92), polarisUv);
-  float polarisLightEdge = normalW.y > 0.5 ? max(polarisHigh.x, polarisLow.y) : max(polarisLow.x, polarisHigh.y);
-  float polarisDarkEdge = normalW.y > 0.5 ? max(polarisLow.x, polarisHigh.y) : max(polarisHigh.x, polarisLow.y);
-  float polarisTone = min(3.0, floor(polarisNoise * 4.0)) / 3.0 - 0.5;
-  baseColor.rgb *= 1.0 + polarisDetail * (0.10 * polarisTone + 0.08 * (polarisLightEdge - polarisDarkEdge));
-} else {
-  baseColor.rgb *= 0.96 + 0.08 * polarisNoise;
+float polarisSurface = step(1.75, vPolarisFlag);
+float polarisWaterOverlay = 0.0;
+// Relief comes from the submerged voxel geometry, not a bevel painted on the level surface.
+if (polarisSurface < 0.5) baseColor.rgb *= 0.96 + 0.08 * polarisNoise;
+if (polarisWater > 0.5 && polarisSurface < 0.5) {
+  float polarisDepth = max(0.0, polarisVoxel.w - vPositionW.y);
+  baseColor.rgb = mix(baseColor.rgb, vec3(0.06, 0.42, 0.56), min(0.45, polarisDepth * 0.35));
 }
 if (vPolarisFlag > 0.25) {
   ivec2 polarisSize = ivec2(polarisVoxel.yz);
@@ -170,10 +164,10 @@ if (vPolarisFlag > 0.25) {
   vec4 polarisState = texelFetch(polarisColumns, clamp(polarisColumn, ivec2(0), ivec2(polarisGrid.zw) - 1), 0);
   int polarisOwner = polarisByte(polarisState.b) & 3;
   // Tints colour the ground only, so buildings and trees keep their own colours.
-  float polarisGround = step(0.75, vPolarisFlag);
+  float polarisGround = step(0.75, vPolarisFlag) * (1.0 - polarisWater) + polarisSurface;
   if (polarisOwner > 0) baseColor.rgb = mix(baseColor.rgb, polarisFaction(polarisOwner), 0.14 * polarisGround);
   baseColor.rgb = mix(baseColor.rgb, vec3(0.66, 0.94, 0.46), 0.3 * polarisState.g * polarisGround);
-  if (vPolarisFlag > 0.75 && normalW.y > 0.5) {
+  if (polarisGround > 0.5 && normalW.y > 0.5) {
     float polarisR = vPositionW.z / 0.8660254;
     vec3 polarisCube = vec3(vPositionW.x - polarisR * 0.5, polarisR, polarisR * 0.5 - vPositionW.x - polarisR);
     vec3 polarisRound = floor(polarisCube + 0.5);
@@ -207,11 +201,12 @@ if (vPolarisFlag > 0.25) {
         min(min(polarisFarBorder.x, polarisFarBorder.y), polarisFarBorder.z));
       float polarisLines = 1.0 - smoothstep(polarisLineWidth, polarisLineWidth + polarisAa, polarisNearest);
       // The base grid recedes when zoomed out and over open water, so coasts, borders and outlines lead the eye.
-      float polarisGridStrength = mix(0.16, 0.05, polarisWater) * mix(1.0, mix(0.75, 0.45, polarisWater), smoothstep(0.02, 0.06, polarisAa));
+      float polarisGridStrength = mix(0.16, 0.18, polarisWater) * mix(1.0, mix(0.75, 0.45, polarisWater), smoothstep(0.02, 0.06, polarisAa));
       float polarisOutline = (1.0 - smoothstep(0.045, 0.045 + polarisAa, polarisNearest)) * polarisHex.g;
       float polarisBorder = 1.0 - smoothstep(0.085, 0.085 + polarisAa, polarisBorderD);
       float polarisEdge = 1.0 - smoothstep(0.105, 0.105 + polarisAa, polarisBorderD);
       float polarisGlow = 1.0 - smoothstep(0.085, 0.3, polarisBorderD);
+      polarisWaterOverlay = max(0.35 * polarisLines, max(0.85 * polarisOutline, polarisHexOwner > 0 ? 0.95 * polarisBorder : 0.0));
       baseColor.rgb *= 1.0 - polarisGridStrength * polarisLines;
       if (polarisHexOwner > 0) {
         vec3 polarisTeam = polarisFaction(polarisHexOwner);
@@ -231,6 +226,9 @@ if (vPolarisFlag > 0.25) {
       CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `
 #ifdef POLARIS_VOXEL
 if (vPolarisFlag < 0.25) color = vec4(polarisFog * (normalW.y > 0.5 ? 1.0 : 0.72), 1.0);
+// Scattered light softens submerged shadows without flattening the actual cube faces.
+if (vPolarisFlag > 1.25) color.rgb = mix(color.rgb, baseColor.rgb, 0.28);
+if (vPolarisFlag > 1.75) color.a = max(color.a, max(polarisWaterOverlay, 0.5 * step(2.125, vPolarisFlag)));
 #endif
 `,
     }
@@ -275,6 +273,9 @@ export class WorldRenderer {
   private readonly shadows: ShadowGenerator
   private readonly terrain: StandardMaterial
   private readonly voxels: VoxelMaterialPlugin
+  private readonly water: StandardMaterial
+  private readonly waterVoxels: VoxelMaterialPlugin
+  private readonly terrainAndWater: MultiMaterial
   private readonly hover: Mesh
   private readonly selection: Mesh
   private readonly figureMaterial: StandardMaterial
@@ -349,6 +350,13 @@ export class WorldRenderer {
     this.terrain.diffuseColor = Color3.White()
     this.terrain.specularColor = Color3.Black()
     this.voxels = new VoxelMaterialPlugin(this.terrain)
+    this.water = new StandardMaterial('water-surface', this.scene)
+    this.water.diffuseColor = Color3.White()
+    this.water.specularColor = Color3.Black()
+    this.water.alpha = 0.28
+    this.waterVoxels = new VoxelMaterialPlugin(this.water)
+    this.terrainAndWater = new MultiMaterial('terrain-and-water', this.scene)
+    this.terrainAndWater.subMaterials.push(this.terrain, this.water)
     this.hover = this.makeMarker(hexRing('hover', 0.88, 0.97, false, this.scene), '#eef7ee')
     this.selection = this.makeMarker(hexRing('selection', 0.8, 0.98, false, this.scene), '#f6d55c')
     this.figureMaterial = new StandardMaterial('figure-material', this.scene)
@@ -461,9 +469,10 @@ export class WorldRenderer {
     this.columnStateData = new Uint8Array(world.columnTile.length * 4)
     this.copyColumnState()
     this.columns = this.dataTexture('voxel-columns', this.columnStateData, world.columnsX, world.columnsZ)
-    Object.assign(this.voxels, {
+    for (const plugin of [this.voxels, this.waterVoxels]) Object.assign(plugin, {
       tileState: this.tileState, columns: this.columns, voxelSize: world.size, mapWidth: map.width, mapHeight: map.height,
       originX: world.originX, originZ: world.originZ, columnsX: world.columnsX, columnsZ: world.columnsZ,
+      waterTop: waterLevel(world.scale) * world.size,
     })
     for (let index = 0; index < world.chunksX * world.chunksZ; index++) this.buildChunk(index)
     const centre = new Vector3((map.width - 0.5) / 2, 0, (map.height - 1) * HEX_ROW / 2)
@@ -499,16 +508,22 @@ export class WorldRenderer {
     let chunk = this.chunks[index]
     if (!chunk) {
       const mesh = new Mesh(`voxel-chunk-${index}`, this.scene)
-      mesh.material = this.terrain
+      mesh.material = this.terrainAndWater
       mesh.isPickable = false
       mesh.receiveShadows = true
       this.shadows.addShadowCaster(mesh, false)
-      chunk = { mesh, quads: 0, bytes: 0 }
+      chunk = { mesh, quads: 0, waterQuads: 0, bytes: 0 }
       this.chunks[index] = chunk
     }
     applyMesh(chunk.mesh, data)
+    chunk.mesh.releaseSubMeshes()
+    const solidCount = data.indices.length - data.waterIndexCount
+    const vertices = data.positions.length / 3
+    if (solidCount) new SubMesh(0, 0, vertices, 0, solidCount, chunk.mesh)
+    if (data.waterIndexCount) new SubMesh(1, 0, vertices, solidCount, data.waterIndexCount, chunk.mesh)
     chunk.mesh.freezeWorldMatrix()
     chunk.quads = data.quads
+    chunk.waterQuads = data.waterIndexCount / 6
     chunk.bytes = data.positions.byteLength + data.normals.byteLength + data.colors.byteLength + data.indices.byteLength
   }
 
@@ -836,6 +851,7 @@ export class WorldRenderer {
       chunks: this.chunks.length, voxelsPerTile: this.world?.scale ?? 0,
       vertices: this.chunks.reduce((sum, chunk) => sum + chunk.mesh.getTotalVertices(), 0),
       quads: this.chunks.reduce((sum, chunk) => sum + chunk.quads, 0),
+      waterSurfaceQuads: this.chunks.reduce((sum, chunk) => sum + chunk.waterQuads, 0),
       vertexBufferBytes: this.chunks.reduce((sum, chunk) => sum + chunk.bytes, 0),
       disposedChunks: this.disposedChunks, remeshedChunks: this.remeshedChunks,
       settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code ? 1 : 0), 0) : 0,
@@ -889,6 +905,6 @@ function applyMesh(mesh: Mesh, data: ChunkMesh): void {
   vertexData.colors = data.colors
   vertexData.indices = data.indices
   vertexData.applyToMesh(mesh, false)
-  // Colour alpha only flags fog and decoration for the shader; meshes stay in the opaque pass.
+  // Vertex alpha carries face flags; the water submesh material alone controls transparency.
   mesh.hasVertexAlpha = false
 }

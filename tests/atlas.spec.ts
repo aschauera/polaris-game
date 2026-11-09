@@ -45,7 +45,8 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   const initial = await page.evaluate(() => window.polarisDiagnostics!.camera())
   expect(initial?.mode).toBe(1) // Babylon ORTHOGRAPHIC_CAMERA, not perspective.
   const rendering = await stats(page)
-  expect(rendering).toMatchObject({ webGLVersion: 2, chunks: 16, voxelsPerTile: 8, meshes: 18, materials: 5, geometries: 18 })
+  expect(rendering).toMatchObject({ webGLVersion: 2, chunks: 16, voxelsPerTile: 8, meshes: 18, materials: 6, geometries: 18 })
+  expect(rendering.waterSurfaceQuads).toBeGreaterThan(0)
   expect(rendering.vertices).toBeLessThan(250_000)
   expect(rendering.drawCalls).toBeGreaterThan(0)
   // Check real framebuffer colors, not just meshes/canvas existence.
@@ -94,7 +95,7 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   await selectTile(page)
 })
 
-test('keeps discrete square water faces visible at close zoom', async ({ page }) => {
+test('renders submerged water detail while picking the unchanged level surface', async ({ page }) => {
   const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
   const world = createVoxelWorld(map)
   const tile = map.tiles.filter(tile => tile.terrain === 'water'
@@ -140,11 +141,13 @@ test('keeps discrete square water faces visible at close zoom', async ({ page })
   for (let i = 0; i < samples.length; i += 2) {
     const first = samples[i]!
     const second = samples[i + 1]!
-    // Inside a voxel the tone is constant; different voxel faces must not collapse to one flat colour.
-    for (let c = 0; c < 3; c++) expect(Math.abs(first[c]! - second[c]!)).toBeLessThanOrEqual(2)
-    tones.push(first[2]!)
+    expect(first[3]).toBe(255)
+    tones.push(first[2]!, second[2]!)
   }
-  expect(Math.max(...tones) - Math.min(...tones)).toBeGreaterThan(8)
+  expect(Math.max(...tones) - Math.min(...tones)).toBeGreaterThan(3)
+  await page.mouse.click(origin!.x, origin!.y)
+  await expect(page.getByRole('status')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
+  expect((await stats(page)).waterSurfaceQuads).toBeGreaterThan(0)
 })
 
 test('regenerates repeatably and releases old chunk resources three times', async ({ page }) => {
@@ -155,7 +158,7 @@ test('regenerates repeatably and releases old chunk resources three times', asyn
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     await expect(page.getByRole('status')).toHaveText('No tile selected')
     const current = await stats(page)
-    expect(current).toMatchObject({ chunks: 16, meshes: 18, geometries: 18, materials: 5,
+    expect(current).toMatchObject({ chunks: 16, meshes: 18, geometries: 18, materials: 6,
       disposedChunks: i * 16, rngState: initial.rngState, vertexBufferBytes: initial.vertexBufferBytes })
     expect((await selectTile(page)).tile).toEqual(tile)
   }
@@ -166,7 +169,7 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   await expect(page.locator('#map-status')).toContainText('65,536 TILES')
   await selectTile(page, 256)
   const initial = await stats(page)
-  expect(initial).toMatchObject({ chunks: 56, voxelsPerTile: 2, meshes: 58, geometries: 58, materials: 5 })
+  expect(initial).toMatchObject({ chunks: 56, voxelsPerTile: 2, meshes: 58, geometries: 58, materials: 6 })
   expect(initial.vertices).toBeLessThan(900_000)
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
   await page.locator('canvas').focus()
@@ -175,7 +178,7 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   for (let i = 1; i <= 3; i++) {
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     expect(await stats(page)).toMatchObject({ chunks: initial.chunks, meshes: initial.meshes,
-      geometries: initial.geometries, materials: 5, disposedChunks: initial.chunks! * i })
+      geometries: initial.geometries, materials: 6, disposedChunks: initial.chunks! * i })
   }
   await page.getByRole('button', { name: '32² showcase' }).click()
   expect(await stats(page)).toMatchObject({ chunks: 16, meshes: 18, geometries: 18 })

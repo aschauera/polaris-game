@@ -61,6 +61,7 @@ function kindAt(mesh: ChunkMesh, vertex: number): number {
 }
 
 const sameMesh = (a: ChunkMesh, b: ChunkMesh) => a.quads === b.quads
+  && a.waterIndexCount === b.waterIndexCount
   && a.positions.every((value, index) => value === b.positions[index])
   && a.colors.every((value, index) => value === b.colors[index])
 
@@ -163,27 +164,64 @@ describe('hex voxel terrain', () => {
     known[0] = 0
     const flags = new Set<number>()
     for (const mesh of meshAll(createVoxelWorld(map), known)) for (let v = 3; v < mesh.colors.length; v += 4) flags.add(mesh.colors[v]!)
-    expect([...flags].sort()).toEqual([FACE_FLAG.fog, FACE_FLAG.decoration, FACE_FLAG.ground, FACE_FLAG.water])
+    expect([...flags].sort()).toEqual([FACE_FLAG.fog, FACE_FLAG.decoration, FACE_FLAG.ground,
+      FACE_FLAG.water, FACE_FLAG.waterSurface, FACE_FLAG.waterEdge])
   })
 
-  it('builds a blue water volume down to the diorama base, not an earth slab', () => {
-    const map = flatMap(4, 4, Object.fromEntries(Array.from({ length: 16 }, (_, id) =>
-      [id, { terrain: 'water' as const, elevation: 0 }])))
+  it('meshes actual submerged steps beneath a separate level water surface', () => {
+    const map = flatMap(9, 9, Object.fromEntries(Array.from({ length: 81 }, (_, id) =>
+      [id, id === 40 ? {} : { terrain: 'water' as const, elevation: 0 }])))
     const world = createVoxelWorld(map)
     const meshes = meshAll(world, allKnown(map))
-    const tops = new Set<number>()
-    let sidesBelowSea = 0
+    const waterTop = tileSurface(world, map.tiles[0]!, true) * world.size
+    const floorHeights = new Set<number>()
+    let verticalFaces = 0, surfaceArea = 0
     for (const mesh of meshes) {
-      for (let v = 0; v < mesh.positions.length / 3; v++) {
-        expect(kindAt(mesh, v)).toBe(VOXEL.water)
-        expect(mesh.colors[v * 4 + 3]).toBe(FACE_FLAG.water)
-        if (mesh.normals[v * 3 + 1] === 1) tops.add(mesh.positions[v * 3 + 1]!)
-        else if (mesh.positions[v * 3 + 1]! < 0) sidesBelowSea++
+      const solidCount = mesh.indices.length - mesh.waterIndexCount
+      expect(mesh.waterIndexCount % 6).toBe(0)
+      for (let i = 0; i < mesh.indices.length; i++) {
+        const v = mesh.indices[i]!
+        if (i < solidCount) expect(mesh.colors[v * 4 + 3]).toBeLessThan(FACE_FLAG.waterSurface)
+        else {
+          expect(mesh.colors[v * 4 + 3]).toBeGreaterThanOrEqual(FACE_FLAG.waterSurface)
+          expect(mesh.normals[v * 3 + 1]).toBe(1)
+          expect(mesh.positions[v * 3 + 1]).toBe(waterTop)
+        }
+      }
+      for (let quad = 0; quad < mesh.quads; quad++) {
+        const v = quad * 4
+        const flag = mesh.colors[v * 4 + 3]!
+        if (flag === FACE_FLAG.water) {
+          if (mesh.normals[v * 3 + 1] === 1) floorHeights.add(mesh.positions[v * 3 + 1]!)
+          else if (mesh.positions[v * 3 + 1]! < waterTop) verticalFaces++
+        } else if (flag >= FACE_FLAG.waterSurface) {
+          const xs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3]!)
+          const zs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 2]!)
+          surfaceArea += (Math.max(...xs) - Math.min(...xs)) * (Math.max(...zs) - Math.min(...zs))
+        }
       }
     }
-    expect([...tops]).toEqual([tileSurface(world, map.tiles[0]!, true) * world.size])
-    expect(sidesBelowSea).toBeGreaterThan(0)
-    expect(shows(meshAll(createVoxelWorld(flatMap(4, 4)), allKnown(map)), VOXEL.bedrock)).toBe(true)
+    const waterColumns = world.columnTile.filter(id => id >= 0 && map.tiles[id]!.terrain === 'water').length
+    expect(surfaceArea).toBeCloseTo(waterColumns * world.size ** 2, 6)
+    expect(floorHeights.size).toBeGreaterThanOrEqual(4)
+    expect(Math.max(...floorHeights)).toBeLessThan(waterTop)
+    expect(verticalFaces).toBeGreaterThan(20)
+  })
+
+  it('builds deterministic submerged outcrops only on charted water', () => {
+    const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
+    const world = createVoxelWorld(map)
+    const known = allKnown(map)
+    const meshes = meshAll(world, known)
+    expect(shows(meshes, VOXEL.underwaterRock)).toBe(true)
+    const waterTop = tileSurface(world, map.tiles.find(tile => tile.terrain === 'water')!, true) * world.size
+    for (const mesh of meshes) for (let v = 0; v < mesh.positions.length / 3; v++) {
+      if (kindAt(mesh, v) === VOXEL.underwaterRock) expect(mesh.positions[v * 3 + 1]).toBeLessThan(waterTop)
+    }
+    known.fill(0)
+    const fog = meshAll(world, known)
+    expect(shows(fog, VOXEL.underwaterRock)).toBe(false)
+    expect(fog.every(mesh => mesh.waterIndexCount === 0)).toBe(true)
   })
 
   it('layers charted coasts from shallow water through shoal and shelf to deep water', () => {
