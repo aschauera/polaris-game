@@ -1,18 +1,33 @@
 import {
   Camera, Color3, Color4, Constants, DirectionalLight, Engine, FreeCamera, HemisphericLight, MaterialPluginBase, Matrix,
-  Mesh, MeshBuilder, RawTexture, RenderTargetTexture, Scene, SceneInstrumentation, ShaderLanguage, ShadowGenerator,
+  Mesh, RawTexture, RenderTargetTexture, Scene, SceneInstrumentation, ShaderLanguage, ShadowGenerator,
   StandardMaterial, Texture, Vector3, VertexData, Viewport,
   type Material, type MaterialDefines, type UniformBuffer,
 } from '@babylonjs/core'
+import { HEX_RADIUS, HEX_ROW, hexCenter } from '../game/hex'
 import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
+import { figureMesh, type FigureKind } from './figures'
 import {
-  PALETTE, VOXEL, affectedChunks, createVoxelWorld, meshChunk, pickTile, siteCode, tileSurface,
-  type Settlement, type VoxelWorld,
+  PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, siteCode, territoryCode, tileSurface,
+  type ChunkMesh, type Settlement, type VoxelWorld,
 } from './voxels'
 
 export interface SettlementView extends Settlement {
   readonly tileId: number
+  readonly name: string
+  readonly population: number
+  /** Tiles the city claims; their hexes take the owner's tint and a border where the territory ends. */
+  readonly claimTileIds: readonly number[]
+}
+
+export interface UnitView {
+  readonly tileId: number
+  readonly kind: FigureKind
+  /** Team colour: 0 gold, 1 blue. */
+  readonly banner: 0 | 1
+  /** Rival units stand on a dashed red ring. */
+  readonly rival: boolean
 }
 
 export interface ExplorationView {
@@ -21,6 +36,8 @@ export interface ExplorationView {
   readonly reachable: readonly number[]
   /** Cities the viewer may see; tiles that are not charted never show one. */
   readonly settlements?: readonly SettlementView[]
+  /** Units the viewer may see; defaults to the viewer's gold scout. */
+  readonly units?: readonly UnitView[]
 }
 
 export interface RenderStats {
@@ -46,16 +63,33 @@ interface Chunk { mesh: Mesh; quads: number; bytes: number }
 // Key light travel direction: lit from the upper left of the screen, shadows fall to the right.
 const SUN = new Vector3(-0.35, -1, 0.55).normalize()
 const SHADOW_MAP_SIZE = 1024
+// The camera looks down 42 degrees from a yaw of 60 degrees, so hex columns run straight down the screen.
+const YAW = Math.PI / 3
+const PITCH = 42 * Math.PI / 180
+const VIEW = new Vector3(Math.cos(YAW) * Math.cos(PITCH), Math.sin(PITCH), Math.sin(YAW) * Math.cos(PITCH))
+/** Ground-plane directions of screen-right and screen-down. */
+const RIGHT = [-Math.sin(YAW), Math.cos(YAW)] as const
+const DOWN = [Math.cos(YAW), Math.sin(YAW)] as const
+/** World height above a tile surface where a city's name plate floats, over its keep. */
+const PLATE_HEIGHT = 0.95
+/** Figures face the camera (yaw 30 degrees) turned slightly, so two sides of each voxel body show. */
+const FIGURE_YAW = Math.PI / 6 - 0.4
 
 /**
- * Per-voxel grain, explored dimming and reachable highlight on top of baked vertex colours and ambient occlusion.
- * Tile state lives in a tiny texture so fog-of-war shading changes never require remeshing.
+ * Per-voxel grain, hex grid lines, territory tint and borders, explored dimming and reachable highlights on top of
+ * baked vertex colours and ambient occlusion. Tile state lives in small textures, so fog-of-war, movement and
+ * territory changes never require remeshing.
  */
 class VoxelMaterialPlugin extends MaterialPluginBase {
   tileState?: RawTexture
+  columns?: RawTexture
   voxelSize = 1
   mapWidth = 1
   mapHeight = 1
+  originX = 0
+  originZ = 0
+  columnsX = 1
+  columnsZ = 1
   readonly fogColor = new Color3(PALETTE[VOXEL.fog * 3], PALETTE[VOXEL.fog * 3 + 1], PALETTE[VOXEL.fog * 3 + 2])
 
   constructor(material: Material) {
@@ -65,53 +99,151 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   override getClassName(): string { return 'PolarisVoxelMaterialPlugin' }
   override isCompatible(shaderLanguage: ShaderLanguage): boolean { return shaderLanguage === ShaderLanguage.GLSL }
   override prepareDefines(defines: MaterialDefines): void { defines['POLARIS_VOXEL'] = true }
-  override getSamplers(samplers: string[]): void { samplers.push('polarisTileState') }
-  override isReadyForSubMesh(): boolean { return this.tileState?.isReady() ?? false }
+  override getSamplers(samplers: string[]): void { samplers.push('polarisTileState', 'polarisColumns') }
+  override isReadyForSubMesh(): boolean { return (this.tileState?.isReady() ?? false) && (this.columns?.isReady() ?? false) }
 
   override getUniforms() {
     return {
-      ubo: [{ name: 'polarisVoxel', size: 4, type: 'vec4' }, { name: 'polarisFog', size: 3, type: 'vec3' }],
-      fragment: 'uniform vec4 polarisVoxel;\nuniform vec3 polarisFog;',
+      ubo: [{ name: 'polarisVoxel', size: 4, type: 'vec4' }, { name: 'polarisGrid', size: 4, type: 'vec4' },
+        { name: 'polarisFog', size: 3, type: 'vec3' }],
+      fragment: 'uniform vec4 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;',
     }
   }
 
   override bindForSubMesh(uniformBuffer: UniformBuffer): void {
     uniformBuffer.updateFloat4('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight, 0)
+    uniformBuffer.updateFloat4('polarisGrid', this.originX, this.originZ, this.columnsX, this.columnsZ)
     uniformBuffer.updateColor3('polarisFog', this.fogColor)
     if (this.tileState) uniformBuffer.setTexture('polarisTileState', this.tileState)
+    if (this.columns) uniformBuffer.setTexture('polarisColumns', this.columns)
   }
 
   override getCustomCode(shaderType: string): Record<string, string> | null {
     if (shaderType === 'vertex') {
       return {
         CUSTOM_VERTEX_DEFINITIONS: 'varying float vPolarisFlag;',
-        // Vertex alpha is disabled for blending, so the fog flag travels in its own varying.
+        // Vertex alpha is disabled for blending, so the face flag travels in its own varying.
         CUSTOM_VERTEX_MAIN_END: '#ifdef VERTEXCOLOR\nvPolarisFlag = color.a;\n#else\nvPolarisFlag = 1.0;\n#endif',
       }
     }
     return {
-      CUSTOM_FRAGMENT_DEFINITIONS: 'varying float vPolarisFlag;\nuniform sampler2D polarisTileState;',
+      CUSTOM_FRAGMENT_DEFINITIONS: `varying float vPolarisFlag;
+uniform sampler2D polarisTileState;
+uniform sampler2D polarisColumns;
+vec3 polarisFaction(int owner) { return owner == 1 ? vec3(1.0, 0.76, 0.2) : vec3(0.22, 0.52, 1.0); }
+int polarisByte(float value) { return int(value * 255.0 + 0.5); }
+`,
+      // Tile state per texel: R explored, G reachable, A charted. B holds the territory owner in its low two bits
+      // (0 none, 1 gold, 2 blue) and, above them, one bit per hex edge where that territory ends.
+      // Tints follow the voxel column's tile; lines follow the true hexagon, so outlines stay smooth over voxel steps.
       CUSTOM_FRAGMENT_UPDATE_DIFFUSE: `
 #ifdef POLARIS_VOXEL
+vec2 polarisWidth = fwidth(vPositionW.xz);
+float polarisAa = max(max(polarisWidth.x, polarisWidth.y), 1e-4);
 vec3 polarisInside = vPositionW - normalW * 0.5 * polarisVoxel.x;
-ivec3 polarisCell = ivec3(floor((polarisInside + vec3(0.5, 0.0, 0.5)) / polarisVoxel.x)) + 8192;
+ivec2 polarisColumn = ivec2(floor((polarisInside.xz - polarisGrid.xy) / polarisVoxel.x));
+ivec3 polarisCell = ivec3(polarisColumn.x, int(floor(polarisInside.y / polarisVoxel.x)), polarisColumn.y) + 8192;
 uint polarisHash = uint(polarisCell.x) * 73856093u ^ uint(polarisCell.y) * 19349663u ^ uint(polarisCell.z) * 83492791u;
 polarisHash = (polarisHash ^ (polarisHash >> 13u)) * 1274126177u;
-baseColor.rgb *= 0.95 + 0.1 * float((polarisHash >> 8u) & 255u) / 255.0;
-vec2 polarisTile = clamp(floor(polarisInside.xz + 0.5), vec2(0.0), polarisVoxel.yz - 1.0);
-vec4 polarisState = texture2D(polarisTileState, (polarisTile + 0.5) / polarisVoxel.yz);
-baseColor.rgb *= mix(1.0, 0.4, polarisState.r);
-baseColor.rgb = mix(baseColor.rgb, vec3(0.7255, 0.8667, 0.6314), 0.35 * polarisState.g);
+baseColor.rgb *= 0.96 + 0.08 * float((polarisHash >> 8u) & 255u) / 255.0;
+if (vPolarisFlag > 0.25) {
+  ivec2 polarisSize = ivec2(polarisVoxel.yz);
+  // Each column texel holds the state of the tile owning that voxel column, or zero outside the map.
+  vec4 polarisState = texelFetch(polarisColumns, clamp(polarisColumn, ivec2(0), ivec2(polarisGrid.zw) - 1), 0);
+  int polarisOwner = polarisByte(polarisState.b) & 3;
+  // Tints colour the ground only, so buildings and trees keep their own colours.
+  float polarisGround = step(0.75, vPolarisFlag);
+  if (polarisOwner > 0) baseColor.rgb = mix(baseColor.rgb, polarisFaction(polarisOwner), 0.14 * polarisGround);
+  baseColor.rgb = mix(baseColor.rgb, vec3(0.66, 0.94, 0.46), 0.3 * polarisState.g * polarisGround);
+  if (vPolarisFlag > 0.75 && normalW.y > 0.5) {
+    float polarisR = vPositionW.z / 0.8660254;
+    vec3 polarisCube = vec3(vPositionW.x - polarisR * 0.5, polarisR, polarisR * 0.5 - vPositionW.x - polarisR);
+    vec3 polarisRound = floor(polarisCube + 0.5);
+    vec3 polarisDiff = abs(polarisRound - polarisCube);
+    if (polarisDiff.x > polarisDiff.y && polarisDiff.x > polarisDiff.z) polarisRound.x = -polarisRound.y - polarisRound.z;
+    else if (polarisDiff.y > polarisDiff.z) polarisRound.y = -polarisRound.x - polarisRound.z;
+    int polarisHz = int(polarisRound.y);
+    int polarisHx = int(polarisRound.x) + (polarisHz - (polarisHz & 1)) / 2;
+    vec4 polarisHex = vec4(0.0);
+    if (polarisHx >= 0 && polarisHz >= 0 && polarisHx < polarisSize.x && polarisHz < polarisSize.y) {
+      polarisHex = texelFetch(polarisTileState, ivec2(polarisHx, polarisHz), 0);
+    }
+    if (polarisHex.a > 0.5) {
+      float polarisCentreX = float(polarisHx) + 0.5 * float(polarisHz & 1);
+      vec2 polarisP = vPositionW.xz - vec2(polarisCentreX, float(polarisHz) * 0.8660254);
+      int polarisHexState = polarisByte(polarisHex.b);
+      int polarisHexOwner = polarisHexState & 3;
+      float polarisLineWidth = max(0.012, polarisAa * 0.8);
+      // Distances to the six edges, ordered like the domain's directions: east, south-east, south-west in polarisNear,
+      // west, north-west, north-east in polarisFar. Every effect fades with distance, so only the nearest edge counts.
+      vec3 polarisQ = polarisP.x * vec3(1.0, 0.5, -0.5) + polarisP.y * vec3(0.0, 0.8660254, 0.8660254);
+      vec3 polarisNear = 0.5 - polarisQ;
+      vec3 polarisFar = 0.5 + polarisQ;
+      float polarisNearest = min(min(min(polarisNear.x, polarisNear.y), polarisNear.z), min(min(polarisFar.x, polarisFar.y), polarisFar.z));
+      // Edges without a border bit are pushed out of reach of every border effect.
+      vec3 polarisNearMask = vec3((ivec3(polarisHexState) >> ivec3(2, 3, 4)) & 1);
+      vec3 polarisFarMask = vec3((ivec3(polarisHexState) >> ivec3(5, 6, 7)) & 1);
+      vec3 polarisNearBorder = polarisNear + (1.0 - polarisNearMask);
+      vec3 polarisFarBorder = polarisFar + (1.0 - polarisFarMask);
+      float polarisBorderD = min(min(min(polarisNearBorder.x, polarisNearBorder.y), polarisNearBorder.z),
+        min(min(polarisFarBorder.x, polarisFarBorder.y), polarisFarBorder.z));
+      float polarisLines = 1.0 - smoothstep(polarisLineWidth, polarisLineWidth + polarisAa, polarisNearest);
+      float polarisOutline = (1.0 - smoothstep(0.045, 0.045 + polarisAa, polarisNearest)) * polarisHex.g;
+      float polarisBorder = 1.0 - smoothstep(0.085, 0.085 + polarisAa, polarisBorderD);
+      float polarisEdge = 1.0 - smoothstep(0.105, 0.105 + polarisAa, polarisBorderD);
+      float polarisGlow = 1.0 - smoothstep(0.085, 0.3, polarisBorderD);
+      baseColor.rgb *= 1.0 - 0.16 * polarisLines;
+      if (polarisHexOwner > 0) {
+        vec3 polarisTeam = polarisFaction(polarisHexOwner);
+        baseColor.rgb = mix(baseColor.rgb, polarisTeam, 0.4 * polarisGlow);
+        // A thin dark seam inside the band keeps the border crisp against light grass.
+        baseColor.rgb *= 1.0 - 0.3 * (polarisEdge - polarisBorder);
+        baseColor.rgb = mix(baseColor.rgb, mix(polarisTeam, vec3(1.0), 0.18), polarisBorder);
+      }
+      baseColor.rgb = mix(baseColor.rgb, vec3(0.9, 1.0, 0.74), 0.85 * polarisOutline);
+    }
+  }
+  baseColor.rgb *= mix(1.0, 0.58, polarisState.r);
+}
 #endif
 `,
       // Uncharted fog is flat and unlit so no shading, shadow or occlusion can hint at hidden relief.
       CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `
 #ifdef POLARIS_VOXEL
-if (vPolarisFlag < 0.5) color = vec4(polarisFog * (normalW.y > 0.5 ? 1.0 : 0.72), 1.0);
+if (vPolarisFlag < 0.25) color = vec4(polarisFog * (normalW.y > 0.5 ? 1.0 : 0.72), 1.0);
 #endif
 `,
     }
   }
+}
+
+/** A flat hexagonal ring between two fractions of the corner radius; dashed rings keep alternate fifths of each edge. */
+function hexRing(name: string, inner: number, outer: number, dashed: boolean, scene: Scene): Mesh {
+  const corner = (k: number, radius: number, t: number) => {
+    const a = Math.PI / 6 + k * Math.PI / 3
+    const b = a + Math.PI / 3
+    return [(Math.cos(a) * (1 - t) + Math.cos(b) * t) * radius * HEX_RADIUS,
+      (Math.sin(a) * (1 - t) + Math.sin(b) * t) * radius * HEX_RADIUS] as const
+  }
+  const positions: number[] = []
+  const indices: number[] = []
+  const pieces = dashed ? 5 : 1
+  for (let k = 0; k < 6; k++) {
+    for (let piece = 0; piece < pieces; piece += dashed ? 2 : 1) {
+      const quad = [corner(k, outer, piece / pieces), corner(k, outer, (piece + 1) / pieces),
+        corner(k, inner, (piece + 1) / pieces), corner(k, inner, piece / pieces)]
+      const base = positions.length / 3
+      for (const [x, z] of quad) positions.push(x, 0, z)
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
+    }
+  }
+  const mesh = new Mesh(name, scene)
+  const data = new VertexData()
+  data.positions = positions
+  data.indices = indices
+  data.normals = positions.map((_, index) => index % 3 === 1 ? 1 : 0)
+  data.applyToMesh(mesh, false)
+  return mesh
 }
 
 export class WorldRenderer {
@@ -125,14 +257,20 @@ export class WorldRenderer {
   private readonly voxels: VoxelMaterialPlugin
   private readonly hover: Mesh
   private readonly selection: Mesh
+  private readonly figureMaterial: StandardMaterial
+  private readonly rivalMaterial: StandardMaterial
+  private readonly plateLayer: HTMLDivElement
   private chunks: Chunk[] = []
   private world?: VoxelWorld
   private known = new Uint8Array(0)
   private heights = new Float32Array(0)
   private tileStateData = new Uint8Array(0)
+  private columnStateData = new Uint8Array(0)
   private tileState?: RawTexture
+  private columns?: RawTexture
   private exploration?: ExplorationView
-  private scout?: Mesh
+  private figures: Mesh[] = []
+  private plates: { element: HTMLElement; tileId: number }[] = []
   private fogUpdates = 0
   private map?: WorldMap
   private target = Vector3.Zero()
@@ -141,6 +279,7 @@ export class WorldRenderer {
   private disposedChunks = 0
   private remeshedChunks = 0
   private shadowsStale = true
+  private dirty = true
   private pointer?: { id: number; x: number; y: number; lastX: number; lastY: number; dragged: boolean }
   private readonly touches = new Map<number, { x: number; y: number }>()
   private pinchDistance?: number
@@ -190,8 +329,18 @@ export class WorldRenderer {
     this.terrain.diffuseColor = Color3.White()
     this.terrain.specularColor = Color3.Black()
     this.voxels = new VoxelMaterialPlugin(this.terrain)
-    this.hover = this.makeMarker('hover', '#c5e6df')
-    this.selection = this.makeMarker('selection', '#f0c873')
+    this.hover = this.makeMarker(hexRing('hover', 0.88, 0.97, false, this.scene), '#eef7ee')
+    this.selection = this.makeMarker(hexRing('selection', 0.8, 0.98, false, this.scene), '#f6d55c')
+    this.figureMaterial = new StandardMaterial('figure-material', this.scene)
+    this.figureMaterial.diffuseColor = Color3.White()
+    this.figureMaterial.specularColor = Color3.Black()
+    this.figureMaterial.emissiveColor = new Color3(0.1, 0.1, 0.1)
+    this.rivalMaterial = this.markerMaterial('rival', '#e0483e')
+    this.plateLayer = document.createElement('div')
+    this.plateLayer.className = 'city-plates'
+    this.plateLayer.setAttribute('aria-hidden', 'true')
+    // Plates sit directly above the canvas, beneath the map's heading and camera controls.
+    canvas.after(this.plateLayer)
     this.instrumentation = new SceneInstrumentation(this.scene)
     this.instrumentation.captureFrameTime = true
     this.resizeObserver = new ResizeObserver(() => this.resize())
@@ -223,13 +372,19 @@ export class WorldRenderer {
       this.engine.stopRenderLoop()
       onError('Rendering context lost. Reload the page to restore the atlas.')
     })
+    this.engine.onResizeObservable.add(() => this.invalidate())
     this.engine.runRenderLoop(() => {
+      // The map has no animation, so frames are drawn only after a change; idle turns cost no GPU time.
+      if (!this.dirty) return
+      const ready = this.scene.isReady()
       // Casters whose shaders are still compiling would be missing from a one-shot shadow map.
-      if (this.shadowsStale && this.scene.isReady()) {
+      if (this.shadowsStale && ready) {
         this.shadowsStale = false
         this.shadows.getShadowMap()!.resetRefreshCounter()
       }
       this.scene.render()
+      // Meshes whose shaders are still compiling were skipped, so drawing continues until the scene is complete.
+      this.dirty = !ready
     })
   }
 
@@ -238,13 +393,16 @@ export class WorldRenderer {
     this.removeListeners.push(() => this.canvas.removeEventListener(name, listener, options))
   }
 
-  private makeMarker(name: string, color: string): Mesh {
-    const mesh = MeshBuilder.CreateBox(name, { width: 1.04, depth: 1.04, height: 0.025 }, this.scene)
+  private markerMaterial(name: string, color: string): StandardMaterial {
     const material = new StandardMaterial(`${name}-material`, this.scene)
     material.emissiveColor = Color3.FromHexString(color)
     material.disableLighting = true
-    material.wireframe = true
-    mesh.material = material
+    material.backFaceCulling = false
+    return material
+  }
+
+  private makeMarker(mesh: Mesh, color: string): Mesh {
+    mesh.material = this.markerMaterial(mesh.name, color)
     mesh.isPickable = false
     // Markers stay legible over hill relief and voxel canopies.
     mesh.renderingGroupId = 1
@@ -254,7 +412,8 @@ export class WorldRenderer {
 
   setMap(map: WorldMap): void {
     this.exploration = undefined
-    this.removeScout()
+    this.clearFigures()
+    this.clearPlates()
     this.pointer = undefined
     this.touches.clear()
     this.pinched = false
@@ -268,23 +427,51 @@ export class WorldRenderer {
     }
     this.chunks = []
     this.tileState?.dispose()
+    this.columns?.dispose()
     this.map = map
     const world = createVoxelWorld(map)
     this.world = world
     this.known = new Uint8Array(map.tiles.length).fill(1)
     this.heights = Float32Array.from(map.tiles, tile => tileSurface(world, tile, true) * world.size)
     this.tileStateData = new Uint8Array(map.tiles.length * 4)
-    this.tileState = new RawTexture(this.tileStateData, map.width, map.height, Constants.TEXTUREFORMAT_RGBA, this.scene,
-      false, false, Texture.NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_UNSIGNED_BYTE)
-    this.tileState.name = 'voxel-tile-state'
-    this.tileState.wrapU = Texture.CLAMP_ADDRESSMODE
-    this.tileState.wrapV = Texture.CLAMP_ADDRESSMODE
-    Object.assign(this.voxels, { tileState: this.tileState, voxelSize: world.size, mapWidth: map.width, mapHeight: map.height })
+    for (let id = 0; id < map.tiles.length; id++) this.tileStateData[id * 4 + 3] = 255
+    this.tileState = this.dataTexture('voxel-tile-state', this.tileStateData, map.width, map.height)
+    // Each texel copies the state of the tile owning a voxel column, so the shader tints exactly the columns the
+    // mesher built with a single lookup.
+    this.columnStateData = new Uint8Array(world.columnTile.length * 4)
+    this.copyColumnState()
+    this.columns = this.dataTexture('voxel-columns', this.columnStateData, world.columnsX, world.columnsZ)
+    Object.assign(this.voxels, {
+      tileState: this.tileState, columns: this.columns, voxelSize: world.size, mapWidth: map.width, mapHeight: map.height,
+      originX: world.originX, originZ: world.originZ, columnsX: world.columnsX, columnsZ: world.columnsZ,
+    })
     for (let index = 0; index < world.chunksX * world.chunksZ; index++) this.buildChunk(index)
-    const centre = new Vector3((map.width - 1) / 2, 0, (map.height - 1) / 2)
+    const centre = new Vector3((map.width - 0.5) / 2, 0, (map.height - 1) * HEX_ROW / 2)
     this.sun.position = centre.subtract(SUN.scale(Math.max(map.width, map.height) * 2))
     this.shadowsStale = true
+    this.invalidate()
     this.reset()
+  }
+
+  /** Copies every tile's state texel to the voxel columns it owns; columns outside the map stay zero. */
+  private copyColumnState(): void {
+    const columnTile = this.world?.columnTile
+    if (!columnTile) return
+    const tiles = new Uint32Array(this.tileStateData.buffer, this.tileStateData.byteOffset, this.tileStateData.length / 4)
+    const columns = new Uint32Array(this.columnStateData.buffer, this.columnStateData.byteOffset, columnTile.length)
+    for (let index = 0; index < columnTile.length; index++) {
+      const id = columnTile[index]!
+      if (id >= 0) columns[index] = tiles[id]!
+    }
+  }
+
+  private dataTexture(name: string, data: Uint8Array, width: number, height: number): RawTexture {
+    const texture = new RawTexture(data, width, height, Constants.TEXTUREFORMAT_RGBA, this.scene,
+      false, false, Texture.NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_UNSIGNED_BYTE)
+    texture.name = name
+    texture.wrapU = Texture.CLAMP_ADDRESSMODE
+    texture.wrapV = Texture.CLAMP_ADDRESSMODE
+    return texture
   }
 
   private buildChunk(index: number): void {
@@ -299,14 +486,7 @@ export class WorldRenderer {
       chunk = { mesh, quads: 0, bytes: 0 }
       this.chunks[index] = chunk
     }
-    const vertexData = new VertexData()
-    vertexData.positions = data.positions
-    vertexData.normals = data.normals
-    vertexData.colors = data.colors
-    vertexData.indices = data.indices
-    vertexData.applyToMesh(chunk.mesh, false)
-    // Colour alpha only flags fog for the shader; chunks stay in the opaque pass.
-    chunk.mesh.hasVertexAlpha = false
+    applyMesh(chunk.mesh, data)
     chunk.mesh.freezeWorldMatrix()
     chunk.quads = data.quads
     chunk.bytes = data.positions.byteLength + data.normals.byteLength + data.colors.byteLength + data.indices.byteLength
@@ -333,7 +513,20 @@ export class WorldRenderer {
       this.tileStateData[id * 4] = visibility === 'explored' ? 255 : 0
       this.tileStateData[id * 4 + 1] = reachable.has(id) ? 255 : 0
     }
+    // Territory can change anywhere when a city is founded or seen, so ownership is rebuilt for every tile.
+    const owners = new Uint8Array(map.tiles.length)
+    for (const settlement of view?.settlements ?? []) {
+      for (const id of [settlement.tileId, ...settlement.claimTileIds]) {
+        if (this.known[id]) owners[id] = settlement.banner + 1
+      }
+    }
+    for (let id = 0; id < map.tiles.length; id++) {
+      this.tileStateData[id * 4 + 2] = territoryCode(map, owners, id)
+      this.tileStateData[id * 4 + 3] = this.known[id] ? 255 : 0
+    }
     tileState.update(this.tileStateData)
+    this.copyColumnState()
+    this.columns?.update(this.columnStateData)
     const sites = new Map<number, number>()
     for (const settlement of view?.settlements ?? []) sites.set(settlement.tileId, siteCode(settlement))
     const settled: number[] = []
@@ -347,31 +540,102 @@ export class WorldRenderer {
     for (const chunk of remesh) this.buildChunk(chunk)
     this.remeshedChunks += remesh.size
     this.fogUpdates += ids.size
-    if (view) {
-      if (!this.scout) {
-        this.scout = MeshBuilder.CreateCylinder('scout', { height: 0.8, diameterTop: 0.2, diameterBottom: 0.5, tessellation: 4 }, this.scene)
-        const material = new StandardMaterial('scout-material', this.scene)
-        material.diffuseColor = Color3.FromHexString('#f0c873')
-        material.emissiveColor = Color3.FromHexString('#856124')
-        this.scout.material = material
-        this.scout.isPickable = false
-        // The own-unit indicator must remain legible above voxel canopies.
-        this.scout.renderingGroupId = 1
-        this.shadows.addShadowCaster(this.scout, false)
-      }
-      const tile = map.tiles[view.scoutTileId]!
-      this.scout.position.set(tile.x, this.heights[tile.id]! + 0.45, tile.z)
-    } else this.removeScout()
+    this.buildFigures(view)
+    this.buildPlates(view)
     this.shadowsStale = true
+    this.invalidate()
     this.showHover()
     if (!previous || !view) this.showSelection()
   }
 
-  private removeScout(): void {
-    if (!this.scout) return
-    this.shadows.removeShadowCaster(this.scout, false)
-    this.scout.dispose(false, true)
-    this.scout = undefined
+  private buildFigures(view?: ExplorationView): void {
+    this.clearFigures()
+    const { map, world } = this
+    if (!view || !map || !world) return
+    const units = view.units ?? [{ tileId: view.scoutTileId, kind: 'scout', banner: 0, rival: false }]
+    const stacks = new Map<number, number>()
+    for (const unit of units) stacks.set(unit.tileId, (stacks.get(unit.tileId) ?? 0) + 1)
+    const placed = new Map<number, number>()
+    for (const [index, unit] of units.entries()) {
+      if (!this.known[unit.tileId]) continue
+      const tile = map.tiles[unit.tileId]!
+      const [cx, cz] = hexCenter(tile.x, tile.z)
+      // Units sharing a hex stand side by side along screen-right.
+      const slot = placed.get(unit.tileId) ?? 0
+      placed.set(unit.tileId, slot + 1)
+      const shift = (slot - (stacks.get(unit.tileId)! - 1) / 2) * 0.3
+      const x = cx + RIGHT[0] * shift
+      const z = cz + RIGHT[1] * shift
+      // Figures stand on the visible voxel under their feet, which may be a hill terrace.
+      const ground = groundHeight(world, this.known, x, z) ?? this.heights[unit.tileId]!
+      const figure = new Mesh(`figure-${unit.kind}-${index}`, this.scene)
+      applyMesh(figure, figureMesh(unit.kind, unit.banner))
+      figure.material = this.figureMaterial
+      figure.position.set(x, ground, z)
+      figure.rotation.y = FIGURE_YAW
+      figure.isPickable = false
+      // Units must remain legible above voxel canopies and settlements.
+      figure.renderingGroupId = 1
+      this.shadows.addShadowCaster(figure, false)
+      this.figures.push(figure)
+      if (unit.rival) {
+        const ring = hexRing(`rival-${index}`, 0.8, 0.96, true, this.scene)
+        ring.material = this.rivalMaterial
+        ring.position.set(cx, this.heights[unit.tileId]! + 0.03, cz)
+        ring.isPickable = false
+        ring.renderingGroupId = 1
+        this.figures.push(ring)
+      }
+    }
+  }
+
+  private clearFigures(): void {
+    for (const mesh of this.figures) {
+      this.shadows.removeShadowCaster(mesh, false)
+      mesh.dispose(false, false)
+    }
+    this.figures = []
+  }
+
+  private buildPlates(view?: ExplorationView): void {
+    this.clearPlates()
+    for (const settlement of view?.settlements ?? []) {
+      if (!this.known[settlement.tileId]) continue
+      const element = document.createElement('div')
+      element.className = `city-plate ${settlement.banner ? 'blue' : 'gold'}`
+      const name = document.createElement('span')
+      name.textContent = settlement.name
+      const population = document.createElement('span')
+      population.className = 'city-plate-population'
+      population.textContent = `★${settlement.population}`
+      element.append(name, population)
+      this.plateLayer.append(element)
+      this.plates.push({ element, tileId: settlement.tileId })
+    }
+    this.placePlates()
+  }
+
+  private clearPlates(): void {
+    for (const plate of this.plates) plate.element.remove()
+    this.plates = []
+  }
+
+  private placePlates(): void {
+    const { map } = this
+    if (!map || !this.plates.length) return
+    const transform = this.camera.getViewMatrix().multiply(this.camera.getProjectionMatrix())
+    const width = this.canvas.clientWidth
+    const height = this.canvas.clientHeight
+    const viewport = new Viewport(0, 0, width, height)
+    for (const { element, tileId } of this.plates) {
+      const tile = map.tiles[tileId]!
+      const [x, z] = hexCenter(tile.x, tile.z)
+      const point = Vector3.Project(new Vector3(x, this.heights[tileId]! + PLATE_HEIGHT, z), Matrix.Identity(), transform, viewport)
+      const visible = point.x >= 0 && point.y >= 0 && point.x <= width && point.y <= height
+      element.hidden = !visible
+      element.style.left = `${this.canvas.offsetLeft + point.x}px`
+      element.style.top = `${this.canvas.offsetTop + point.y}px`
+    }
   }
 
   selectTile(id: number): void {
@@ -381,7 +645,8 @@ export class WorldRenderer {
   focusTile(id: number): void {
     const tile = this.map?.tiles[id]
     if (!tile) return
-    this.target.set(tile.x, 0, tile.z)
+    const [x, z] = hexCenter(tile.x, tile.z)
+    this.target.set(x, 0, z)
     this.halfHeight = Math.min(7, this.maxHalfHeight)
     this.updateCamera()
   }
@@ -398,13 +663,24 @@ export class WorldRenderer {
   private fitBounds(): void {
     if (!this.map) return
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight)
-    const sum = this.map.width + this.map.height
-    this.maxHalfHeight = Math.max(sum / (2 * Math.sqrt(6)) + 3, sum / (2 * Math.sqrt(2) * aspect) + 3)
+    const xs = [-0.5, this.map.width]
+    const zs = [-HEX_RADIUS, (this.map.height - 1) * HEX_ROW + HEX_RADIUS]
+    const us: number[] = []
+    const vs: number[] = []
+    for (const x of xs) {
+      for (const z of zs) {
+        us.push(x * RIGHT[0] + z * RIGHT[1])
+        vs.push((x * DOWN[0] + z * DOWN[1]) * Math.sin(PITCH))
+      }
+    }
+    const width = Math.max(...us) - Math.min(...us)
+    const height = Math.max(...vs) - Math.min(...vs)
+    this.maxHalfHeight = Math.max(height / 2, width / (2 * aspect)) + 2
   }
 
   reset(): void {
     if (!this.map) return
-    this.target.set((this.map.width - 1) / 2, 0, (this.map.height - 1) / 2)
+    this.target.set((this.map.width - 0.5) / 2, 0, (this.map.height - 1) * HEX_ROW / 2)
     this.fitBounds()
     this.halfHeight = this.maxHalfHeight
     this.updateCamera()
@@ -419,12 +695,13 @@ export class WorldRenderer {
 
   private pan(dx: number, dy: number): void {
     const scale = 2 * this.halfHeight / Math.max(1, this.canvas.clientHeight)
-    // Babylon's left-handed view has screen-right (-x,+z), screen-down (+x,+z).
-    this.target.x += (-dx / Math.sqrt(2) + dy * Math.sqrt(1.5)) * scale
-    this.target.z += (dx / Math.sqrt(2) + dy * Math.sqrt(1.5)) * scale
+    // Screen-down covers more ground than screen-right because the camera looks down at an angle.
+    const down = dy / Math.sin(PITCH)
+    this.target.x += (RIGHT[0] * dx + DOWN[0] * down) * scale
+    this.target.z += (RIGHT[1] * dx + DOWN[1] * down) * scale
     if (this.map) {
-      this.target.x = Math.max(0, Math.min(this.map.width - 1, this.target.x))
-      this.target.z = Math.max(0, Math.min(this.map.height - 1, this.target.z))
+      this.target.x = Math.max(0, Math.min(this.map.width - 0.5, this.target.x))
+      this.target.z = Math.max(0, Math.min((this.map.height - 1) * HEX_ROW, this.target.z))
     }
     this.updateCamera()
     this.showHover()
@@ -432,7 +709,7 @@ export class WorldRenderer {
 
   private updateCamera(): void {
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight)
-    this.camera.position.copyFrom(this.target.add(new Vector3(500, 500, 500)))
+    this.camera.position.copyFrom(this.target.add(VIEW.scale(800)))
     this.camera.setTarget(this.target)
     this.camera.orthoTop = this.halfHeight
     this.camera.orthoBottom = -this.halfHeight
@@ -440,7 +717,12 @@ export class WorldRenderer {
     this.camera.orthoRight = this.halfHeight * aspect
     this.camera.getViewMatrix(true)
     this.camera.getProjectionMatrix(true)
+    this.placePlates()
+    this.invalidate()
   }
+
+  /** Requests a frame; every change to the scene must call this, because unchanged frames are not redrawn. */
+  private invalidate(): void { this.dirty = true }
 
   private pointerDown(event: PointerEvent): void {
     if (event.button !== 0) return
@@ -518,8 +800,11 @@ export class WorldRenderer {
   }
 
   private placeMarker(marker: Mesh, tile?: Tile): void {
+    this.invalidate()
     marker.setEnabled(!!tile)
-    if (tile) marker.position.set(tile.x, this.heights[tile.id]! + 0.035, tile.z)
+    if (!tile) return
+    const [x, z] = hexCenter(tile.x, tile.z)
+    marker.position.set(x, this.heights[tile.id]! + 0.03, z)
   }
 
   private showHover(tile?: Tile): void { this.placeMarker(this.hover, tile); this.onHover(tile) }
@@ -544,8 +829,10 @@ export class WorldRenderer {
   projectTile(id: number): { x: number; y: number } | undefined {
     const tile = this.map?.tiles[id]
     if (!tile) return
-    const projected = Vector3.Project(new Vector3(tile.x, this.heights[id]!, tile.z),
-      Matrix.Identity(), this.scene.getTransformMatrix(),
+    const [x, z] = hexCenter(tile.x, tile.z)
+    // Camera matrices are current immediately, unlike the scene transform, which only updates when a frame renders.
+    const transform = this.camera.getViewMatrix().multiply(this.camera.getProjectionMatrix())
+    const projected = Vector3.Project(new Vector3(x, this.heights[id]!, z), Matrix.Identity(), transform,
       new Viewport(0, 0, this.engine.getRenderWidth(), this.engine.getRenderHeight()))
     const rect = this.canvas.getBoundingClientRect()
     return { x: rect.left + projected.x * rect.width / this.engine.getRenderWidth(),
@@ -563,10 +850,25 @@ export class WorldRenderer {
     for (const remove of this.removeListeners) remove()
     this.engine.stopRenderLoop()
     this.instrumentation.dispose()
+    this.clearPlates()
+    this.plateLayer.remove()
+    this.figures = []
     this.scene.dispose()
     this.engine.dispose()
     this.chunks = []
     this.tileState = undefined
+    this.columns = undefined
     this.world = undefined
   }
+}
+
+function applyMesh(mesh: Mesh, data: ChunkMesh): void {
+  const vertexData = new VertexData()
+  vertexData.positions = data.positions
+  vertexData.normals = data.normals
+  vertexData.colors = data.colors
+  vertexData.indices = data.indices
+  vertexData.applyToMesh(mesh, false)
+  // Colour alpha only flags fog and decoration for the shader; meshes stay in the opaque pass.
+  mesh.hasVertexAlpha = false
 }

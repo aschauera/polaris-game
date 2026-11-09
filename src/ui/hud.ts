@@ -1,6 +1,10 @@
 import { PRODUCTION_ITEMS } from '../game/expedition'
 import { TERRAIN, type MapConfig, type Tile, type WorldMap } from '../game/map'
 
+/** Direction-pad buttons, named by where the neighbouring hex appears on screen. */
+export const SCREEN_DIRECTIONS = ['up-left', 'up', 'up-right', 'down-left', 'down', 'down-right'] as const
+export type ScreenDirection = typeof SCREEN_DIRECTIONS[number]
+
 export interface ExpeditionSummary {
   faction: string
   round: number
@@ -18,6 +22,7 @@ export interface ExpeditionSummary {
 
 export interface CitySummary {
   id: string
+  name: string
   x: number
   z: number
   population: number
@@ -62,19 +67,21 @@ export function createHud() {
             <select id="production-choice"></select>
             <button id="queue-production">Queue production</button>
           </section>
-          <div class="direction-tools" aria-label="Cardinal scout movement">
-            <button id="move-north" aria-label="Move scout north">N</button>
-            <button id="move-east" aria-label="Move scout east">E</button>
-            <button id="move-south" aria-label="Move scout south">S</button>
-            <button id="move-west" aria-label="Move scout west">W</button>
+          <div class="direction-tools" aria-label="Hex scout movement">
+            <button id="move-up-left" aria-label="Move scout up and left">↖</button>
+            <button id="move-up" aria-label="Move scout up">↑</button>
+            <button id="move-up-right" aria-label="Move scout up and right">↗</button>
+            <button id="move-down-left" aria-label="Move scout down and left">↙</button>
+            <button id="move-down" aria-label="Move scout down">↓</button>
+            <button id="move-down-right" aria-label="Move scout down and right">↘</button>
           </div>
           <p id="order-status" aria-live="polite"></p>
           <button id="end-turn" class="primary">End turn</button>
           <button id="leave-expedition">Return to atlas (discard expedition)</button>
-          <p class="help">Select the gold scout, then a charted tile and Move scout here.
-            N/E/S/W buttons also move the selected scout. Grassland costs 1, hills 2; water blocks movement.
-            Dark tiles are uncharted, dim tiles remembered, bright tiles in sight.
-            Pale land is reachable this turn.<span id="help-regenerate"> Regenerating starts a new expedition.</span></p>
+          <p class="help">Select the gold scout, then a charted hex and Move scout here.
+            The six arrows step the selected scout to a neighbouring hex. Grassland costs 1, hills 2; water blocks movement.
+            Dark hexes are uncharted, dim hexes remembered, bright hexes in sight.
+            Outlined hexes are reachable this turn; coloured borders mark city territory.<span id="help-regenerate"> Regenerating starts a new expedition.</span></p>
         </section>
         <form id="map-form" novalidate>
           <label for="seed">World seed</label><input id="seed" maxlength="64" autocomplete="off" spellcheck="false" />
@@ -120,10 +127,8 @@ export function createHud() {
     option.textContent = `${item.name} · ${item.cost} materials`
     return option
   }))
-  const directions = {
-    north: get<HTMLButtonElement>('move-north'), east: get<HTMLButtonElement>('move-east'),
-    south: get<HTMLButtonElement>('move-south'), west: get<HTMLButtonElement>('move-west'),
-  }
+  const directions = Object.fromEntries(SCREEN_DIRECTIONS.map(direction =>
+    [direction, get<HTMLButtonElement>(`move-${direction}`)])) as Record<ScreenDirection, HTMLButtonElement>
   const selection = (tile?: Tile) => {
     get('selection').textContent = tile ? `(${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name} · Tile ${tile.id}` : 'No tile selected'
   }
@@ -154,7 +159,7 @@ export function createHud() {
       cityChoice.replaceChildren(...cities.map(city => {
         const option = document.createElement('option')
         option.value = city.id
-        option.textContent = `City at (${city.x}, ${city.z})`
+        option.textContent = `${city.name} (${city.x}, ${city.z})`
         return option
       }))
       if (cities.some(city => city.id === previous)) cityChoice.value = previous

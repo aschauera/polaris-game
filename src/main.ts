@@ -1,4 +1,5 @@
 import './style.css'
+import { HEX_DIRECTIONS, hexOffsets, type HexDirection } from './game/hex'
 import { generateMap, tileAt, type Tile, type WorldMap } from './game/map'
 import {
   applyCommand, CITY_RULES, cityYields, createExpedition, FACTIONS, findPath, movementRange, PRODUCTION_ITEMS,
@@ -11,7 +12,7 @@ import {
   type MatchSummary,
 } from './exchange/match-storage'
 import { WorldRenderer } from './rendering/world'
-import { createHud } from './ui/hud'
+import { createHud, SCREEN_DIRECTIONS, type ScreenDirection } from './ui/hud'
 import { createMessengerPanel } from './ui/messenger'
 
 const hud = createHud()
@@ -41,6 +42,7 @@ const viewerOf = (state: Expedition): FactionId => match?.faction ?? state.activ
 const scoutOf = (state: Expedition) => state.scouts.find(unit => unit.factionId === viewerOf(state))!
 const canAct = (state: Expedition) => !match || state.activeFaction === match.faction
 const turnsEnded = (state: Expedition) => state.commands.filter(command => command.type === 'end-turn').length
+const bannerOf = (factionId: FactionId): 0 | 1 => factionId === 'lantern' ? 1 : 0
 
 function browserStorage(): Storage | undefined {
   try {
@@ -74,7 +76,7 @@ function updateExpeditionHud(): void {
       ? { name: PRODUCTION_ITEMS[city.production.itemId].name, progress: city.production.progress,
         cost: PRODUCTION_ITEMS[city.production.itemId].cost }
       : undefined
-    return { id: city.id, x: state.map.tiles[city.tileId]!.x, z: state.map.tiles[city.tileId]!.z,
+    return { id: city.id, name: city.name, x: state.map.tiles[city.tileId]!.x, z: state.map.tiles[city.tileId]!.z,
       population: city.population, food: city.food, foodYield: yields.food,
       foodConsumption: city.population * CITY_RULES.foodPerPopulation,
       materials: city.materials, materialYield: yields.materials,
@@ -103,7 +105,7 @@ function select(tile?: Tile): void {
     const visibility = visibilityAt(state, viewerOf(state), tile.id)
     hud.order(route ? `Destination (${tile.x}, ${tile.z}). ${visibility === 'explored' ? 'Remembered terrain. ' : ''}Route: ${route.cost} movement. Choose Move scout here.`
       : 'No affordable known route. Choose another tile or end the turn.')
-  } else hud.order(scoutSelected ? 'Scout selected. Choose a charted destination or use N/E/S/W.' : 'Select the gold scout to begin.')
+  } else hud.order(scoutSelected ? 'Scout selected. Choose a charted destination or use the arrows.' : 'Select the gold scout to begin.')
   updateExpeditionHud()
 }
 
@@ -120,7 +122,14 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
     // Rival cities show only while in sight; remembering them belongs to last-known-state rendering.
     settlements: state.cities.filter(city => city.factionId === viewer || fog[city.tileId] === 'visible')
       .map(city => ({ tileId: city.tileId, houses: city.population, storehouse: city.storehouse,
-        banner: city.factionId === 'lantern' ? 1 : 0 })),
+        banner: bannerOf(city.factionId), name: city.name, population: city.population, claimTileIds: city.claimTileIds })),
+    // Own units are always shown; rival units only while their tile is in sight.
+    units: [
+      ...state.scouts.map(unit => ({ ...unit, kind: 'scout' as const })),
+      ...state.founders.map(unit => ({ ...unit, kind: 'founder' as const })),
+      ...state.units.map(unit => ({ ...unit, kind: unit.type })),
+    ].filter(unit => unit.factionId === viewer || fog[unit.tileId] === 'visible')
+      .map(unit => ({ tileId: unit.tileId, kind: unit.kind, banner: bannerOf(unit.factionId), rival: unit.factionId !== viewer })),
   }, dirtyTiles)
   updateExpeditionHud()
 }
@@ -450,7 +459,7 @@ hud.startExpedition.addEventListener('click', () => {
   if (!map || !renderer) return
   try {
     begin(createExpedition(map))
-    hud.order('Select the gold scout to begin. Sight reaches two cardinal steps.')
+    hud.order('Select the gold scout to begin. Sight reaches two hexes in every direction.')
   } catch (error) {
     hud.error(error instanceof Error ? error.message : 'Unable to start the expedition.')
   }
@@ -496,13 +505,17 @@ hud.queueProduction.addEventListener('click', () => {
 })
 hud.cityChoice.addEventListener('change', updateExpeditionHud)
 hud.productionChoice.addEventListener('change', updateExpeditionHud)
-const offsets = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] } as const
-for (const direction of Object.keys(offsets) as (keyof typeof offsets)[]) {
+// The camera looks along the south-east axis, so each pad arrow maps to a fixed hex neighbour.
+const SCREEN_HEX: Record<ScreenDirection, HexDirection> = {
+  'up-left': 'north-east', up: 'north-west', 'up-right': 'west',
+  'down-left': 'east', down: 'south-east', 'down-right': 'south-west',
+}
+for (const direction of SCREEN_DIRECTIONS) {
   hud.directions[direction].addEventListener('click', () => {
     const state = expedition
     if (!state) return
     const tile = state.map.tiles[scoutOf(state).tileId]!
-    const [dx, dz] = offsets[direction]
+    const [dx, dz] = hexOffsets(tile.z)[HEX_DIRECTIONS.indexOf(SCREEN_HEX[direction])]!
     move(tileAt(state.map, tile.x + dx, tile.z + dz)?.id ?? -1)
   })
 }

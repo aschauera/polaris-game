@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page, type TestInfo } from '@playwright/test'
 import { applyCommand, createExpedition, type Expedition } from '../src/game/expedition'
+import { hexOffsets } from '../src/game/hex'
 import { generateMap, tileAt } from '../src/game/map'
 import { exportMatch, MATCH_FACTIONS, stateHash } from '../src/game/match'
 import { encodeTurn } from '../src/exchange/turn-code'
@@ -7,6 +8,8 @@ import { encodeTurn } from '../src/exchange/turn-code'
 const WORLD = { seed: 'polaris', width: 32, height: 32 }
 const WORLD_URL = `/?diagnostics=1&seed=${WORLD.seed}&width=${WORLD.width}&height=${WORLD.height}`
 const TURN_PREFIX = '#turn='
+// Pad labels for east, south-east, south-west, west, north-west and north-east as the camera shows them.
+const SCREEN_LABELS = ['down and left', 'down', 'down and right', 'up and right', 'up', 'up and left'] as const
 
 const browserErrors: string[] = []
 function watch(page: Page) {
@@ -43,16 +46,16 @@ function newMatch(): Expedition {
   return createExpedition(generateMap(WORLD), MATCH_FACTIONS)
 }
 
-// A legal one-tile move for whoever is on turn, together with the compass button that issues it.
+// A legal one-hex move for whoever is on turn, together with the screen-direction button that issues it.
 function legalStep(state: Expedition) {
   const scout = state.scouts.find(unit => unit.factionId === state.activeFaction)!
   const tile = state.map.tiles[scout.tileId]!
-  for (const [direction, dx, dz] of [['north', 0, -1], ['east', 1, 0], ['south', 0, 1], ['west', -1, 0]] as const) {
+  for (const [index, [dx, dz]] of hexOffsets(tile.z).entries()) {
     const target = tileAt(state.map, tile.x + dx, tile.z + dz)
     if (!target) continue
     const result = applyCommand(state, { type: 'move', factionId: state.activeFaction,
       sequence: state.commands.length + 1, unitId: scout.id, to: target.id })
-    if (result.ok) return { direction, state: result.state }
+    if (result.ok) return { direction: SCREEN_LABELS[index]!, state: result.state }
   }
   throw new Error(`${state.activeFaction} has no legal step`)
 }
@@ -102,7 +105,7 @@ test('two devices exchange turns through a link and a pasted code and stay in sy
     let truth = await playTurn(host.page, newMatch())
     await expect(host.page.locator('#turn-info')).toContainText('Turn 1 · Lantern Compact · opponent\'s turn')
     await expect(endTurnButton(host.page)).toBeDisabled()
-    for (const direction of ['north', 'east', 'south', 'west']) {
+    for (const direction of SCREEN_LABELS) {
       await expect(host.page.getByRole('button', { name: `Move scout ${direction}`, exact: true })).toBeDisabled()
     }
     expect((await expeditionOf(host.page))!.reachable).toEqual([])

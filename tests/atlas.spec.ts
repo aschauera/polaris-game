@@ -43,7 +43,7 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   const initial = await page.evaluate(() => window.polarisDiagnostics!.camera())
   expect(initial?.mode).toBe(1) // Babylon ORTHOGRAPHIC_CAMERA, not perspective.
   const rendering = await stats(page)
-  expect(rendering).toMatchObject({ webGLVersion: 2, chunks: 16, voxelsPerTile: 8, meshes: 18, materials: 3, geometries: 18 })
+  expect(rendering).toMatchObject({ webGLVersion: 2, chunks: 16, voxelsPerTile: 8, meshes: 18, materials: 5, geometries: 18 })
   expect(rendering.vertices).toBeLessThan(250_000)
   expect(rendering.drawCalls).toBeGreaterThan(0)
   // Check real framebuffer colors, not just meshes/canvas existence.
@@ -79,7 +79,10 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   await page.getByRole('button', { name: 'Reset view' }).click()
   await selectTile(page)
   const reset = await page.evaluate(() => window.polarisDiagnostics!.camera())
-  expect(reset).toMatchObject({ x: 15.5, z: 15.5, mode: 1 })
+  // The hex grid's centre: odd rows reach half a tile further east, rows sit sqrt(3)/2 apart.
+  expect(reset).toMatchObject({ mode: 1 })
+  expect(reset!.x).toBeCloseTo(15.75)
+  expect(reset!.z).toBeCloseTo(31 * Math.sqrt(3) / 4)
   await page.locator('canvas').focus()
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('+')
@@ -97,7 +100,7 @@ test('regenerates repeatably and releases old chunk resources three times', asyn
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     await expect(page.getByRole('status')).toHaveText('No tile selected')
     const current = await stats(page)
-    expect(current).toMatchObject({ chunks: 16, meshes: 18, geometries: 18, materials: 3,
+    expect(current).toMatchObject({ chunks: 16, meshes: 18, geometries: 18, materials: 5,
       disposedChunks: i * 16, rngState: initial.rngState, vertexBufferBytes: initial.vertexBufferBytes })
     expect((await selectTile(page)).tile).toEqual(tile)
   }
@@ -108,7 +111,7 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   await expect(page.locator('#map-status')).toContainText('65,536 TILES')
   await selectTile(page, 256)
   const initial = await stats(page)
-  expect(initial).toMatchObject({ chunks: 64, voxelsPerTile: 2, meshes: 66, geometries: 66, materials: 3 })
+  expect(initial).toMatchObject({ chunks: 56, voxelsPerTile: 2, meshes: 58, geometries: 58, materials: 5 })
   expect(initial.vertices).toBeLessThan(900_000)
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
   await page.locator('canvas').focus()
@@ -117,7 +120,7 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   for (let i = 1; i <= 3; i++) {
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     expect(await stats(page)).toMatchObject({ chunks: initial.chunks, meshes: initial.meshes,
-      geometries: initial.geometries, materials: 3, disposedChunks: initial.chunks! * i })
+      geometries: initial.geometries, materials: 5, disposedChunks: initial.chunks! * i })
   }
   await page.getByRole('button', { name: '32² showcase' }).click()
   expect(await stats(page)).toMatchObject({ chunks: 16, meshes: 18, geometries: 18 })

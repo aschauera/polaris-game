@@ -46,11 +46,11 @@ test('portrait phone: map above messenger controls, no page scrolling, touch-siz
   await sized('start-expedition')
   await page.locator('#start-expedition').tap()
   await expect(page.locator('#turn-info')).toContainText('Turn 1')
-  for (const id of ['zoom-in', 'zoom-out', 'reset', 'select-scout', 'move-scout', 'move-north', 'move-east',
-    'move-south', 'move-west', 'end-turn', 'leave-expedition']) await sized(id)
+  for (const id of ['zoom-in', 'zoom-out', 'reset', 'select-scout', 'move-scout', 'move-up-left', 'move-up', 'move-up-right',
+    'move-down-left', 'move-down', 'move-down-right', 'end-turn', 'leave-expedition']) await sized(id)
   expect(await fitsScreen(page)).toBe(true)
   const controls = (await page.locator('.panel').boundingBox())!
-  for (const id of ['select-scout', 'move-scout', 'move-north', 'end-turn']) {
+  for (const id of ['select-scout', 'move-scout', 'move-up', 'end-turn']) {
     const box = (await page.locator(`#${id}`).boundingBox())!
     expect(box.y + box.height, `#${id} reachable without scrolling`).toBeLessThanOrEqual(controls.y + controls.height)
   }

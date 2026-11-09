@@ -1,18 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { generateMap, randomStep, seedState, tileAt } from './map'
+import { neighbors } from './expedition'
 
 describe('deterministic domain map', () => {
-  it('locks complete generator-v2 fixtures across multiple seeds', () => {
+  it('locks complete generator-v3 fixtures across multiple seeds', () => {
     const fingerprints = ['polaris', 'aurora', '0', 'North_Star-7'].map(seed =>
       createHash('sha256').update(JSON.stringify(generateMap({ seed, width: 8, height: 8 }))).digest('hex'),
     )
     expect(fingerprints).toMatchInlineSnapshot(`
       [
-        "c0b4223f5fc7cdbc6332d588ba83f0fa37714feac327383e565e8f5c67902ffa",
-        "a402cdf1c95e74cdb830fd156c03362530d3bc7b7f35b29c0a006089ff580845",
-        "a9e84c7ed781b9591d2ccad09089a3ae84443040007279ab77cd59c71b94b7f4",
-        "5be531985462ffc431babac691ca6a28cd93f0251d5c57fc7241f6e0de40503b",
+        "ea19e1124e0e03aa930f6cbcf7778bcac0200487521a8418f12023995a2ddbc5",
+        "e4887288717872ff50569af8d501b39784e1e8019d0cb27553400769d3d6f268",
+        "0c731f5211de690ec8c3aa6e0661869c03e38bffd527c32f2c6539bd89a6608f",
+        "5324f518177cb5b6d82cf805609e9801beec7e1baa7caf1bea2cfbc9c449a738",
       ]
     `)
   })
@@ -22,25 +23,23 @@ describe('deterministic domain map', () => {
     expect(new Set(generateMap(config).tiles.map(t => t.terrain)).size).toBe(3)
   })
 
-  it('generates distinct continents and connected stepped terrain', () => {
+  it('generates distinct continents and hex-connected stepped terrain', () => {
     for (const seed of ['polaris', 'aurora', '0']) {
       const map = generateMap({ seed, width: 64, height: 48 })
       const visited = new Set<number>()
       const landmassSizes: number[] = []
       for (const tile of map.tiles) {
         if (tile.terrain === 'water' || visited.has(tile.id)) continue
-        const frontier = [tile]
+        const frontier = [tile.id]
         visited.add(tile.id)
         let size = 0
         while (frontier.length) {
           const current = frontier.pop()!
           size++
-          for (const [x, z] of [[current.x - 1, current.z], [current.x + 1, current.z],
-            [current.x, current.z - 1], [current.x, current.z + 1]]) {
-            const neighbor = tileAt(map, x!, z!)
-            if (neighbor && neighbor.terrain !== 'water' && !visited.has(neighbor.id)) {
-              visited.add(neighbor.id)
-              frontier.push(neighbor)
+          for (const id of neighbors(map, current)) {
+            if (map.tiles[id]!.terrain !== 'water' && !visited.has(id)) {
+              visited.add(id)
+              frontier.push(id)
             }
           }
         }

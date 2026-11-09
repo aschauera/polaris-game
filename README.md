@@ -4,7 +4,7 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 
 ![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
 
-*This image is the project's authoritative visual reference and predates the voxel renderer. The voxel renderer keeps its landforms, composition, scale and camera but deliberately uses a brighter diorama palette with soft shadows (see the [expedition captures](#visual-overview)); adopting it as the new reference is an open decision.*
+*This image is the project's authoritative visual reference and predates the voxel renderer. The renderer keeps its landforms, composition and scale, but with explicit user approval it now builds **hex fields from cubic voxels** after the [hex voxel concept](docs/concept-hex-voxel.jpg), with a brighter diorama palette, soft shadows, territory borders, city name plates and voxel unit figures (see the [expedition captures](#visual-overview)). Adopting a new authoritative reference is an open decision.*
 
 ## Plan and visual direction
 
@@ -57,7 +57,7 @@ is active.
 To try a real phone on the same Wi-Fi, run `npm run dev -- --host` and open the
 printed *Network* URL on the phone.
 
-Mobile captures from [validation run 42536336077](https://github.com/aschauera/polaris-game/actions/runs/42536336077), application commit `68781f1`, seed `polaris`, Linux Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
+Mobile captures of the hex voxel world from a local browser-suite run of branch `klaus/hex-voxel-world`, seed `polaris`, Windows Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
 
 ![Phone portrait atlas: map above the independently scrolling controls](docs/mobile-phone-portrait-atlas.png)
 
@@ -65,7 +65,7 @@ Mobile captures from [validation run 42536336077](https://github.com/aschauera/p
 
 ![Phone landscape atlas using the desktop-style side-by-side layout](docs/mobile-phone-landscape-atlas.png)
 
-These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **106 unit tests** and **21 browser tests**, plus type-check, lint and production build.
+These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **116 unit tests** and **21 browser tests**, plus type-check, lint and production build; the pull request's GitHub Actions run repeats them on Linux.
 
 ### Docker and Azure Container Apps
 
@@ -286,25 +286,25 @@ Browser runs upload a `browser-evidence` artifact (14-day retention), including 
 
 1. Generate a world, then choose **Start expedition**. The ordinary atlas stays the default.
 2. Select the gold scout on the map or use **Select scout** (also centers the camera).
-3. Select a charted destination, inspect its route cost, then choose **Move scout here**. The **N/E/S/W** buttons offer keyboard-accessible single-step orders.
-4. The scout has **4 movement points** per turn. Entering grassland costs **1**, hills **2**; water is impassable. There are no diagonal moves, embarkation, combat or opponents yet.
+3. Select a charted destination, inspect its route cost, then choose **Move scout here**. The six arrow buttons **↖ ↑ ↗ ↙ ↓ ↘** offer keyboard-accessible single-step orders to the neighbouring hexes (on screen the hexes are flat-topped, so these are exactly their six sides).
+4. The scout has **4 movement points** per turn. Entering grassland costs **1**, hills **2**; water is impassable. Every hex has six equally distant neighbours; there is no embarkation, combat or opponent AI yet.
 5. **End turn** restores movement. Invalid orders show a reason and spend neither movement nor RNG state.
 
-Sight reaches two cardinal steps. Uncharted tiles have identical opaque flat surfaces, with terrain/trees hidden and no inspector/pick information. Dim tiles are remembered terrain; bright tiles are currently visible. Pale land is reachable using the current movement budget. Only charted, unoccupied terrain can be used for a route; no hidden-terrain pathfinding. A multi-step move remembers the sight area along its entire route and keeps only the final sight area visible. Static terrain is unchanged between turns.
+Sight reaches two hexes in every direction. Uncharted tiles have identical opaque flat surfaces, with terrain/trees hidden and no inspector/pick information. Dim tiles are remembered terrain; bright tiles are currently visible. Pale land is reachable using the current movement budget. Only charted, unoccupied terrain can be used for a route; no hidden-terrain pathfinding. A multi-step move remembers the sight area along its entire route and keeps only the final sight area visible. Static terrain is unchanged between turns.
 
 Regenerating during an expedition starts a fresh expedition on the new world. Invalid configuration preserves the current expedition. **Return to atlas (discard expedition)** removes fog and returns to free inspection; it does not save progress. The solo expedition runs one Meridian faction without AI, faction bonuses or victory conditions; for two players see [Play by messenger](#play-by-messenger).
 
 ### Visual overview
 
-Fresh production-app captures from [validation run 42536336077](https://github.com/aschauera/polaris-game/actions/runs/42536336077), application commit `68781f1`, seed `polaris`, 32 × 32, 1440 × 900 viewport, Linux Chromium/SwiftShader:
+Captures of the hex voxel world from a local browser-suite run of branch `klaus/hex-voxel-world`, seed `polaris`, 32 × 32, 1440 × 900 viewport, Windows Chromium/SwiftShader:
 
-![Turn 1: the selected scout and its initial sight area, surrounded by uniform uncharted terrain](docs/expedition.png)
+![Turn 1: the selected scout with its gold hex outline and its sight area of two hexes, next to the founder, surrounded by uniform uncharted terrain](docs/expedition.png)
 
-![Turn 2: explored terrain stays dim, current sight remains bright, and the scout stays readable among trees](docs/expedition-explored.png)
+![Turn 2: explored hexes stay dim, current sight remains bright, and the scout figure stays readable among the trees on the back of each hex](docs/expedition-explored.png)
 
-![Turn 3: the founded city drawn as a voxel settlement, a stone keep with a gold banner and red-roofed houses for population 2, after its Guard completed](docs/expedition-city.png)
+![The founded city Sonnenfurt as a voxel settlement with its name plate and population 2, a gold border around its territory, after its Guard completed](docs/expedition-city.png)
 
-These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **106 unit tests**, **21 browser tests**, type-check, lint and production build in that run.
+These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **116 unit tests**, **21 browser tests**, type-check, lint and production build in that run; the pull request's GitHub Actions run repeats them on Linux.
 
 ## Play by messenger
 
@@ -329,23 +329,23 @@ How it behaves:
 
 - **No anti-cheat.** Both devices know the entire match, so fog of war is a presentation rule here, not a secret, and the checksums detect accidents and desyncs, not a determined opponent. Games that need secrets, simultaneous turns or push notifications need a server.
 - Both players must use the same Polaris version. A different rules or generator version is reported instead of silently diverging.
-- The map draws your cities, and the opponent's cities while you can see them, but not founders or units; the HUD lists your own cities and the opponent's orders are applied and checked.
+- The map draws your cities and units, and the opponent's cities and units while you can see them, as voxel figures in faction colours; the HUD lists your own cities and the opponent's orders are applied and checked.
 - Two tabs of one browser profile share the stored matches; playing the same match in both overwrites one with the other. Matches live on one device only and are not synchronised between your own devices.
 - Only desktop Chromium is automated (two isolated browser contexts acting as two devices). Phone browsers and messenger apps are not validated.
 
 ### Visual overview
 
-Fresh production-app captures from [validation run 42536336077](https://github.com/aschauera/polaris-game/actions/runs/42536336077), application commit `68781f1`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader. The idle panel and the match list are 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
+Captures of the hex voxel world from a local browser-suite run of branch `klaus/hex-voxel-world`, seed `polaris`, 32 × 32, Windows Chromium/SwiftShader. The idle panel and the match list are 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
 
 ![The atlas with the Play by messenger panel before a match: start a match or open a received turn](docs/messenger-idle.png)
 
 ![The host after End turn: the finished turn offered as link, code and file while the match waits for Lantern Compact](docs/messenger-host-outbox.png)
 
-![The guest after opening the link: the match opens as Lantern Compact, and it is their turn](docs/messenger-guest-joined.png)
+![The guest after opening the link: the match opens as Lantern Compact with its scout and founder figures, and it is their turn](docs/messenger-guest-joined.png)
 
 ![Your matches on one device: the match named Andreas is marked in gold because it is your turn, the other waits for Lantern Compact](docs/messenger-match-list.png)
 
-These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **106 unit tests**, **21 browser tests**, type-check, lint and production build in that run.
+These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **116 unit tests**, **21 browser tests**, type-check, lint and production build in that run; the pull request's GitHub Actions run repeats them on Linux.
 
 ## Map inputs and controls
 
@@ -359,13 +359,13 @@ These are functional UI captures, not concept art or evidence of native-GPU perf
 - With the canvas focused: arrows pan, `+`/`-` zoom, `R` resets. Orientation is fixed; there is no rotation.
 - HUD inputs/buttons do not send camera events. Pan target is bounded to map tile centers; zoom is bounded between inspection and whole-map fit. Resize preserves relative zoom.
 
-Generator 2 builds broad, irregular landforms before adding local coast variation, elevation steps and clustered trees. The renderer turns every tile into a column of small voxels: 8 per tile edge on the showcase, 4 up to 128² and 2 on the 256² fixture. The scene shows green grass over banded dirt cliffs, sandy beaches, light-blue water with shallows, terraced hills with rocky tops, and round voxel trees, grass tufts, flowers and stones, all on a layered soil base that appears only under charted tiles during an expedition. Faces are greedy-meshed with baked ambient occlusion. A sky fill and a sun with soft shadows light the scene. Terrain and decorations are original procedural placeholders. Cities appear as voxel settlements: a stone keep with a gold (Meridian) or blue (Lantern) banner, one to three red-roofed houses as the population grows, and a thatched storehouse once built. The voxels are a visual representation, not destructible or editable terrain, and units are not yet modelled as voxels. Selection/hover outlines are renderer-only data. Invalid inputs leave the prior valid map intact and show an explicit error. Missing WebGL 2 or context loss shows an error rather than a fake successful scene; reload after context loss.
+Generator 3 builds broad, irregular landforms on a **hex grid** (pointy-top hexes in odd-r rows) before adding local coast variation, elevation steps and clustered trees. The renderer builds every hex from square columns of small cubic voxels: 8 voxels per tile on the showcase, 4 up to 128² and 2 on the 256² fixture, so each field is a stepped hexagon, as in the approved [hex voxel concept](docs/concept-hex-voxel.jpg). The scene shows green grass over banded dirt cliffs, sandy beaches, light-blue water with shallows, terraced hex mounds for hills, and up to five round voxel trees on the back of a hex, plus grass tufts, flowers and stones, all on a layered soil base that appears only under charted tiles during an expedition. Thin hex lines mark the fields. Faces are greedy-meshed with baked ambient occlusion. A sky fill and a sun with soft shadows light the scene, and the scene is redrawn only when something changes. Terrain and decorations are original procedural placeholders. Cities appear as voxel settlements (a stone keep with a gold Meridian or blue Lantern banner, one to three red-roofed houses as the population grows, and a thatched storehouse once built) with a name plate showing the population and a border in the faction colour around their territory. Scouts, founders, guards and workers are small voxel figures in faction colours; rival units get a red hex ring. The voxels are a visual representation, not destructible or editable terrain. Selection/hover hex outlines are renderer-only data. Invalid inputs leave the prior valid map intact and show an explicit error. Missing WebGL 2 or context loss shows an error rather than a fake successful scene; reload after context loss.
 
 ## Validation and benchmark evidence
 
-The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Expedition coverage adds stable A*/Dijkstra paths, occupancy/costs, rejected commands, faction isolation, fog, actual UI movement/end-turn, hidden-terrain framebuffer/picking checks, mode-transition cleanup, city founding and its voxel settlement, economy inspection and production completion. Messenger coverage adds unit tests for replay, checksums and rejection of damaged, unfinished, tampered, foreign and repeated turns, plus the turn-code and storage adapters (several matches, migration, damaged entries), and browser tests in which two isolated browser contexts (separate storage, like two phones) exchange turns by link, pasted code and file, resume after a reload and leave a match, and one device keeps two matches and routes each received turn to its own match. Structural browser checks retain **18 meshes / 3 materials / 18 geometries** for the atlas at 32² (16 voxel chunks plus two markers) and **66 / 3 / 66** for the `polaris` 256² fixture (64 chunks), not one object per tile. They also keep the meshed vertices below 250,000 and 900,000 respectively. Expedition mode adds one scout mesh/material/geometry.
+The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Expedition coverage adds stable A*/Dijkstra paths, occupancy/costs, rejected commands, faction isolation, fog, actual UI movement/end-turn, hidden-terrain framebuffer/picking checks, mode-transition cleanup, city founding and its voxel settlement, economy inspection and production completion. Messenger coverage adds unit tests for replay, checksums and rejection of damaged, unfinished, tampered, foreign and repeated turns, plus the turn-code and storage adapters (several matches, migration, damaged entries), and browser tests in which two isolated browser contexts (separate storage, like two phones) exchange turns by link, pasted code and file, resume after a reload and leave a match, and one device keeps two matches and routes each received turn to its own match. Structural browser checks retain **18 meshes / 5 materials / 18 geometries** for the atlas at 32² (16 voxel chunks plus two hex markers) and **58 / 5 / 58** for the `polaris` 256² fixture (56 chunks), not one object per tile. They also keep the meshed vertices below 250,000 and 900,000 respectively. Expedition mode adds one small figure mesh per visible unit and shares the preallocated materials.
 
-Three successive regenerations of **each** size retain those counts; the showcase also keeps its RNG state and vertex-buffer size. The disposal counter confirms 48 showcase or 192 stress chunk meshes disposed, respectively. `vertexBufferBytes` reports **chunk vertex/index arrays only**: about 4.7 MiB for the showcase and 18 MiB for the 256² fixture. It does not include the fixed 1024² shadow map (about 6 MiB: a 16-bit single-channel colour target plus 32-bit depth), the width × height RGBA tile-state texture, or CPU-side copies. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
+Three successive regenerations of **each** size retain those counts; the showcase also keeps its RNG state and vertex-buffer size. The disposal counter confirms 48 showcase or 168 stress chunk meshes disposed, respectively. `vertexBufferBytes` reports **chunk vertex/index arrays only**: about 6 MiB for the showcase (143k vertices) and 15 MiB for the 256² fixture (333k vertices). It does not include the fixed 1024² shadow map (about 6 MiB: a 16-bit single-channel colour target plus 32-bit depth), the width × height RGBA tile-state texture and the voxel-column state texture, or CPU-side copies. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
 
 Use the revision's GitHub Actions checks for current type-check, lint, domain/browser test and production-build results. The historical map-only validation had 20 unit tests and 5 browser tests; those regression checks remain alongside the new expedition coverage. The historical benchmark below is not an expedition performance measurement. It also predates the voxel renderer: it measured generator 1 with thin-instance box terrain and has not been repeated for voxel chunks.
 

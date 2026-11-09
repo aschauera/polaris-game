@@ -105,7 +105,7 @@ describe('exporting and opening a match', () => {
     const state = play(2)
     const pkg = exportMatch(MATCH_ID, state)
     expect(pkg).toMatchObject({
-      format: MATCH_FORMAT, matchId: MATCH_ID, rules: state.rulesVersion, generator: 2, seed: 'polaris', width: 32, height: 24,
+      format: MATCH_FORMAT, matchId: MATCH_ID, rules: state.rulesVersion, generator: 3, seed: 'polaris', width: 32, height: 24,
       factions: ['meridian', 'lantern'], mapHash: mapHash(state.map), stateHash: stateHash(state),
     })
     expect(pkg.commands).toHaveLength(state.commands.length)

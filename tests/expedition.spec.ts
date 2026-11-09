@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { applyCommand, createExpedition, findPath, movementRange, neighbors, type Expedition } from '../src/game/expedition'
+import { hexOffsets } from '../src/game/hex'
 import { generateMap } from '../src/game/map'
 
 async function settled(page: Page) {
@@ -175,11 +176,14 @@ test('only affected fog buffers update; camera and HUD controls do not advance s
   await page.keyboard.press('ArrowLeft')
   expect(await snapshot(page)).toEqual(before)
   expect(await page.evaluate(() => window.polarisDiagnostics!.stats().fogUpdates)).toBe(updates)
-  // Keyboard-accessible cardinal buttons issue real orders, without intercepting camera arrows.
+  // Keyboard-accessible screen-direction buttons issue real orders, without intercepting camera arrows.
   const scout = state.scouts[0]!
   const to = neighbors(state.map, scout.tileId).find(id => findPath(state, scout.id, id))!
-  const delta = to - scout.tileId
-  const direction = delta === -state.map.width ? 'north' : delta === 1 ? 'east' : delta === state.map.width ? 'south' : 'west'
+  const from = state.map.tiles[scout.tileId]!
+  const target = state.map.tiles[to]!
+  const index = hexOffsets(from.z).findIndex(([dx, dz]) => from.x + dx === target.x && from.z + dz === target.z)
+  // East, south-east, south-west, west, north-west and north-east as the camera shows them.
+  const direction = ['down and left', 'down', 'down and right', 'up and right', 'up', 'up and left'][index]!
   await page.getByRole('button', { name: `Move scout ${direction}`, exact: true }).focus()
   await page.keyboard.press('Enter')
   expect((await snapshot(page))!.scoutTileId).toBe(to)
@@ -198,8 +202,9 @@ test('regeneration restarts exploration and leaving releases the scout without r
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     expect(await snapshot(page)).toEqual(expedition)
     const playing = await page.evaluate(() => window.polarisDiagnostics!.stats())
-    expect(playing).toMatchObject({ meshes: initial.meshes! + 1, materials: initial.materials! + 1,
-      geometries: initial.geometries! + 1 })
+    // Every unit adds one figure mesh with its own geometry; figures share preallocated materials.
+    expect(playing.meshes).toBeGreaterThan(initial.meshes!)
+    expect(playing).toMatchObject({ materials: initial.materials, geometries: initial.geometries! - initial.meshes! + playing.meshes! })
     await page.getByRole('button', { name: 'Return to atlas (discard expedition)', exact: true }).click()
     expect(await snapshot(page)).toBeUndefined()
     const restored = await page.evaluate(() => window.polarisDiagnostics!.stats())
