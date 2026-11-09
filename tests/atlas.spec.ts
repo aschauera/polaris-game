@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
-import { generateMap } from '../src/game/map'
+import { generateMap, type Tile } from '../src/game/map'
 import { HEX_ROW, hexCenter } from '../src/game/hex'
-import { createVoxelWorld, centreColumn } from '../src/rendering/voxels'
+import { createVoxelWorld, centreColumn, type VoxelWorld } from '../src/rendering/voxels'
 
 async function settled(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
@@ -9,6 +9,52 @@ async function settled(page: Page) {
 
 async function stats(page: Page) {
   return page.evaluate(() => window.polarisDiagnostics!.stats())
+}
+
+async function sampleSurface(page: Page, world: VoxelWorld, tile: Tile) {
+  const [origin, east, south] = await page.evaluate(ids => ids.map(id => window.polarisDiagnostics!.projectTile(id)),
+    [tile.id, tile.id + 1, tile.id + world.map.width])
+  expect(origin && east && south).toBeTruthy()
+  const dx = { x: east!.x - origin!.x, y: east!.y - origin!.y }
+  const rowShift = tile.z % 2 ? -0.5 : 0.5
+  const dz = { x: (south!.x - origin!.x - rowShift * dx.x) / HEX_ROW,
+    y: (south!.y - origin!.y - rowShift * dx.y) / HEX_ROW }
+  const [cx, cz] = hexCenter(tile.x, tile.z)
+  const [gx, gz] = centreColumn(world, tile)
+  const points: { x: number; y: number }[] = []
+  for (let z = -2; z < 3; z++) for (let x = -2; x < 3; x++) {
+    for (const fraction of [0.4, 0.6]) {
+      const u = world.originX + (gx + x + fraction) * world.size - cx
+      const v = world.originZ + (gz + z + fraction) * world.size - cz
+      points.push({ x: origin!.x + u * dx.x + v * dz.x, y: origin!.y + u * dx.y + v * dz.y })
+    }
+  }
+  const samples = await page.locator('canvas').evaluate((canvas, points) => {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
+    const rect = canvas.getBoundingClientRect()
+    return points.map(point => {
+      const x = Math.floor((point.x - rect.left) * gl.drawingBufferWidth / rect.width)
+      const y = gl.drawingBufferHeight - 1 - Math.floor((point.y - rect.top) * gl.drawingBufferHeight / rect.height)
+      if (x < 0 || y < 0 || x >= gl.drawingBufferWidth || y >= gl.drawingBufferHeight) throw new Error('Surface sample is off-screen')
+      const pixel = new Uint8Array(4)
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+      return [...pixel]
+    })
+  }, points)
+  return { origin: origin!, samples }
+}
+
+async function inspectSurface(page: Page, tile: Tile) {
+  await page.getByRole('button', { name: 'Reset view' }).click()
+  const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
+  const rect = (await page.locator('canvas').boundingBox())!
+  const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(2 * x - point.x, 2 * y - point.y, { steps: 4 })
+  await page.mouse.up()
+  for (let zoom = 0; zoom < 5; zoom++) await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  await settled(page)
 }
 
 async function selectTile(page: Page, width = 32, height = width) {
@@ -108,35 +154,7 @@ test('renders submerged water detail while picking the unchanged level surface',
   await page.locator('canvas').focus()
   for (let zoom = 0; zoom < 5; zoom++) await page.keyboard.press('+')
   await settled(page)
-  const [origin, east, south] = await page.evaluate(ids => ids.map(id => window.polarisDiagnostics!.projectTile(id)),
-    [tile.id, tile.id + 1, tile.id + map.width])
-  expect(origin && east && south).toBeTruthy()
-  const dx = { x: east!.x - origin!.x, y: east!.y - origin!.y }
-  const rowShift = tile.z % 2 ? -0.5 : 0.5
-  const dz = { x: (south!.x - origin!.x - rowShift * dx.x) / HEX_ROW,
-    y: (south!.y - origin!.y - rowShift * dx.y) / HEX_ROW }
-  const [cx, cz] = hexCenter(tile.x, tile.z)
-  const [gx, gz] = centreColumn(world, tile)
-  const points: { x: number; y: number }[] = []
-  for (let z = -2; z < 2; z++) for (let x = -2; x < 2; x++) {
-    for (const fraction of [0.4, 0.6]) {
-      const u = world.originX + (gx + x + fraction) * world.size - cx
-      const v = world.originZ + (gz + z + fraction) * world.size - cz
-      points.push({ x: origin!.x + u * dx.x + v * dz.x, y: origin!.y + u * dx.y + v * dz.y })
-    }
-  }
-  const samples = await page.locator('canvas').evaluate((canvas, points) => {
-    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
-    const rect = canvas.getBoundingClientRect()
-    return points.map(point => {
-      const x = Math.floor((point.x - rect.left) * gl.drawingBufferWidth / rect.width)
-      const y = gl.drawingBufferHeight - 1 - Math.floor((point.y - rect.top) * gl.drawingBufferHeight / rect.height)
-      if (x < 0 || y < 0 || x >= gl.drawingBufferWidth || y >= gl.drawingBufferHeight) throw new Error('Water sample is off-screen')
-      const pixel = new Uint8Array(4)
-      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
-      return [...pixel]
-    })
-  }, points)
+  const { origin, samples } = await sampleSurface(page, world, tile)
   const tones: number[] = []
   let totalRed = 0
   let totalGreen = 0
@@ -154,6 +172,50 @@ test('renders submerged water detail while picking the unchanged level surface',
   await expect(page.getByRole('status')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
   expect((await stats(page)).waterSurfaceQuads).toBeGreaterThan(0)
 })
+
+for (const terrain of ['water', 'grassland'] as const) {
+  test(`${terrain} shows voxel-sized material shades anchored to the world`, async ({ page }, testInfo) => {
+    const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
+    const world = createVoxelWorld(map)
+    await page.goto('/?diagnostics=1')
+    await expect(page.locator('#map-status')).toContainText('1,024 TILES')
+    const initial = await stats(page)
+    const tile = map.tiles.filter(tile => tile.terrain === terrain
+      && tile.x > 2 && tile.x < 29 && tile.z > 2 && tile.z < 29
+      && map.tiles.every(other => Math.hypot(other.x - tile.x, other.z - tile.z) > 1.8
+        || (other.terrain === terrain && other.elevation === tile.elevation && other.trees === 0)))
+      .sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16))[0]
+    expect(tile, `Flat, tree-free ${terrain} sample`).toBeDefined()
+    await inspectSurface(page, tile!)
+    const { samples } = await sampleSurface(page, world, tile!)
+    const green = samples.filter((_, i) => i % 2 === 0).map(pixel => pixel[1]!)
+    expect(Math.max(...green) - Math.min(...green), `${terrain} tonal range`).toBeGreaterThan(18)
+    expect(new Set(green.map(value => Math.round(value / 4))).size, `${terrain} tone bands`).toBeGreaterThanOrEqual(4)
+    if (terrain === 'grassland') {
+      // Isolated tufts/stones must not stand in for variation across the ground itself.
+      const sorted = [...green].sort((a, b) => a - b)
+      const middleRange = sorted[Math.floor(sorted.length * 0.75)]! - sorted[Math.floor(sorted.length * 0.25)]!
+      expect(middleRange, 'Grass shading spans the surface, not just a few outliers').toBeGreaterThan(12)
+    }
+    let withinCell = 0
+    for (let i = 0; i < samples.length; i += 2) {
+      withinCell += Math.abs(samples[i]![1]! - samples[i + 1]![1]!)
+      expect(samples[i]![3]).toBe(255)
+    }
+    expect(withinCell / (samples.length / 2), `${terrain} is flat inside each voxel`).toBeLessThan(3)
+    await page.locator('canvas').screenshot({ path: testInfo.outputPath(`surface-${terrain}.png`) })
+
+    await page.locator('canvas').focus()
+    await page.keyboard.press('ArrowRight')
+    await settled(page)
+    const shifted = await sampleSurface(page, world, tile!)
+    const differences = samples.map((pixel, i) => Math.abs(pixel[1]! - shifted.samples[i]![1]!))
+    expect(Math.max(...differences), `${terrain} shades must move with the world, not the screen`).toBeLessThanOrEqual(3)
+    expect(await stats(page)).toMatchObject({
+      vertices: initial.vertices, vertexBufferBytes: initial.vertexBufferBytes, remeshedChunks: initial.remeshedChunks,
+    })
+  })
+}
 
 test('regenerates repeatably and releases old chunk resources three times', async ({ page }) => {
   await page.goto('/?diagnostics=1')

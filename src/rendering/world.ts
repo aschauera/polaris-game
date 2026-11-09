@@ -78,7 +78,7 @@ const PLATE_HEIGHT = 0.95
 const FIGURE_YAW = Math.PI / 6 - 0.4
 
 /**
- * Per-voxel grain, hex grid lines, territory tint and borders, explored dimming and reachable highlights on top of
+ * Voxel-aligned material tones, hex grid lines, territory tint and borders, explored dimming and reachable highlights on top of
  * baked vertex colours and ambient occlusion. Tile state lives in small textures, so fog-of-war, movement and
  * territory changes never require remeshing.
  */
@@ -139,6 +139,19 @@ uniform sampler2D polarisTileState;
 uniform sampler2D polarisColumns;
 vec3 polarisFaction(int owner) { return owner == 1 ? vec3(1.0, 0.76, 0.2) : vec3(0.22, 0.52, 1.0); }
 int polarisByte(float value) { return int(value * 255.0 + 0.5); }
+float polarisGrain(ivec3 cell) {
+  uvec3 p = uvec3(cell + 8192);
+  uint h = p.x * 73856093u ^ p.y * 19349663u ^ p.z * 83492791u;
+  h = (h ^ (h >> 13u)) * 1274126177u;
+  return float((h >> 8u) & 255u) / 255.0;
+}
+float polarisPatch(vec2 p) {
+  ivec2 cell = ivec2(floor(p));
+  vec2 t = fract(p);
+  t = t * t * (3.0 - 2.0 * t);
+  return mix(mix(polarisGrain(ivec3(cell.x, 97, cell.y)), polarisGrain(ivec3(cell.x + 1, 97, cell.y)), t.x),
+    mix(polarisGrain(ivec3(cell.x, 97, cell.y + 1)), polarisGrain(ivec3(cell.x + 1, 97, cell.y + 1)), t.x), t.y);
+}
 `,
       // Tile state per texel: R explored, G reachable, A charted. B holds the territory owner in its low two bits
       // (0 none, 1 gold, 2 blue) and, above them, one bit per hex edge where that territory ends.
@@ -149,15 +162,30 @@ vec2 polarisWidth = fwidth(vPositionW.xz);
 float polarisAa = max(max(polarisWidth.x, polarisWidth.y), 1e-4);
 vec3 polarisInside = vPositionW - normalW * 0.5 * polarisVoxel.x;
 ivec2 polarisColumn = ivec2(floor((polarisInside.xz - polarisGrid.xy) / polarisVoxel.x));
-ivec3 polarisCell = ivec3(polarisColumn.x, int(floor(polarisInside.y / polarisVoxel.x)), polarisColumn.y) + 8192;
-uint polarisHash = uint(polarisCell.x) * 73856093u ^ uint(polarisCell.y) * 19349663u ^ uint(polarisCell.z) * 83492791u;
-polarisHash = (polarisHash ^ (polarisHash >> 13u)) * 1274126177u;
-float polarisNoise = float((polarisHash >> 8u) & 255u) / 255.0;
+ivec3 polarisCell = ivec3(polarisColumn.x, int(floor(polarisInside.y / polarisVoxel.x)), polarisColumn.y);
+float polarisNoise = polarisGrain(polarisCell);
 float polarisWater = step(1.25, vPolarisFlag);
 float polarisSurface = step(1.75, vPolarisFlag);
+float polarisLand = step(0.75, vPolarisFlag) * (1.0 - step(1.1, vPolarisFlag));
 float polarisWaterOverlay = 0.0;
-// Relief comes from the submerged voxel geometry, not a bevel painted on the level surface.
 if (polarisSurface < 0.5) baseColor.rgb *= 0.96 + 0.08 * polarisNoise;
+// Constant tones within world-space voxel cells form material patches, not painted depth or moving waves.
+if (normalW.y > 0.5 && polarisLand + polarisSurface > 0.5) {
+  float polarisCellSize = mix(1.0, 2.0, polarisSurface);
+  ivec2 polarisMaterialCell = ivec2(floor(vec2(polarisColumn) / polarisCellSize));
+  vec2 polarisSample = vec2(polarisMaterialCell) + 0.5;
+  float polarisMaterialGrain = polarisGrain(ivec3(polarisMaterialCell.x, polarisCell.y, polarisMaterialCell.y));
+  float polarisTone = clamp(0.5 + 0.85 * (polarisPatch(polarisSample / 3.0) - 0.5)
+    + 0.3 * (polarisPatch(polarisSample / 11.0) - 0.5)
+    + mix(0.25, 0.55, polarisSurface) * (polarisMaterialGrain - 0.5), 0.0, 0.999);
+  polarisTone = floor(polarisTone * 5.0) / 4.0;
+  float polarisDetail = 1.0 - smoothstep(0.35, 1.5, polarisAa / (polarisVoxel.x * polarisCellSize));
+  vec3 polarisDark = mix(vec3(0.8, 0.85, 0.82), vec3(0.62, 0.78, 0.88), polarisSurface);
+  vec3 polarisLight = mix(vec3(1.1, 1.08, 0.98), vec3(1.42, 1.25, 1.16), polarisSurface);
+  float polarisContrast = polarisDetail * mix(1.0, 0.35, step(2.125, vPolarisFlag));
+  baseColor.rgb *= mix(vec3(1.0), mix(polarisDark, polarisLight, polarisTone), polarisContrast);
+}
+// Relief still comes from the submerged voxel geometry.
 if (polarisWater > 0.5 && polarisSurface < 0.5) {
   float polarisDepth = max(0.0, polarisVoxel.w - vPositionW.y);
   baseColor.rgb = mix(baseColor.rgb, vec3(0.06, 0.42, 0.56), min(0.45, polarisDepth * 0.35));
@@ -168,7 +196,6 @@ if (vPolarisFlag > 0.25) {
   vec4 polarisState = texelFetch(polarisColumns, clamp(polarisColumn, ivec2(0), ivec2(polarisGrid.zw) - 1), 0);
   int polarisOwner = polarisByte(polarisState.b) & 3;
   // Tints colour the ground only, so buildings and trees keep their own colours.
-  float polarisLand = step(0.75, vPolarisFlag) * (1.0 - step(1.1, vPolarisFlag));
   float polarisGround = polarisLand + polarisSurface;
   ${this.waterPass ? 'polarisGround = 0.0;' : ''}
   if (polarisOwner > 0) baseColor.rgb = mix(baseColor.rgb, polarisFaction(polarisOwner), 0.14 * polarisGround);
