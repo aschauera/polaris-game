@@ -12,7 +12,7 @@ const SOURCE = {
   dirt: '#8c5c33', dirtDark: '#744a29', soil: '#5c4630', soilDark: '#4a3925', bedrock: '#382c20',
   hillGrass: '#8fa64c', hillGrassDark: '#7f9744', rock: '#a29d90', rockDark: '#857f73',
   cliff: '#9a6a45', cliffDark: '#7d5438', stone: '#bcb7ab',
-  water: '#4fb3df', shallow: '#86d5ea', shoal: '#64c5ea',
+  water: '#397fa8', shallow: '#a0e3e8', shoal: '#55c5d6', shelf: '#4b9fc2',
   path: '#cfb07a',
   trunk: '#6b4a2b',
   leafTeal: '#2f9a7c', leafTealLight: '#43b391', leafGreen: '#3f9b3a', leafGreenLight: '#57b34b',
@@ -230,12 +230,15 @@ function borders(world: VoxelWorld, known: Uint8Array, id: number, gx: number, g
 const isLand = (tile: Tile) => tile.terrain !== 'water'
 const isWater = (tile: Tile) => tile.terrain === 'water'
 
-/** Whether a column of charted land lies within a jittered disc of `radius` columns, so shoals follow the coast's shape. */
-function nearChartedLand(world: VoxelWorld, known: Uint8Array, gx: number, gz: number, radius: number): boolean {
+/** Whether charted land lies within the jittered outer radius, excluding a previously checked inner disc. */
+function nearChartedLand(world: VoxelWorld, known: Uint8Array, gx: number, gz: number, radius: number, afterRadius = 0): boolean {
   const reach = Math.ceil(radius)
+  const outerSquared = radius * radius
+  const innerSquared = afterRadius * afterRadius
   for (let dz = -reach; dz <= reach; dz++) {
     for (let dx = -reach; dx <= reach; dx++) {
-      if (dx * dx + dz * dz > radius * radius) continue
+      const distanceSquared = dx * dx + dz * dz
+      if (distanceSquared > outerSquared || distanceSquared <= innerSquared) continue
       const other = columnTileAt(world, gx + dx, gz + dz)
       // Uncharted land must not shape visible water, or the shoal would outline hidden coasts.
       if (other >= 0 && known[other] === 1 && isLand(world.map.tiles[other]!)) return true
@@ -256,8 +259,15 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
       || (scale >= 8 && noise(seed, salt, gx, gz, 3) > 0.45 && borders(world, known, id, gx, gz, 2, matches)))
   if (tile.terrain === 'water') {
     const reach = shoalReach(scale)
-    const shoal = reach > 0 && nearChartedLand(world, known, gx, gz, reach - 0.5 + noise(seed, 10, gx, gz, 4))
-    const surface = rim(isLand, 8) ? VOXEL.shallow : shoal ? VOXEL.shoal : VOXEL.water
+    const shallow = rim(isLand, 8)
+    let surface = VOXEL.water
+    if (shallow) surface = VOXEL.shallow
+    else if (reach > 0) {
+      const shoalRadius = reach - 0.5 + noise(seed, 10, gx, gz, 4)
+      const shelfRadius = 2 * reach - 0.5 + noise(seed, 11, gx, gz, 8)
+      if (nearChartedLand(world, known, gx, gz, shoalRadius)) surface = VOXEL.shoal
+      else if (nearChartedLand(world, known, gx, gz, shelfRadius, shoalRadius)) surface = VOXEL.shelf
+    }
     return { top: waterLevel(scale), surface, body: 'water', tile, known: true }
   }
   const level = landLevel(scale, tile.terrain, tile.elevation)

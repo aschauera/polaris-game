@@ -148,7 +148,9 @@ ivec2 polarisColumn = ivec2(floor((polarisInside.xz - polarisGrid.xy) / polarisV
 ivec3 polarisCell = ivec3(polarisColumn.x, int(floor(polarisInside.y / polarisVoxel.x)), polarisColumn.y) + 8192;
 uint polarisHash = uint(polarisCell.x) * 73856093u ^ uint(polarisCell.y) * 19349663u ^ uint(polarisCell.z) * 83492791u;
 polarisHash = (polarisHash ^ (polarisHash >> 13u)) * 1274126177u;
-baseColor.rgb *= 0.96 + 0.08 * float((polarisHash >> 8u) & 255u) / 255.0;
+float polarisWater = step(vPositionW.y, polarisVoxel.w + 0.5 * polarisVoxel.x);
+float polarisGrain = mix(0.08, 0.015, polarisWater);
+baseColor.rgb *= 1.0 - 0.5 * polarisGrain + polarisGrain * float((polarisHash >> 8u) & 255u) / 255.0;
 if (vPolarisFlag > 0.25) {
   ivec2 polarisSize = ivec2(polarisVoxel.yz);
   // Each column texel holds the state of the tile owning that voxel column, or zero outside the map.
@@ -192,7 +194,6 @@ if (vPolarisFlag > 0.25) {
         min(min(polarisFarBorder.x, polarisFarBorder.y), polarisFarBorder.z));
       float polarisLines = 1.0 - smoothstep(polarisLineWidth, polarisLineWidth + polarisAa, polarisNearest);
       // The base grid recedes when zoomed out and over open water, so coasts, borders and outlines lead the eye.
-      float polarisWater = step(vPositionW.y, polarisVoxel.w + 0.5 * polarisVoxel.x);
       float polarisGridStrength = mix(0.16, 0.05, polarisWater) * mix(1.0, mix(0.75, 0.45, polarisWater), smoothstep(0.02, 0.06, polarisAa));
       float polarisOutline = (1.0 - smoothstep(0.045, 0.045 + polarisAa, polarisNearest)) * polarisHex.g;
       float polarisBorder = 1.0 - smoothstep(0.085, 0.085 + polarisAa, polarisBorderD);

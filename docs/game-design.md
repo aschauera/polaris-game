@@ -87,7 +87,7 @@ The world itself uses the bright diorama palette of the [hex voxel concept](conc
 | Gold focus/civic details | `#D6AF58` |
 | Ivory text/highlights | `#F2E9D4` |
 
-Forest uses clustered stepped crowns; hills use broad terraces; mountains use taller narrow peaks; water stays low and flat. Coasts read through a light shallow rim and a turquoise shoal band around charted land. The hex grid is a quiet aid: faint on open water and fading when zoomed out, so coasts, borders and outlines carry the overview. Terrain identity must not rely on color alone.
+Forest uses clustered stepped crowns; hills use broad terraces; mountains use taller narrow peaks; water stays low and flat with restrained color grain. Coasts read through a light shallow rim, a turquoise shoal, a blue shelf and deeper open water, all derived only from charted land. The hex grid is a quiet aid: faint on open water and fading when zoomed out, so coasts, borders and outlines carry the overview. Terrain identity must not rely on color alone.
 
 Selection is a high-contrast gold hex outline plus inspector text. Ownership uses a faction-coloured border band on the inner edge of each territory, distinct from selection; city name plates carry the population. Expedition fog uses subdued explored tiles and opaque uniform unseen tiles, hiding terrain silhouettes, trees, picking and tooltips. Provide readable labels, keyboard-accessible controls, and a non-color selection indicator.
 

@@ -63,7 +63,7 @@ Details and numbers are in [ADR-004](../docs/architecture.md#adr-004-map-and-ren
 
 - **Hex fields of cubic voxels.** Each hex is a stack of square voxel columns: soil base, dirt or rock cliffs, a grass, sand or rock top, and terraced mounds for hills. No hexagonal voxels, smooth meshes, textures or imported models.
 - **A calm, readable board**, as in *Into the Breach*: few elements per hex, and small trees on the back row, so the centre stays free for a unit. Terrain identity must not rely on colour alone. The plain hex grid stays subtle: faint on open water and fading when zoomed out, while selection, reachable outline and territory border keep full strength.
-- **Readable coasts.** Water next to land shows a light shallow rim and a turquoise shoal band, derived from charted land only so it never reveals hidden coasts.
+- **Readable coasts.** Water uses a bright shallow rim, turquoise shoal, blue shelf and deeper open-water tint, with restrained color grain. Derive coastal bands from charted land only so they never reveal hidden coasts.
 - **Clear territory**, as in *Polytopia*: a faction-coloured border band on the inner edge of each territory, and a name plate with the population above each visible city. Selection is a gold hex outline; hexes reachable this turn get their own outline. Keep the three distinct.
 - **Chunky voxel figures**, as in *Voxel Tactics*: units are small voxel figures in faction colours, standing on their hex. No sprites or billboards.
 - Learn from these games' design; never copy their art, names or assets.
