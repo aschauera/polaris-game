@@ -12,7 +12,7 @@ const SOURCE = {
   dirt: '#8c5c33', dirtDark: '#744a29', soil: '#5c4630', soilDark: '#4a3925', bedrock: '#382c20',
   hillGrass: '#8fa64c', hillGrassDark: '#7f9744', rock: '#a29d90', rockDark: '#857f73',
   cliff: '#9a6a45', cliffDark: '#7d5438', stone: '#bcb7ab',
-  water: '#4fb3df', shallow: '#86d5ea',
+  water: '#4fb3df', shallow: '#86d5ea', shoal: '#64c5ea',
   path: '#cfb07a',
   trunk: '#6b4a2b',
   leafTeal: '#2f9a7c', leafTealLight: '#43b391', leafGreen: '#3f9b3a', leafGreenLight: '#57b34b',
@@ -135,7 +135,9 @@ function treeShape(scale: number): TreeShape {
   return { trunk: 0, trunkVariance: 0, radius: 0.6, radiusVariance: 0, layers: 2, layerVariance: 0, spots: 1 }
 }
 
-function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
+export function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
+/** Columns of turquoise shoal water around charted land, beyond the shallow rim; none at the coarsest scale. */
+function shoalReach(scale: number): number { return scale >= 8 ? 4 : scale >= 4 ? 2 : 0 }
 function fogLevel(scale: number): number { return Math.max(1, Math.round(0.65 * scale)) }
 function bumpLimit(scale: number): number { return scale >= 8 ? 2 : scale >= 4 ? 1 : 0 }
 
@@ -228,6 +230,20 @@ function borders(world: VoxelWorld, known: Uint8Array, id: number, gx: number, g
 const isLand = (tile: Tile) => tile.terrain !== 'water'
 const isWater = (tile: Tile) => tile.terrain === 'water'
 
+/** Whether a column of charted land lies within a jittered disc of `radius` columns, so shoals follow the coast's shape. */
+function nearChartedLand(world: VoxelWorld, known: Uint8Array, gx: number, gz: number, radius: number): boolean {
+  const reach = Math.ceil(radius)
+  for (let dz = -reach; dz <= reach; dz++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      if (dx * dx + dz * dz > radius * radius) continue
+      const other = columnTileAt(world, gx + dx, gz + dz)
+      // Uncharted land must not shape visible water, or the shoal would outline hidden coasts.
+      if (other >= 0 && known[other] === 1 && isLand(world.map.tiles[other]!)) return true
+    }
+  }
+  return false
+}
+
 function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): Column | undefined {
   const id = columnTileAt(world, gx, gz)
   if (id < 0) return
@@ -239,7 +255,10 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
     && (borders(world, known, id, gx, gz, 1, matches)
       || (scale >= 8 && noise(seed, salt, gx, gz, 3) > 0.45 && borders(world, known, id, gx, gz, 2, matches)))
   if (tile.terrain === 'water') {
-    return { top: waterLevel(scale), surface: rim(isLand, 8) ? VOXEL.shallow : VOXEL.water, body: 'water', tile, known: true }
+    const reach = shoalReach(scale)
+    const shoal = reach > 0 && nearChartedLand(world, known, gx, gz, reach - 0.5 + noise(seed, 10, gx, gz, 4))
+    const surface = rim(isLand, 8) ? VOXEL.shallow : shoal ? VOXEL.shoal : VOXEL.water
+    return { top: waterLevel(scale), surface, body: 'water', tile, known: true }
   }
   const level = landLevel(scale, tile.terrain, tile.elevation)
   if (world.sites[id]) {
@@ -661,9 +680,9 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
 export function affectedChunks(world: VoxelWorld, tileIds: Iterable<number>): Set<number> {
   const { map, scale, reach, chunkColumns, chunksX, chunksZ } = world
   const chunks = new Set<number>()
-  // A changed tile moves its own columns, its trees, two-column shore rims next to it and adjacent ambient occlusion.
+  // A changed tile moves its own columns, its trees, shallow rims and shoals next to it and adjacent ambient occlusion.
   // A settlement also clears back-row trees of the hexes east, south-east and south-west of it, half a hex further in x.
-  const margin = reach + 3
+  const margin = Math.max(reach + 3, shoalReach(scale) + 2)
   const halfX = scale / 2 + Math.ceil(scale / 2)
   const halfZ = Math.ceil(HEX_RADIUS * scale)
   for (const id of tileIds) {

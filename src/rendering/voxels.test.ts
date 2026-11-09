@@ -166,6 +166,28 @@ describe('hex voxel terrain', () => {
     expect([...flags].sort()).toEqual([FACE_FLAG.fog, FACE_FLAG.decoration, FACE_FLAG.ground])
   })
 
+  it('rings charted coasts with shallow and shoal water, never outlining uncharted land', () => {
+    // A lone island in open water at the finest scale.
+    const map = flatMap(9, 9, Object.fromEntries(Array.from({ length: 81 }, (_, id) =>
+      [id, id === 40 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+    const known = allKnown(map)
+    const fine = meshAll(createVoxelWorld(map), known)
+    expect(shows(fine, VOXEL.shallow)).toBe(true)
+    expect(shows(fine, VOXEL.shoal)).toBe(true)
+    expect(shows(fine, VOXEL.water)).toBe(true)
+    // Hidden, the island leaves only plain open water around its fog.
+    known[40] = 0
+    const hidden = meshAll(createVoxelWorld(map), known)
+    expect(shows(hidden, VOXEL.shallow)).toBe(false)
+    expect(shows(hidden, VOXEL.shoal)).toBe(false)
+    // The coarsest scale keeps plain water so large maps stay within their vertex budget.
+    const large = flatMap(260, 4, Object.fromEntries(Array.from({ length: 1040 }, (_, id) =>
+      [id, id % 260 === 130 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+    const coarse = createVoxelWorld(large)
+    expect(coarse.scale).toBe(2)
+    expect(shows(meshAll(coarse, allKnown(large)), VOXEL.shoal)).toBe(false)
+  })
+
   it('produces identical surfaces regardless of chunk borders', () => {
     const map = generateMap({ seed: 'North_Star-7', width: 16, height: 16 })
     const known = new Uint8Array(map.tiles.length)

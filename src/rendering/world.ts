@@ -10,6 +10,7 @@ import type { Visibility } from '../game/expedition'
 import { figureMesh, type FigureKind } from './figures'
 import {
   PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, siteCode, territoryCode, tileSurface,
+  waterLevel,
   type ChunkMesh, type Settlement, type VoxelWorld,
 } from './voxels'
 
@@ -90,6 +91,8 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   originZ = 0
   columnsX = 1
   columnsZ = 1
+  /** World height of the water surface; ground tops at or below it are water. */
+  waterTop = 0
   readonly fogColor = new Color3(PALETTE[VOXEL.fog * 3], PALETTE[VOXEL.fog * 3 + 1], PALETTE[VOXEL.fog * 3 + 2])
 
   constructor(material: Material) {
@@ -111,7 +114,7 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   }
 
   override bindForSubMesh(uniformBuffer: UniformBuffer): void {
-    uniformBuffer.updateFloat4('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight, 0)
+    uniformBuffer.updateFloat4('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight, this.waterTop)
     uniformBuffer.updateFloat4('polarisGrid', this.originX, this.originZ, this.columnsX, this.columnsZ)
     uniformBuffer.updateColor3('polarisFog', this.fogColor)
     if (this.tileState) uniformBuffer.setTexture('polarisTileState', this.tileState)
@@ -188,11 +191,14 @@ if (vPolarisFlag > 0.25) {
       float polarisBorderD = min(min(min(polarisNearBorder.x, polarisNearBorder.y), polarisNearBorder.z),
         min(min(polarisFarBorder.x, polarisFarBorder.y), polarisFarBorder.z));
       float polarisLines = 1.0 - smoothstep(polarisLineWidth, polarisLineWidth + polarisAa, polarisNearest);
+      // The base grid recedes when zoomed out and over open water, so coasts, borders and outlines lead the eye.
+      float polarisWater = step(vPositionW.y, polarisVoxel.w + 0.5 * polarisVoxel.x);
+      float polarisGridStrength = mix(0.16, 0.05, polarisWater) * mix(1.0, mix(0.75, 0.45, polarisWater), smoothstep(0.02, 0.06, polarisAa));
       float polarisOutline = (1.0 - smoothstep(0.045, 0.045 + polarisAa, polarisNearest)) * polarisHex.g;
       float polarisBorder = 1.0 - smoothstep(0.085, 0.085 + polarisAa, polarisBorderD);
       float polarisEdge = 1.0 - smoothstep(0.105, 0.105 + polarisAa, polarisBorderD);
       float polarisGlow = 1.0 - smoothstep(0.085, 0.3, polarisBorderD);
-      baseColor.rgb *= 1.0 - 0.16 * polarisLines;
+      baseColor.rgb *= 1.0 - polarisGridStrength * polarisLines;
       if (polarisHexOwner > 0) {
         vec3 polarisTeam = polarisFaction(polarisHexOwner);
         baseColor.rgb = mix(baseColor.rgb, polarisTeam, 0.4 * polarisGlow);
@@ -444,6 +450,7 @@ export class WorldRenderer {
     Object.assign(this.voxels, {
       tileState: this.tileState, columns: this.columns, voxelSize: world.size, mapWidth: map.width, mapHeight: map.height,
       originX: world.originX, originZ: world.originZ, columnsX: world.columnsX, columnsZ: world.columnsZ,
+      waterTop: waterLevel(world.scale) * world.size,
     })
     for (let index = 0; index < world.chunksX * world.chunksZ; index++) this.buildChunk(index)
     const centre = new Vector3((map.width - 0.5) / 2, 0, (map.height - 1) * HEX_ROW / 2)
