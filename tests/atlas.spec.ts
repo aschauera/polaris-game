@@ -21,11 +21,12 @@ async function sampleSurface(page: Page, world: VoxelWorld, tile: Tile) {
     y: (south!.y - origin!.y - rowShift * dx.y) / HEX_ROW }
   const [cx, cz] = hexCenter(tile.x, tile.z)
   const [gx, gz] = centreColumn(world, tile)
+  const stride = Math.max(1, world.scale / 8)
   const points: { x: number; y: number }[] = []
   for (let z = -2; z < 3; z++) for (let x = -2; x < 3; x++) {
     for (const fraction of [0.4, 0.6]) {
-      const u = world.originX + (gx + x + fraction) * world.size - cx
-      const v = world.originZ + (gz + z + fraction) * world.size - cz
+      const u = world.originX + (gx + x * stride + fraction) * world.size - cx
+      const v = world.originZ + (gz + z * stride + fraction) * world.size - cz
       points.push({ x: origin!.x + u * dx.x + v * dz.x, y: origin!.y + u * dx.y + v * dz.y })
     }
   }
@@ -41,7 +42,7 @@ async function sampleSurface(page: Page, world: VoxelWorld, tile: Tile) {
       return [...pixel]
     })
   }, points)
-  return { origin: origin!, samples }
+  return { origin: origin!, dx, dz, samples }
 }
 
 async function inspectSurface(page: Page, tile: Tile) {
@@ -53,7 +54,7 @@ async function inspectSurface(page: Page, tile: Tile) {
   await page.mouse.down()
   await page.mouse.move(2 * x - point.x, 2 * y - point.y, { steps: 4 })
   await page.mouse.up()
-  for (let zoom = 0; zoom < 5; zoom++) await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  for (let zoom = 0; zoom < 8; zoom++) await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
   await settled(page)
 }
 
@@ -91,9 +92,9 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   const initial = await page.evaluate(() => window.polarisDiagnostics!.camera())
   expect(initial?.mode).toBe(1) // Babylon ORTHOGRAPHIC_CAMERA, not perspective.
   const rendering = await stats(page)
-  expect(rendering).toMatchObject({ webGLVersion: 2, chunks: 16, voxelsPerTile: 8, meshes: 18, materials: 6, geometries: 18 })
+  expect(rendering).toMatchObject({ webGLVersion: 2, chunks: 56, voxelsPerTile: 16, meshes: 58, materials: 6, geometries: 58 })
   expect(rendering.waterSurfaceQuads).toBeGreaterThan(0)
-  expect(rendering.vertices).toBeLessThan(250_000)
+  expect(rendering.vertices).toBeLessThan(900_000)
   expect(rendering.drawCalls).toBeGreaterThan(0)
   // Check real framebuffer colors, not just meshes/canvas existence.
   const colors = await page.locator('canvas').evaluate(canvas => {
@@ -154,7 +155,11 @@ test('renders submerged water detail while picking the unchanged level surface',
   await page.locator('canvas').focus()
   for (let zoom = 0; zoom < 5; zoom++) await page.keyboard.press('+')
   await settled(page)
-  const { origin, samples } = await sampleSurface(page, world, tile)
+  const { origin, dx, dz, samples } = await sampleSurface(page, world, tile)
+  // Measure the actual projected plane: equal axis lengths and symmetric 30-degree cube edges.
+  expect(Math.hypot(dx.x, dx.y) / Math.hypot(dz.x, dz.y)).toBeCloseTo(1, 4)
+  expect(Math.abs(dx.y / dx.x)).toBeCloseTo(Math.tan(Math.PI / 6), 4)
+  expect(Math.abs(dz.y / dz.x)).toBeCloseTo(Math.tan(Math.PI / 6), 4)
   const tones: number[] = []
   let totalRed = 0
   let totalGreen = 0
@@ -225,8 +230,8 @@ test('regenerates repeatably and releases old chunk resources three times', asyn
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     await expect(page.getByRole('status')).toHaveText('No tile selected')
     const current = await stats(page)
-    expect(current).toMatchObject({ chunks: 16, meshes: 18, geometries: 18, materials: 6,
-      disposedChunks: i * 16, rngState: initial.rngState, vertexBufferBytes: initial.vertexBufferBytes })
+    expect(current).toMatchObject({ chunks: 56, meshes: 58, geometries: 58, materials: 6,
+      disposedChunks: i * 56, rngState: initial.rngState, vertexBufferBytes: initial.vertexBufferBytes })
     expect((await selectTile(page)).tile).toEqual(tile)
   }
 })
@@ -248,7 +253,7 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
       geometries: initial.geometries, materials: 6, disposedChunks: initial.chunks! * i })
   }
   await page.getByRole('button', { name: '32² showcase' }).click()
-  expect(await stats(page)).toMatchObject({ chunks: 16, meshes: 18, geometries: 18 })
+  expect(await stats(page)).toMatchObject({ chunks: 56, meshes: 58, geometries: 58 })
   await selectTile(page)
 })
 

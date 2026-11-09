@@ -3,6 +3,7 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
 import { CreateBoxVertexData } from '@babylonjs/core/Meshes/Builders/boxBuilder'
 import { HEX_ROW, hexAt, hexCenter, hexOffsets } from '../game/hex'
 import { generateMap, type Tile, type WorldMap } from '../game/map'
+import { CAMERA_PITCH, CAMERA_YAW } from './view'
 import {
   AO_LIGHT, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, centreColumn, columnTileAt, createVoxelWorld, groundHeight,
   meshChunk, pickTile, siteCode, territoryCode, tileSurface, voxelScale, type ChunkMesh, type VoxelWorld,
@@ -65,6 +66,8 @@ const sameMesh = (a: ChunkMesh, b: ChunkMesh) => a.quads === b.quads
   && a.positions.every((value, index) => value === b.positions[index])
   && a.colors.every((value, index) => value === b.colors[index])
   && a.faceFlags.every((value, index) => value === b.faceFlags[index])
+  && a.normals.every((value, index) => value === b.normals[index])
+  && a.indices.every((value, index) => value === b.indices[index])
 
 /** Visible trunk faces per hex, keyed "x,z". */
 function trunksPerHex(meshes: ChunkMesh[], size: number): Map<string, number> {
@@ -82,17 +85,16 @@ function trunksPerHex(meshes: ChunkMesh[], size: number): Map<string, number> {
   return counts
 }
 
-// The camera looks down 42 degrees from a yaw of 60 degrees, so rays travel towards -x and -z.
-const PITCH = 42 * Math.PI / 180
-const VIEW = [0.5 * Math.cos(PITCH), Math.sin(PITCH), HEX_ROW * Math.cos(PITCH)] as const
+const VIEW = [Math.cos(CAMERA_YAW) * Math.cos(CAMERA_PITCH), Math.sin(CAMERA_PITCH),
+  Math.sin(CAMERA_YAW) * Math.cos(CAMERA_PITCH)] as const
 const DOWN_VIEW = [-VIEW[0], -VIEW[1], -VIEW[2]] as const
 
 describe('hex voxel terrain', () => {
   it('keeps the column budget bounded with power-of-two voxel scales', () => {
-    expect([[32, 32], [64, 64], [64, 48], [100, 100], [128, 128], [200, 200], [256, 256]]
-      .map(([w, h]) => voxelScale(w!, h!))).toEqual([8, 8, 8, 4, 4, 2, 2])
+    expect([[8, 8], [32, 32], [33, 32], [64, 64], [64, 48], [65, 64], [128, 128], [129, 128], [256, 256]]
+      .map(([w, h]) => voxelScale(w!, h!))).toEqual([16, 16, 8, 8, 8, 4, 4, 2, 2])
     const world = createVoxelWorld(generateMap({ seed: 'polaris', width: 32, height: 32 }))
-    expect(world).toMatchObject({ scale: 8, size: 0.125, columnsX: 260, columnsZ: 225, chunksX: 4, chunksZ: 4, base: 6 })
+    expect(world).toMatchObject({ scale: 16, size: 0.0625, columnsX: 520, columnsZ: 449, chunksX: 8, chunksZ: 7, base: 12 })
     expect(createVoxelWorld(generateMap({ seed: 'polaris', width: 256, height: 256 })))
       .toMatchObject({ scale: 2, columnsX: 513, columnsZ: 445, chunksX: 8, chunksZ: 7 })
   })
@@ -115,7 +117,7 @@ describe('hex voxel terrain', () => {
   })
 
   it('keeps every elevation step distinct at every scale', () => {
-    for (const size of [32, 128, 256]) {
+    for (const size of [32, 64, 128, 256]) {
       const world = createVoxelWorld(flatMap(size, size))
       const tile = (terrain: Tile['terrain'], elevation: number) =>
         tileSurface(world, { id: 0, x: 0, z: 0, terrain, elevation, trees: 0 }, true)
@@ -225,8 +227,10 @@ describe('hex voxel terrain', () => {
     const meshes = meshAll(world, known)
     expect(shows(meshes, VOXEL.underwaterRock)).toBe(true)
     const waterTop = tileSurface(world, map.tiles.find(tile => tile.terrain === 'water')!, true) * world.size
-    for (const mesh of meshes) for (let v = 0; v < mesh.positions.length / 3; v++) {
-      if (kindAt(mesh, v) === VOXEL.underwaterRock) expect(mesh.positions[v * 3 + 1]).toBeLessThan(waterTop)
+    for (const mesh of meshes) for (let v = 0; v < mesh.positions.length / 3; v += 4) {
+      if (kindAt(mesh, v) === VOXEL.underwaterRock) {
+        for (let k = 0; k < 4; k++) expect(mesh.positions[(v + k) * 3 + 1]).toBeLessThan(waterTop)
+      }
     }
     known.fill(0)
     const fog = meshAll(world, known)
@@ -275,7 +279,7 @@ describe('hex voxel terrain', () => {
       }
       return world
     }
-    const whole = settle(createVoxelWorld(map, 160))
+    const whole = settle(createVoxelWorld(map, 320))
     expect(whole.chunksX * whole.chunksZ).toBe(1)
     const signature = surfaceSignature(meshAll(whole, known))
     for (const chunkColumns of [32, 48]) {
@@ -342,7 +346,7 @@ describe('hex voxel terrain', () => {
   it('keeps every settlement inside its own hex at every scale and row parity', () => {
     const building = new Set([VOXEL.path, VOXEL.wall, VOXEL.roof, VOXEL.roofRidge, VOXEL.plank, VOXEL.thatch, VOXEL.thatchRidge,
       VOXEL.castle, VOXEL.castleDark, VOXEL.timber, VOXEL.bannerGold, VOXEL.bannerBlue])
-    for (const size of [8, 128, 256]) {
+    for (const size of [8, 64, 128, 256]) {
       const map = flatMap(size, size)
       const world = createVoxelWorld(map)
       for (const [x, z] of [[0, 0], [1, 1], [2, 2], [3, 3], [2, 1]] as const) {
@@ -369,7 +373,7 @@ describe('hex voxel terrain', () => {
   })
 
   it('fits settlements at every voxel scale', () => {
-    for (const size of [32, 128, 256]) {
+    for (const size of [32, 64, 128, 256]) {
       const map = flatMap(size, size)
       const world = createVoxelWorld(map)
       world.sites[0] = siteCode({ houses: 3, storehouse: false, banner: 0 })
@@ -377,6 +381,25 @@ describe('hex voxel terrain', () => {
       expect(shows(mesh, VOXEL.roof), `${size}`).toBe(true)
       expect(shows(mesh, VOXEL.bannerGold), `${size}`).toBe(world.scale >= 4)
     }
+  })
+
+  it('quadruples showcase surface density without shrinking its settlements', () => {
+    const cells: number[] = []
+    for (const width of [32, 64]) {
+      const map = flatMap(width, width)
+      const tile = map.tiles[2 * width + 2]!
+      const world = createVoxelWorld(map)
+      cells.push(world.columnTile.filter(id => id >= 0).length / map.tiles.length)
+      world.sites[tile.id] = siteCode({ houses: 3, storehouse: true, banner: 0 })
+      const mesh = meshChunk(world, allKnown(map), 0)
+      let bannerTop = 0
+      for (let v = 0; v < mesh.faceFlags.length; v += 4) {
+        if (kindAt(mesh, v) !== VOXEL.bannerGold) continue
+        for (let k = 0; k < 4; k++) bannerTop = Math.max(bannerTop, mesh.positions[(v + k) * 3 + 1]!)
+      }
+      expect(bannerTop - tileSurface(world, tile, true) * world.size).toBe(0.75)
+    }
+    expect(cells[0]! / cells[1]!).toBeCloseTo(4, 1)
   })
 
   it('never shows a settlement on an uncharted tile', () => {
@@ -423,18 +446,20 @@ describe('hex voxel terrain', () => {
       tiles: map.tiles.map(tile => known[tile.id] ? tile : { ...tile, terrain: tile.terrain === 'water' ? 'hills' : 'water',
         elevation: tile.terrain === 'water' ? 4 : 0, trees: tile.terrain === 'water' ? 3 : 0 }),
     }
-    expect(meshAll(createVoxelWorld(altered), known)).toEqual(meshAll(createVoxelWorld(map), known))
+    const original = meshAll(createVoxelWorld(map), known)
+    meshAll(createVoxelWorld(altered), known).forEach((mesh, chunk) => {
+      expect(sameMesh(mesh, original[chunk]!), `hidden terrain in chunk ${chunk}`).toBe(true)
+    })
   })
 
   it('renders uncharted tiles as flat, unshaded, flagged fog down to the diorama base', () => {
     const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
     const world = createVoxelWorld(map)
     const fog = Array.from(PALETTE.slice(VOXEL.fog * 3, VOXEL.fog * 3 + 3))
-    // Chunk 15 holds the map's +x/+z corner, whose base sides face the camera.
-    const edge = meshChunk(world, new Uint8Array(map.tiles.length), 15)
+    const edge = meshChunk(world, new Uint8Array(map.tiles.length), world.chunksX * world.chunksZ - 1)
     expect(Array.from({ length: edge.normals.length / 3 }, (_, v) => v)
       .some(v => edge.normals[v * 3] === 1 && edge.positions[v * 3 + 1]! < 0)).toBe(true)
-    const mesh = meshChunk(world, new Uint8Array(map.tiles.length), 5)
+    const mesh = meshChunk(world, new Uint8Array(map.tiles.length), world.chunksX + 1)
     for (const chunk of [mesh, edge]) {
       for (let v = 0; v < chunk.colors.length / 4; v++) {
         expect(Array.from(chunk.colors.slice(v * 4, v * 4 + 3))).toEqual(fog)
@@ -464,7 +489,7 @@ describe('hex voxel terrain', () => {
   it('remeshes only chunks near a changed tile', () => {
     const world = createVoxelWorld(generateMap({ seed: 'polaris', width: 32, height: 32 }))
     expect([...affectedChunks(world, [0])]).toEqual([0])
-    expect([...affectedChunks(world, [12 * 32 + 12])]).toEqual([5])
+    expect([...affectedChunks(world, [12 * 32 + 12])]).toEqual([18, 19, 26, 27])
     expect(affectedChunks(world, [8 * 32 + 8]).size).toBeGreaterThan(1)
   })
 
@@ -532,10 +557,11 @@ describe('hex voxel terrain', () => {
       const [cx, cz] = hexCenter(tile.x, tile.z)
       expect(pickTile(world, heights, [cx + 0.05, 20, cz + 0.05], [0, -1, 0])).toBe(tile.id)
     }
-    expect(ray(0, 0)).toBe(0)
+    // At the lower reference angle the foreground grass hides this water tile's centre.
+    expect(ray(0, 0)).toBe(6)
     expect(ray(5, 5)).toBe(35)
     expect(ray(3, 3)).toBe(21)
-    // The hill at (3, 3) hides its north-west neighbour, which lies straight behind it along the view.
+    // The hill at (3, 3) hides its north-west neighbour along the oblique view.
     expect(ray(3, 2)).toBe(21)
     expect(ray(1, 4)).toBe(25)
     expect(pickTile(world, heights, [-5, 20, -5], [0, -1, 0])).toBeUndefined()
@@ -579,14 +605,16 @@ describe('hex voxel terrain', () => {
   }, 60_000)
 
   it('meshes the scalability fixtures within budget', () => {
-    for (const [size, maxVertices] of [[32, 250_000], [64, 900_000], [256, 900_000]] as const) {
+    for (const [size, maxVertices] of [[32, 900_000], [64, 900_000], [256, 900_000]] as const) {
       const map = generateMap({ seed: 'polaris', width: size, height: size })
       const world = createVoxelWorld(map)
       const started = performance.now()
       const meshes = meshAll(world, allKnown(map))
       const elapsed = performance.now() - started
       const vertices = meshes.reduce((sum, mesh) => sum + mesh.positions.length / 3, 0)
-      console.info(`${size}x${size}: scale ${world.scale}, ${meshes.length} chunks, ${vertices} vertices, ${elapsed.toFixed(0)} ms`)
+      const bytes = meshes.reduce((sum, mesh) => sum + mesh.positions.byteLength + mesh.normals.byteLength
+        + mesh.colors.byteLength + mesh.faceFlags.byteLength + mesh.indices.byteLength, 0)
+      console.info(`${size}x${size}: scale ${world.scale}, ${meshes.length} chunks, ${vertices} vertices, ${bytes} bytes, ${elapsed.toFixed(0)} ms`)
       expect(vertices).toBeLessThan(maxVertices)
     }
   }, 60_000)

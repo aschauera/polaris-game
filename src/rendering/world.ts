@@ -8,6 +8,7 @@ import { HEX_RADIUS, HEX_ROW, hexCenter } from '../game/hex'
 import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
 import { figureMesh, type FigureKind } from './figures'
+import { CAMERA_PITCH as PITCH, CAMERA_YAW as YAW, SCREEN_DOWN as DOWN, SCREEN_RIGHT as RIGHT } from './view'
 import {
   PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, siteCode, territoryCode, tileSurface,
   waterLevel,
@@ -65,17 +66,11 @@ interface Chunk { mesh: Mesh; quads: number; waterQuads: number; bytes: number }
 // Key light travel direction: lit from the upper left of the screen, shadows fall to the right.
 const SUN = new Vector3(-0.35, -1, 0.55).normalize()
 const SHADOW_MAP_SIZE = 1024
-// The camera looks down 42 degrees from a yaw of 60 degrees, so hex columns run straight down the screen.
-const YAW = Math.PI / 3
-const PITCH = 42 * Math.PI / 180
 const VIEW = new Vector3(Math.cos(YAW) * Math.cos(PITCH), Math.sin(PITCH), Math.sin(YAW) * Math.cos(PITCH))
-/** Ground-plane directions of screen-right and screen-down. */
-const RIGHT = [-Math.sin(YAW), Math.cos(YAW)] as const
-const DOWN = [Math.cos(YAW), Math.sin(YAW)] as const
 /** World height above a tile surface where a city's name plate floats, over its keep. */
 const PLATE_HEIGHT = 0.95
-/** Figures face the camera (yaw 30 degrees) turned slightly, so two sides of each voxel body show. */
-const FIGURE_YAW = Math.PI / 6 - 0.4
+/** Figures face the camera, turned slightly so two sides of each voxel body show. */
+const FIGURE_YAW = Math.PI / 2 - YAW - 0.4
 
 /**
  * Voxel-aligned material tones, hex grid lines, territory tint and borders, explored dimming and reachable highlights on top of
