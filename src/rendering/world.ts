@@ -1,7 +1,7 @@
 import {
   Camera, Color3, Color4, Constants, DirectionalLight, Engine, FreeCamera, HemisphericLight, MaterialPluginBase, Matrix,
   Mesh, MultiMaterial, RawTexture, RenderTargetTexture, Scene, SceneInstrumentation, ShaderLanguage, ShadowGenerator,
-  StandardMaterial, SubMesh, Texture, Vector3, VertexData, Viewport,
+  StandardMaterial, SubMesh, Texture, Vector3, VertexBuffer, VertexData, Viewport,
   type Material, type MaterialDefines, type UniformBuffer,
 } from '@babylonjs/core'
 import { HEX_RADIUS, HEX_ROW, hexCenter } from '../game/hex'
@@ -95,13 +95,18 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   waterTop = 0
   readonly fogColor = new Color3(PALETTE[VOXEL.fog * 3], PALETTE[VOXEL.fog * 3 + 1], PALETTE[VOXEL.fog * 3 + 2])
 
-  constructor(material: Material) {
-    super(material, 'PolarisVoxel', 200, { POLARIS_VOXEL: false }, true, true)
+  constructor(material: Material, private readonly waterPass = false) {
+    // The define separates Babylon's cached terrain and water shader variants.
+    super(material, 'PolarisVoxel', 200, { POLARIS_VOXEL: false, POLARIS_WATER_PASS: waterPass }, true, true)
   }
 
   override getClassName(): string { return 'PolarisVoxelMaterialPlugin' }
   override isCompatible(shaderLanguage: ShaderLanguage): boolean { return shaderLanguage === ShaderLanguage.GLSL }
-  override prepareDefines(defines: MaterialDefines): void { defines['POLARIS_VOXEL'] = true }
+  override getAttributes(attributes: string[]): void { attributes.push('polarisFaceFlag') }
+  override prepareDefines(defines: MaterialDefines): void {
+    defines['POLARIS_VOXEL'] = true
+    defines['POLARIS_WATER_PASS'] = this.waterPass
+  }
   override getSamplers(samplers: string[]): void { samplers.push('polarisTileState', 'polarisColumns') }
   override isReadyForSubMesh(): boolean { return (this.tileState?.isReady() ?? false) && (this.columns?.isReady() ?? false) }
 
@@ -124,9 +129,8 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   override getCustomCode(shaderType: string): Record<string, string> | null {
     if (shaderType === 'vertex') {
       return {
-        CUSTOM_VERTEX_DEFINITIONS: 'varying float vPolarisFlag;',
-        // Vertex alpha is disabled for blending, so the face flag travels in its own varying.
-        CUSTOM_VERTEX_MAIN_END: '#ifdef VERTEXCOLOR\nvPolarisFlag = color.a;\n#else\nvPolarisFlag = 1.0;\n#endif',
+        CUSTOM_VERTEX_DEFINITIONS: 'attribute float polarisFaceFlag;\nvarying float vPolarisFlag;',
+        CUSTOM_VERTEX_MAIN_END: 'vPolarisFlag = polarisFaceFlag;',
       }
     }
     return {
@@ -164,7 +168,9 @@ if (vPolarisFlag > 0.25) {
   vec4 polarisState = texelFetch(polarisColumns, clamp(polarisColumn, ivec2(0), ivec2(polarisGrid.zw) - 1), 0);
   int polarisOwner = polarisByte(polarisState.b) & 3;
   // Tints colour the ground only, so buildings and trees keep their own colours.
-  float polarisGround = step(0.75, vPolarisFlag) * (1.0 - polarisWater) + polarisSurface;
+  float polarisLand = step(0.75, vPolarisFlag) * (1.0 - step(1.1, vPolarisFlag));
+  float polarisGround = polarisLand + polarisSurface;
+  ${this.waterPass ? 'polarisGround = 0.0;' : ''}
   if (polarisOwner > 0) baseColor.rgb = mix(baseColor.rgb, polarisFaction(polarisOwner), 0.14 * polarisGround);
   baseColor.rgb = mix(baseColor.rgb, vec3(0.66, 0.94, 0.46), 0.3 * polarisState.g * polarisGround);
   if (polarisGround > 0.5 && normalW.y > 0.5) {
@@ -200,13 +206,14 @@ if (vPolarisFlag > 0.25) {
       float polarisBorderD = min(min(min(polarisNearBorder.x, polarisNearBorder.y), polarisNearBorder.z),
         min(min(polarisFarBorder.x, polarisFarBorder.y), polarisFarBorder.z));
       float polarisLines = 1.0 - smoothstep(polarisLineWidth, polarisLineWidth + polarisAa, polarisNearest);
+      polarisLines *= 1.0 - polarisWater;
       // The base grid recedes when zoomed out and over open water, so coasts, borders and outlines lead the eye.
-      float polarisGridStrength = mix(0.16, 0.18, polarisWater) * mix(1.0, mix(0.75, 0.45, polarisWater), smoothstep(0.02, 0.06, polarisAa));
+      float polarisGridStrength = mix(0.16, 0.006, polarisWater) * mix(1.0, mix(0.75, 0.45, polarisWater), smoothstep(0.02, 0.06, polarisAa));
       float polarisOutline = (1.0 - smoothstep(0.045, 0.045 + polarisAa, polarisNearest)) * polarisHex.g;
       float polarisBorder = 1.0 - smoothstep(0.085, 0.085 + polarisAa, polarisBorderD);
       float polarisEdge = 1.0 - smoothstep(0.105, 0.105 + polarisAa, polarisBorderD);
       float polarisGlow = 1.0 - smoothstep(0.085, 0.3, polarisBorderD);
-      polarisWaterOverlay = max(0.35 * polarisLines, max(0.85 * polarisOutline, polarisHexOwner > 0 ? 0.95 * polarisBorder : 0.0));
+      polarisWaterOverlay = max(0.03 * polarisLines, max(0.85 * polarisOutline, polarisHexOwner > 0 ? 0.95 * polarisBorder : 0.0));
       baseColor.rgb *= 1.0 - polarisGridStrength * polarisLines;
       if (polarisHexOwner > 0) {
         vec3 polarisTeam = polarisFaction(polarisHexOwner);
@@ -353,8 +360,8 @@ export class WorldRenderer {
     this.water = new StandardMaterial('water-surface', this.scene)
     this.water.diffuseColor = Color3.White()
     this.water.specularColor = Color3.Black()
-    this.water.alpha = 0.28
-    this.waterVoxels = new VoxelMaterialPlugin(this.water)
+    this.water.alpha = 0.4
+    this.waterVoxels = new VoxelMaterialPlugin(this.water, true)
     this.terrainAndWater = new MultiMaterial('terrain-and-water', this.scene)
     this.terrainAndWater.subMaterials.push(this.terrain, this.water)
     this.hover = this.makeMarker(hexRing('hover', 0.88, 0.97, false, this.scene), '#eef7ee')
@@ -524,7 +531,8 @@ export class WorldRenderer {
     chunk.mesh.freezeWorldMatrix()
     chunk.quads = data.quads
     chunk.waterQuads = data.waterIndexCount / 6
-    chunk.bytes = data.positions.byteLength + data.normals.byteLength + data.colors.byteLength + data.indices.byteLength
+    chunk.bytes = data.positions.byteLength + data.normals.byteLength + data.colors.byteLength + data.faceFlags.byteLength
+      + data.indices.byteLength
   }
 
   setExploration(view?: ExplorationView, dirtyTiles?: readonly number[]): void {
@@ -905,6 +913,8 @@ function applyMesh(mesh: Mesh, data: ChunkMesh): void {
   vertexData.colors = data.colors
   vertexData.indices = data.indices
   vertexData.applyToMesh(mesh, false)
-  // Vertex alpha carries face flags; the water submesh material alone controls transparency.
+  mesh.setVerticesBuffer(new VertexBuffer(mesh.getScene().getEngine(), data.faceFlags, 'polarisFaceFlag',
+    { size: 1, takeBufferOwnership: true }), true)
+  // The custom face flag is separate; the water submesh material alone controls transparency.
   mesh.hasVertexAlpha = false
 }

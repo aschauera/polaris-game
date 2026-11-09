@@ -138,13 +138,18 @@ test('renders submerged water detail while picking the unchanged level surface',
     })
   }, points)
   const tones: number[] = []
+  let totalRed = 0
+  let totalGreen = 0
   for (let i = 0; i < samples.length; i += 2) {
     const first = samples[i]!
     const second = samples[i + 1]!
     expect(first[3]).toBe(255)
     tones.push(first[2]!, second[2]!)
+    totalRed += first[0]! + second[0]!
+    totalGreen += first[1]! + second[1]!
   }
   expect(Math.max(...tones) - Math.min(...tones)).toBeGreaterThan(3)
+  expect(totalGreen).toBeGreaterThan(totalRed)
   await page.mouse.click(origin!.x, origin!.y)
   await expect(page.getByRole('status')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
   expect((await stats(page)).waterSurfaceQuads).toBeGreaterThan(0)

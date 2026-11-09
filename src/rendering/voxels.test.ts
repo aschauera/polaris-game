@@ -64,6 +64,7 @@ const sameMesh = (a: ChunkMesh, b: ChunkMesh) => a.quads === b.quads
   && a.waterIndexCount === b.waterIndexCount
   && a.positions.every((value, index) => value === b.positions[index])
   && a.colors.every((value, index) => value === b.colors[index])
+  && a.faceFlags.every((value, index) => value === b.faceFlags[index])
 
 /** Visible trunk faces per hex, keyed "x,z". */
 function trunksPerHex(meshes: ChunkMesh[], size: number): Map<string, number> {
@@ -163,9 +164,12 @@ describe('hex voxel terrain', () => {
     const known = allKnown(map)
     known[0] = 0
     const flags = new Set<number>()
-    for (const mesh of meshAll(createVoxelWorld(map), known)) for (let v = 3; v < mesh.colors.length; v += 4) flags.add(mesh.colors[v]!)
-    expect([...flags].sort()).toEqual([FACE_FLAG.fog, FACE_FLAG.decoration, FACE_FLAG.ground,
-      FACE_FLAG.water, FACE_FLAG.waterSurface, FACE_FLAG.waterEdge])
+    for (const mesh of meshAll(createVoxelWorld(map), known)) for (let v = 0; v < mesh.faceFlags.length; v++) {
+      expect(mesh.faceFlags[v]).toBe(mesh.colors[v * 4 + 3])
+      flags.add(mesh.faceFlags[v]!)
+    }
+    expect([...flags].sort()).toEqual([FACE_FLAG.fog, FACE_FLAG.decoration, FACE_FLAG.ground, FACE_FLAG.waterFloor,
+      FACE_FLAG.waterSurface, FACE_FLAG.waterEdge])
   })
 
   it('meshes actual submerged steps beneath a separate level water surface', () => {
@@ -191,8 +195,12 @@ describe('hex voxel terrain', () => {
       for (let quad = 0; quad < mesh.quads; quad++) {
         const v = quad * 4
         const flag = mesh.colors[v * 4 + 3]!
-        if (flag === FACE_FLAG.water) {
+        if (kindAt(mesh, v) === VOXEL.seabedDeep) expect(flag).toBe(FACE_FLAG.waterFloor)
+        if (flag === FACE_FLAG.waterFloor) {
+          expect([VOXEL.seabedSand, VOXEL.seabedStone, VOXEL.seabedDeep]).toContain(kindAt(mesh, v))
           if (mesh.normals[v * 3 + 1] === 1) floorHeights.add(mesh.positions[v * 3 + 1]!)
+        } else if (flag === FACE_FLAG.water) {
+          if (kindAt(mesh, v) === VOXEL.underwaterRock) verticalFaces++
           else if (mesh.positions[v * 3 + 1]! < waterTop) verticalFaces++
         } else if (flag >= FACE_FLAG.waterSurface) {
           const xs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3]!)
@@ -205,6 +213,8 @@ describe('hex voxel terrain', () => {
     expect(surfaceArea).toBeCloseTo(waterColumns * world.size ** 2, 6)
     expect(floorHeights.size).toBeGreaterThanOrEqual(4)
     expect(Math.max(...floorHeights)).toBeLessThan(waterTop)
+    expect(shows(meshes, VOXEL.seabedSand)).toBe(true)
+    expect(shows(meshes, VOXEL.seabedStone)).toBe(true)
     expect(verticalFaces).toBeGreaterThan(20)
   })
 
@@ -230,24 +240,29 @@ describe('hex voxel terrain', () => {
       [id, id === 40 ? {} : { terrain: 'water' as const, elevation: 0 }])))
     const known = allKnown(map)
     const fine = meshAll(createVoxelWorld(map), known)
-    expect(shows(fine, VOXEL.shallow)).toBe(true)
-    expect(shows(fine, VOXEL.shoal)).toBe(true)
-    expect(shows(fine, VOXEL.shelf)).toBe(true)
+    expect(shows(fine, VOXEL.waterSurface)).toBe(true)
+    expect(shows(fine, VOXEL.waterEdge)).toBe(true)
+    expect(shows(fine, VOXEL.seabedSand)).toBe(true)
+    expect(shows(fine, VOXEL.seabedStone)).toBe(true)
+    expect(shows(fine, VOXEL.seabedDeep)).toBe(true)
     expect(shows(fine, VOXEL.water)).toBe(true)
     // Hidden, the island leaves only plain open water around its fog.
     known[40] = 0
     const hidden = meshAll(createVoxelWorld(map), known)
-    expect(shows(hidden, VOXEL.shallow)).toBe(false)
-    expect(shows(hidden, VOXEL.shoal)).toBe(false)
-    expect(shows(hidden, VOXEL.shelf)).toBe(false)
+    expect(shows(hidden, VOXEL.waterEdge)).toBe(false)
+    expect(shows(hidden, VOXEL.seabedSand)).toBe(false)
+    expect(shows(hidden, VOXEL.seabedStone)).toBe(false)
+    expect(shows(hidden, VOXEL.seabedDeep)).toBe(true)
     // The coarsest scale keeps plain water so large maps stay within their vertex budget.
     const large = flatMap(260, 4, Object.fromEntries(Array.from({ length: 1040 }, (_, id) =>
       [id, id % 260 === 130 ? {} : { terrain: 'water' as const, elevation: 0 }])))
     const coarse = createVoxelWorld(large)
     expect(coarse.scale).toBe(2)
     const coarseMeshes = meshAll(coarse, allKnown(large))
-    expect(shows(coarseMeshes, VOXEL.shoal)).toBe(false)
-    expect(shows(coarseMeshes, VOXEL.shelf)).toBe(false)
+    expect(shows(coarseMeshes, VOXEL.waterEdge)).toBe(false)
+    expect(shows(coarseMeshes, VOXEL.seabedSand)).toBe(false)
+    expect(shows(coarseMeshes, VOXEL.seabedStone)).toBe(false)
+    expect(shows(coarseMeshes, VOXEL.seabedDeep)).toBe(true)
   })
 
   it('produces identical surfaces regardless of chunk borders', () => {
@@ -500,7 +515,7 @@ describe('hex voxel terrain', () => {
       expect(affected.has(chunk), `changed chunk ${chunk}`).toBe(true)
     })
     expect(changed).toBeGreaterThan(1)
-    expect(shows(after, VOXEL.shelf)).toBe(true)
+    expect(shows(after, VOXEL.waterEdge)).toBe(true)
   })
 
   it('picks the first visible tile column along the camera ray', () => {

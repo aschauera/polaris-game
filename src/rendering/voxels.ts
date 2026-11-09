@@ -13,7 +13,8 @@ const SOURCE = {
   hillGrass: '#8fa64c', hillGrassDark: '#7f9744', rock: '#a29d90', rockDark: '#857f73',
   cliff: '#9a6a45', cliffDark: '#7d5438', stone: '#bcb7ab',
   water: '#237fa7', shallow: '#b1efe8', shoal: '#64e3de', shelf: '#32c5d6',
-  waterSurface: '#31c5d7', waterEdge: '#d3faf0',
+  waterSurface: '#55c4d2', waterEdge: '#b9ebe5',
+  seabedSand: '#d6c38c', seabedStone: '#56868c', seabedDeep: '#285d70',
   path: '#cfb07a',
   trunk: '#6b4a2b',
   underwaterRock: '#568987',
@@ -47,8 +48,11 @@ const FLOWERS = [VOXEL.flowerWhite, VOXEL.flowerYellow, VOXEL.flowerRed, VOXEL.f
 // Ambient occlusion per face corner: 0 = enclosed corner, 3 = open.
 export const AO_LIGHT = [0.52, 0.68, 0.84, 1] as const
 /** Vertex colour alpha tells the shader what a face shows. */
-export const FACE_FLAG = { fog: 0, decoration: 0.5, ground: 1, water: 1.5, waterSurface: 2, waterEdge: 2.25 } as const
-const isWaterSurface = (kind: number | undefined) => kind === VOXEL.waterSurface || kind === VOXEL.waterEdge
+export const FACE_FLAG = {
+  fog: 0, decoration: 0.5, ground: 1, waterFloor: 1.125, water: 1.5, waterSurface: 2, waterEdge: 2.25,
+} as const
+const WATER_SURFACES = new Set<number>([VOXEL.waterSurface, VOXEL.waterEdge])
+const isWaterSurface = (kind: number | undefined) => kind !== undefined && WATER_SURFACES.has(kind)
 
 export interface VoxelWorld {
   readonly map: WorldMap
@@ -112,6 +116,8 @@ export interface ChunkMesh {
   readonly positions: Float32Array
   readonly normals: Float32Array
   readonly colors: Float32Array
+  /** Face flags use their own attribute so they never affect standard-material transparency. */
+  readonly faceFlags: Float32Array
   readonly indices: Uint32Array
   /** Transparent water indices follow all opaque indices in the same chunk geometry. */
   readonly waterIndexCount: number
@@ -218,7 +224,8 @@ function noise(seed: number, salt: number, x: number, z: number, cell: number): 
 }
 
 type Column = { top: number; surface: number; tile: Tile; known: boolean } & (
-  { body: 'water'; floor: number; rockTop: number } | { body: 'fog' | 'dirt' | 'cliff' }
+  { body: 'water'; floor: number; floorSurface: number; capSurface: number; rockTop: number }
+  | { body: 'fog' | 'dirt' | 'cliff' }
 )
 
 const AXES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const
@@ -237,21 +244,23 @@ function borders(world: VoxelWorld, known: Uint8Array, id: number, gx: number, g
 const isLand = (tile: Tile) => tile.terrain !== 'water'
 const isWater = (tile: Tile) => tile.terrain === 'water'
 
-/** Whether charted land lies within the jittered outer radius, excluding a previously checked inner disc. */
-function nearChartedLand(world: VoxelWorld, known: Uint8Array, gx: number, gz: number, radius: number, afterRadius = 0): boolean {
+/** Nearest charted land column, so water depth follows the real coast rather than concentric bands. */
+function chartedLandDistance(world: VoxelWorld, known: Uint8Array, id: number, gx: number, gz: number, radius: number): number {
   const reach = Math.ceil(radius)
-  const outerSquared = radius * radius
-  const innerSquared = afterRadius * afterRadius
+  const radiusSquared = radius * radius
+  let nearestSquared = Infinity
   for (let dz = -reach; dz <= reach; dz++) {
     for (let dx = -reach; dx <= reach; dx++) {
       const distanceSquared = dx * dx + dz * dz
-      if (distanceSquared > outerSquared || distanceSquared <= innerSquared) continue
+      if (distanceSquared > radiusSquared || distanceSquared >= nearestSquared) continue
       const other = columnTileAt(world, gx + dx, gz + dz)
       // Uncharted land must not shape visible water, or the shoal would outline hidden coasts.
-      if (other >= 0 && known[other] === 1 && isLand(world.map.tiles[other]!)) return true
+      if (other >= 0 && other !== id && known[other] === 1 && isLand(world.map.tiles[other]!)) {
+        nearestSquared = distanceSquared
+      }
     }
   }
-  return false
+  return Math.sqrt(nearestSquared)
 }
 
 function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): Column | undefined {
@@ -266,32 +275,45 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
       || (scale >= 8 && noise(seed, salt, gx, gz, 3) > 0.45 && borders(world, known, id, gx, gz, 2, matches)))
   if (tile.terrain === 'water') {
     const reach = shoalReach(scale)
-    const shallow = rim(isLand, 8)
+    const nearestLand = reach > 0 ? chartedLandDistance(world, known, id, gx, gz, 2 * reach + 1) : Infinity
+    const coastWarp = reach > 0
+      ? (noise(seed, 88, gx, gz, scale * 3) - 0.5) * scale * 0.85
+        + (noise(seed, 90, gx, gz, scale) - 0.5) * scale * 0.3
+      : 0
+    const coastDistance = Number.isFinite(nearestLand) ? Math.max(0, nearestLand + coastWarp) : Infinity
     let surface = VOXEL.water
-    if (shallow) surface = VOXEL.shallow
-    else if (reach > 0) {
-      const shoalRadius = reach - 0.5 + noise(seed, 10, gx, gz, 4)
-      const shelfRadius = 2 * reach - 0.5 + noise(seed, 11, gx, gz, 8)
-      if (nearChartedLand(world, known, gx, gz, shoalRadius)) surface = VOXEL.shoal
-      else if (nearChartedLand(world, known, gx, gz, shelfRadius, shoalRadius)) surface = VOXEL.shelf
-    }
+    if (coastDistance <= 1.5) surface = VOXEL.shallow
+    else if (coastDistance <= reach) surface = VOXEL.shoal
+    else if (coastDistance <= 2 * reach) surface = VOXEL.shelf
     const top = waterLevel(scale)
-    const depth = surface === VOXEL.shallow ? 1 : surface === VOXEL.shoal ? 3 : surface === VOXEL.shelf ? 5 : 7
-    let floor = Math.max(1 - world.base, top - Math.max(1, Math.round(depth * scale / 8)))
-    if (scale >= 4 && surface !== VOXEL.water && hash(seed, gx, 83, gz) < 0.24) {
-      floor = Math.max(1 - world.base, Math.min(top - 1, floor + (surface === VOXEL.shallow ? -1 : 1)))
-    }
+    const maxDepth = Math.max(1, Math.round(7 * scale / 8))
+    const nominalDepth = Math.min(maxDepth, Number.isFinite(coastDistance) ? 1 + Math.round(coastDistance * 0.75) : maxDepth)
+    const broadRelief = noise(seed, 84, gx, gz, scale * 2)
+    const fineRelief = noise(seed, 86, gx, gz, Math.max(2, scale * 0.75))
+    const reliefScale = surface === VOXEL.water ? 0 : surface === VOXEL.shallow ? 0.8 : 1
+    const depthVariation = Math.round(((broadRelief * 0.75 + fineRelief * 0.25) - 0.5) * 2 * reliefScale)
+    const floor = Math.max(1 - world.base, top - Math.max(1, nominalDepth + depthVariation))
+    const bottomTexture = noise(seed, 87, gx, gz, scale * 0.75)
+    const floorSurface = surface === VOXEL.shallow
+      ? VOXEL.seabedSand
+      : surface === VOXEL.shoal
+        ? bottomTexture > 0.2 ? VOXEL.seabedSand : VOXEL.seabedStone
+        : surface === VOXEL.shelf
+          ? bottomTexture > 0.86 ? VOXEL.seabedStone : VOXEL.seabedDeep
+          : VOXEL.seabedDeep
+    const capSurface = surface === VOXEL.shallow && hash(seed, gx, 89, gz) > 0.72
+      ? VOXEL.waterEdge : VOXEL.waterSurface
     let rockTop = floor
-    if (scale >= 4 && hash(seed, tile.x, 81, tile.z) < 0.022) {
+    if (scale >= 4 && hash(seed, tile.x, 81, tile.z) < 0.045) {
       const [cx, cz] = centreColumn(world, tile)
       const dx = gx - cx, dz = gz - cz
       const radius = Math.max(Math.abs(dx), Math.abs(dz))
       const shape = hash(seed, gx, 82, gz)
-      if (radius <= scale / 4 && shape > 0.25) {
-        rockTop = Math.max(floor, top - 1 - Math.floor(shape * 3) - radius)
+      if (radius <= scale / 3 && shape > 0.25) {
+        rockTop = Math.max(floor, top - 1 - Math.floor(shape * 4) - radius)
       }
     }
-    return { top, surface, body: 'water', floor, rockTop, tile, known: true }
+    return { top, surface, body: 'water', floor, floorSurface, capSurface, rockTop, tile, known: true }
   }
   const level = landLevel(scale, tile.terrain, tile.elevation)
   if (world.sites[id]) {
@@ -336,9 +358,10 @@ function layerKind(world: VoxelWorld, layer: number, info: Column): number {
   if (info.body === 'fog') return VOXEL.fog
   if (info.body === 'water') {
     const level = layer - base
-    if (level < info.floor) return info.surface
+    if (level < info.floor) return level === info.floor - 1 ? info.floorSurface : VOXEL.seabedStone
     if (level < info.rockTop) return VOXEL.underwaterRock
-    return level === info.top - 1 && info.surface === VOXEL.shallow ? VOXEL.waterEdge : VOXEL.waterSurface
+    if (level === info.top - 1) return info.capSurface
+    return VOXEL.waterSurface
   }
   if (layer < base) {
     const depth = base - 1 - layer
@@ -595,6 +618,14 @@ class Buffer {
     this.values[this.length++] = b
     this.values[this.length++] = c
   }
+  push1(a: number): void {
+    if (this.length + 1 > this.values.length) {
+      const grown = new Float32Array(this.values.length * 2)
+      grown.set(this.values)
+      this.values = grown
+    }
+    this.values[this.length++] = a
+  }
 }
 
 /**
@@ -622,6 +653,7 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
   const positions = new Buffer(1 << 14)
   const normals = new Buffer(1 << 14)
   const colors = new Buffer(1 << 14)
+  const faceFlags = new Buffer(1 << 12)
   let indices = new Uint32Array(1 << 13)
   let indexCount = 0
   const waterIndices: number[] = []
@@ -687,9 +719,10 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
           const base = positions.length / 3
           const plane = i + (sign > 0 ? 1 : 0)
           const fog = kind === VOXEL.fog
+          const seabed = kind === VOXEL.seabedSand || kind === VOXEL.seabedStone || kind === VOXEL.seabedDeep
           const water = kind === VOXEL.water || kind === VOXEL.shallow || kind === VOXEL.shoal
             || kind === VOXEL.shelf || kind === VOXEL.underwaterRock
-          const flag = fog ? FACE_FLAG.fog : kind === VOXEL.waterEdge ? FACE_FLAG.waterEdge
+          const flag = fog ? FACE_FLAG.fog : seabed ? FACE_FLAG.waterFloor : kind === VOXEL.waterEdge ? FACE_FLAG.waterEdge
             : waterSurface ? FACE_FLAG.waterSurface : water ? FACE_FLAG.water
             : kind >= FIRST_DECORATION ? FACE_FLAG.decoration : FACE_FLAG.ground
           for (let k = 0; k < 4; k++) {
@@ -700,6 +733,7 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
             normals.push3(a === 0 ? sign : 0, a === 1 ? sign : 0, a === 2 ? sign : 0)
             const light = fog ? 1 : AO_LIGHT[(ao >> (k * 2)) & 3]!
             colors.push4(PALETTE[kind * 3]! * light, PALETTE[kind * 3 + 1]! * light, PALETTE[kind * 3 + 2]! * light, flag)
+            faceFlags.push1(flag)
           }
           if (indexCount + 6 > indices.length) {
             const grown = new Uint32Array(indices.length * 2)
@@ -726,7 +760,8 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
   combinedIndices.set(waterIndices, indexCount)
   return {
     positions: positions.values.slice(0, positions.length), normals: normals.values.slice(0, normals.length),
-    colors: colors.values.slice(0, colors.length), indices: combinedIndices, waterIndexCount: waterIndices.length, quads,
+    colors: colors.values.slice(0, colors.length), faceFlags: faceFlags.values.slice(0, faceFlags.length),
+    indices: combinedIndices, waterIndexCount: waterIndices.length, quads,
   }
 }
 
