@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { generateMap } from '../src/game/map'
+import { HEX_ROW, hexCenter } from '../src/game/hex'
+import { createVoxelWorld, centreColumn } from '../src/rendering/voxels'
 
 async function settled(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
@@ -90,6 +92,59 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   await page.keyboard.press('r')
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })))
   await selectTile(page)
+})
+
+test('keeps discrete square water faces visible at close zoom', async ({ page }) => {
+  const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
+  const world = createVoxelWorld(map)
+  const tile = map.tiles.filter(tile => tile.terrain === 'water'
+    && tile.x > 2 && tile.x < 29 && tile.z > 2 && tile.z < 29
+    && map.tiles.every(other => Math.hypot(other.x - tile.x, other.z - tile.z) > 2.5 || other.terrain === 'water'))
+    .sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16))[0]!
+  expect(tile).toBeDefined()
+  await page.goto('/?diagnostics=1')
+  await expect(page.locator('#map-status')).toContainText('1,024 TILES')
+  await page.locator('canvas').focus()
+  for (let zoom = 0; zoom < 5; zoom++) await page.keyboard.press('+')
+  await settled(page)
+  const [origin, east, south] = await page.evaluate(ids => ids.map(id => window.polarisDiagnostics!.projectTile(id)),
+    [tile.id, tile.id + 1, tile.id + map.width])
+  expect(origin && east && south).toBeTruthy()
+  const dx = { x: east!.x - origin!.x, y: east!.y - origin!.y }
+  const rowShift = tile.z % 2 ? -0.5 : 0.5
+  const dz = { x: (south!.x - origin!.x - rowShift * dx.x) / HEX_ROW,
+    y: (south!.y - origin!.y - rowShift * dx.y) / HEX_ROW }
+  const [cx, cz] = hexCenter(tile.x, tile.z)
+  const [gx, gz] = centreColumn(world, tile)
+  const points: { x: number; y: number }[] = []
+  for (let z = -2; z < 2; z++) for (let x = -2; x < 2; x++) {
+    for (const fraction of [0.4, 0.6]) {
+      const u = world.originX + (gx + x + fraction) * world.size - cx
+      const v = world.originZ + (gz + z + fraction) * world.size - cz
+      points.push({ x: origin!.x + u * dx.x + v * dz.x, y: origin!.y + u * dx.y + v * dz.y })
+    }
+  }
+  const samples = await page.locator('canvas').evaluate((canvas, points) => {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
+    const rect = canvas.getBoundingClientRect()
+    return points.map(point => {
+      const x = Math.floor((point.x - rect.left) * gl.drawingBufferWidth / rect.width)
+      const y = gl.drawingBufferHeight - 1 - Math.floor((point.y - rect.top) * gl.drawingBufferHeight / rect.height)
+      if (x < 0 || y < 0 || x >= gl.drawingBufferWidth || y >= gl.drawingBufferHeight) throw new Error('Water sample is off-screen')
+      const pixel = new Uint8Array(4)
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+      return [...pixel]
+    })
+  }, points)
+  const tones: number[] = []
+  for (let i = 0; i < samples.length; i += 2) {
+    const first = samples[i]!
+    const second = samples[i + 1]!
+    // Inside a voxel the tone is constant; different voxel faces must not collapse to one flat colour.
+    for (let c = 0; c < 3; c++) expect(Math.abs(first[c]! - second[c]!)).toBeLessThanOrEqual(2)
+    tones.push(first[2]!)
+  }
+  expect(Math.max(...tones) - Math.min(...tones)).toBeGreaterThan(8)
 })
 
 test('regenerates repeatably and releases old chunk resources three times', async ({ page }) => {

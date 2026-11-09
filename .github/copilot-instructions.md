@@ -61,16 +61,16 @@ Two images are authoritative, each for its own scope. Inspect both before planni
 
 Details and numbers are in [ADR-004](../docs/architecture.md#adr-004-map-and-rendering) and the [visual direction](../docs/game-design.md#visual-and-interaction-direction). Binding rules:
 
-- **Hex fields of cubic voxels.** Each hex is a stack of square voxel columns: soil base, dirt or rock cliffs, a grass, sand or rock top, and terraced mounds for hills. No hexagonal voxels, smooth meshes, textures or imported models.
+- **Hex fields of cubic voxels.** Land hexes stack soil, dirt or rock cliffs, a grass, sand or rock top, and terraced mounds for hills. Water hexes form a blue voxel volume, not an earth slab with a blue cap. No hexagonal voxels, smooth meshes, textures or imported models.
 - **A calm, readable board**, as in *Into the Breach*: few elements per hex, and small trees on the back row, so the centre stays free for a unit. Terrain identity must not rely on colour alone. The plain hex grid stays subtle: faint on open water and fading when zoomed out, while selection, reachable outline and territory border keep full strength.
-- **Readable coasts.** Water uses a bright shallow rim, turquoise shoal, blue shelf and deeper open-water tint, with restrained color grain. Derive coastal bands from charted land only so they never reveal hidden coasts.
+- **Voxel water and readable coasts.** Preserve visible square water-cell faces and blue volume sides; depth colours alone must not replace the voxel structure. Cell tones and directional edge shading follow the same cubic lattice as the terrain and fade when subpixel. Keep the surface level and the large hex grid secondary. A bright shallow rim, turquoise shoal, blue shelf and deeper open-water tint derive from charted land only, never hidden coasts.
 - **Clear territory**, as in *Polytopia*: a faction-coloured border band on the inner edge of each territory, and a name plate with the population above each visible city. Selection is a gold hex outline; hexes reachable this turn get their own outline. Keep the three distinct.
 - **Chunky voxel figures**, as in *Voxel Tactics*: units are small voxel figures in faction colours, standing on their hex. No sprites or billboards.
 - Learn from these games' design; never copy their art, names or assets.
 - **Palette.** The world uses the bright diorama palette `VOXEL` in `src/rendering/voxels.ts`: green grass, blue water, sandy coasts, brown soil and cliffs. The Art Deco navy, teal, gold and ivory palette is for the HUD and UI; gold also marks focus and city plates.
 - **Fog.** Uncharted hexes are opaque and uniform and hide terrain, trees, figures, picks and tooltips. Remembered hexes are dimmed; visible hexes are bright.
 - **Camera.** Fixed orthographic camera, yaw 60°, pitch 42°, no rotation. Hexes appear flat-topped on screen, and the six directions map to ↖ ↑ ↗ ↙ ↓ ↘.
-- **Performance.** Terrain is meshed in chunks, never one mesh per hex. Fog, ranges and borders update through state textures and never remesh. Rendering is on demand: code in `src/rendering/world.ts` that changes the scene calls `invalidate()`, and nothing renders every frame without need. Stay within the vertex budgets the unit tests enforce.
+- **Performance.** Terrain is meshed in chunks, never one mesh per hex. Explored dimming, ranges and borders update through state textures; newly charted terrain remeshes affected chunks, including the full coastal-band reach. Rendering is on demand: code in `src/rendering/world.ts` that changes the scene calls `invalidate()`, and nothing renders every frame without need. Stay within the vertex budgets the unit tests enforce.
 - Deferred concept elements (resource icons, rivers and bridges, danger markers, palms, fields and harbours) are listed in the [roadmap](../docs/roadmap.md); add them through their own issues.
 
 ## Visual review delivery

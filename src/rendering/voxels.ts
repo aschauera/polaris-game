@@ -45,7 +45,7 @@ const FLOWERS = [VOXEL.flowerWhite, VOXEL.flowerYellow, VOXEL.flowerRed, VOXEL.f
 // Ambient occlusion per face corner: 0 = enclosed corner, 3 = open.
 export const AO_LIGHT = [0.52, 0.68, 0.84, 1] as const
 /** Vertex colour alpha tells the shader what a face shows. */
-export const FACE_FLAG = { fog: 0, decoration: 0.5, ground: 1 } as const
+export const FACE_FLAG = { fog: 0, decoration: 0.5, ground: 1, water: 1.5 } as const
 
 export interface VoxelWorld {
   readonly map: WorldMap
@@ -135,7 +135,7 @@ function treeShape(scale: number): TreeShape {
   return { trunk: 0, trunkVariance: 0, radius: 0.6, radiusVariance: 0, layers: 2, layerVariance: 0, spots: 1 }
 }
 
-export function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
+function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
 /** Columns of turquoise shoal water around charted land, beyond the shallow rim; none at the coarsest scale. */
 function shoalReach(scale: number): number { return scale >= 8 ? 4 : scale >= 4 ? 2 : 0 }
 function fogLevel(scale: number): number { return Math.max(1, Math.round(0.65 * scale)) }
@@ -311,6 +311,7 @@ function layerKind(world: VoxelWorld, layer: number, info: Column): number {
   const { base } = world
   // Uncharted columns stay fog down to the bottom, so the diorama grows out of the unknown as it is charted.
   if (info.body === 'fog') return VOXEL.fog
+  if (info.body === 'water') return layer === base + info.top - 1 ? info.surface : VOXEL.water
   if (layer < base) {
     const depth = base - 1 - layer
     // The diorama base shows stratified soil like a cut-out terrain sample.
@@ -318,7 +319,6 @@ function layerKind(world: VoxelWorld, layer: number, info: Column): number {
   }
   const level = layer - base
   if (level === info.top - 1) return info.surface
-  if (info.body === 'water') return VOXEL.water
   const band = Math.floor(level / 2) % 3 === 2
   if (info.body === 'cliff') return band ? VOXEL.cliffDark : VOXEL.cliff
   return band ? VOXEL.dirtDark : VOXEL.dirt
@@ -651,7 +651,9 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
           const base = positions.length / 3
           const plane = i + (sign > 0 ? 1 : 0)
           const fog = kind === VOXEL.fog
-          const flag = fog ? FACE_FLAG.fog : kind >= FIRST_DECORATION ? FACE_FLAG.decoration : FACE_FLAG.ground
+          const water = kind === VOXEL.water || kind === VOXEL.shallow || kind === VOXEL.shoal || kind === VOXEL.shelf
+          const flag = fog ? FACE_FLAG.fog : water ? FACE_FLAG.water
+            : kind >= FIRST_DECORATION ? FACE_FLAG.decoration : FACE_FLAG.ground
           for (let k = 0; k < 4; k++) {
             point[a] = plane
             point[u] = lo[u]! + ju + (k === 1 || k === 2 ? w : 0)
@@ -690,9 +692,9 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
 export function affectedChunks(world: VoxelWorld, tileIds: Iterable<number>): Set<number> {
   const { map, scale, reach, chunkColumns, chunksX, chunksZ } = world
   const chunks = new Set<number>()
-  // A changed tile moves its own columns, its trees, shallow rims and shoals next to it and adjacent ambient occlusion.
+  // A changed tile moves its own columns, its trees, coastal bands next to it and adjacent ambient occlusion.
   // A settlement also clears back-row trees of the hexes east, south-east and south-west of it, half a hex further in x.
-  const margin = Math.max(reach + 3, shoalReach(scale) + 2)
+  const margin = Math.max(reach + 3, 2 * shoalReach(scale) + 2)
   const halfX = scale / 2 + Math.ceil(scale / 2)
   const halfZ = Math.ceil(HEX_RADIUS * scale)
   for (const id of tileIds) {

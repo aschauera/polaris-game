@@ -157,13 +157,33 @@ describe('hex voxel terrain', () => {
       [0, 1, 2].map(component => component === axis ? sign : 0).join(',')).sort())
   })
 
-  it('flags ground, decoration and fog faces for the hex overlay shader', () => {
-    const map = flatMap(6, 6, { 14: { trees: 3 } })
+  it('flags water separately from ground, decoration and fog for the shader', () => {
+    const map = flatMap(6, 6, { 14: { trees: 3 }, 15: { terrain: 'water', elevation: 0 } })
     const known = allKnown(map)
     known[0] = 0
     const flags = new Set<number>()
     for (const mesh of meshAll(createVoxelWorld(map), known)) for (let v = 3; v < mesh.colors.length; v += 4) flags.add(mesh.colors[v]!)
-    expect([...flags].sort()).toEqual([FACE_FLAG.fog, FACE_FLAG.decoration, FACE_FLAG.ground])
+    expect([...flags].sort()).toEqual([FACE_FLAG.fog, FACE_FLAG.decoration, FACE_FLAG.ground, FACE_FLAG.water])
+  })
+
+  it('builds a blue water volume down to the diorama base, not an earth slab', () => {
+    const map = flatMap(4, 4, Object.fromEntries(Array.from({ length: 16 }, (_, id) =>
+      [id, { terrain: 'water' as const, elevation: 0 }])))
+    const world = createVoxelWorld(map)
+    const meshes = meshAll(world, allKnown(map))
+    const tops = new Set<number>()
+    let sidesBelowSea = 0
+    for (const mesh of meshes) {
+      for (let v = 0; v < mesh.positions.length / 3; v++) {
+        expect(kindAt(mesh, v)).toBe(VOXEL.water)
+        expect(mesh.colors[v * 4 + 3]).toBe(FACE_FLAG.water)
+        if (mesh.normals[v * 3 + 1] === 1) tops.add(mesh.positions[v * 3 + 1]!)
+        else if (mesh.positions[v * 3 + 1]! < 0) sidesBelowSea++
+      }
+    }
+    expect([...tops]).toEqual([tileSurface(world, map.tiles[0]!, true) * world.size])
+    expect(sidesBelowSea).toBeGreaterThan(0)
+    expect(shows(meshAll(createVoxelWorld(flatMap(4, 4)), allKnown(map)), VOXEL.bedrock)).toBe(true)
   })
 
   it('layers charted coasts from shallow water through shoal and shelf to deep water', () => {
@@ -187,7 +207,9 @@ describe('hex voxel terrain', () => {
       [id, id % 260 === 130 ? {} : { terrain: 'water' as const, elevation: 0 }])))
     const coarse = createVoxelWorld(large)
     expect(coarse.scale).toBe(2)
-    expect(shows(meshAll(coarse, allKnown(large)), VOXEL.shoal)).toBe(false)
+    const coarseMeshes = meshAll(coarse, allKnown(large))
+    expect(shows(coarseMeshes, VOXEL.shoal)).toBe(false)
+    expect(shows(coarseMeshes, VOXEL.shelf)).toBe(false)
   })
 
   it('produces identical surfaces regardless of chunk borders', () => {
@@ -422,6 +444,26 @@ describe('hex voxel terrain', () => {
     }
     expect(touched).toBeGreaterThan(20)
   }, 60_000)
+
+  it.each([8, 13])('updates the outer shelf when an island is revealed across %i-column chunks', chunkColumns => {
+    const map = flatMap(9, 9, Object.fromEntries(Array.from({ length: 81 }, (_, id) =>
+      [id, id === 40 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+    const world = createVoxelWorld(map, chunkColumns)
+    const known = allKnown(map)
+    known[40] = 0
+    const before = meshAll(world, known)
+    known[40] = 1
+    const after = meshAll(world, known)
+    const affected = affectedChunks(world, [40])
+    let changed = 0
+    after.forEach((mesh, chunk) => {
+      if (sameMesh(mesh, before[chunk]!)) return
+      changed++
+      expect(affected.has(chunk), `changed chunk ${chunk}`).toBe(true)
+    })
+    expect(changed).toBeGreaterThan(1)
+    expect(shows(after, VOXEL.shelf)).toBe(true)
+  })
 
   it('picks the first visible tile column along the camera ray', () => {
     const map = flatMap(6, 6, { 21: { terrain: 'hills', elevation: 4 }, 0: { terrain: 'water', elevation: 0 } })

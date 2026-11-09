@@ -10,7 +10,6 @@ import type { Visibility } from '../game/expedition'
 import { figureMesh, type FigureKind } from './figures'
 import {
   PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, siteCode, territoryCode, tileSurface,
-  waterLevel,
   type ChunkMesh, type Settlement, type VoxelWorld,
 } from './voxels'
 
@@ -91,8 +90,6 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   originZ = 0
   columnsX = 1
   columnsZ = 1
-  /** World height of the water surface; ground tops at or below it are water. */
-  waterTop = 0
   readonly fogColor = new Color3(PALETTE[VOXEL.fog * 3], PALETTE[VOXEL.fog * 3 + 1], PALETTE[VOXEL.fog * 3 + 2])
 
   constructor(material: Material) {
@@ -107,14 +104,14 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
 
   override getUniforms() {
     return {
-      ubo: [{ name: 'polarisVoxel', size: 4, type: 'vec4' }, { name: 'polarisGrid', size: 4, type: 'vec4' },
+      ubo: [{ name: 'polarisVoxel', size: 3, type: 'vec3' }, { name: 'polarisGrid', size: 4, type: 'vec4' },
         { name: 'polarisFog', size: 3, type: 'vec3' }],
-      fragment: 'uniform vec4 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;',
+      fragment: 'uniform vec3 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;',
     }
   }
 
   override bindForSubMesh(uniformBuffer: UniformBuffer): void {
-    uniformBuffer.updateFloat4('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight, this.waterTop)
+    uniformBuffer.updateFloat3('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight)
     uniformBuffer.updateFloat4('polarisGrid', this.originX, this.originZ, this.columnsX, this.columnsZ)
     uniformBuffer.updateColor3('polarisFog', this.fogColor)
     if (this.tileState) uniformBuffer.setTexture('polarisTileState', this.tileState)
@@ -148,9 +145,25 @@ ivec2 polarisColumn = ivec2(floor((polarisInside.xz - polarisGrid.xy) / polarisV
 ivec3 polarisCell = ivec3(polarisColumn.x, int(floor(polarisInside.y / polarisVoxel.x)), polarisColumn.y) + 8192;
 uint polarisHash = uint(polarisCell.x) * 73856093u ^ uint(polarisCell.y) * 19349663u ^ uint(polarisCell.z) * 83492791u;
 polarisHash = (polarisHash ^ (polarisHash >> 13u)) * 1274126177u;
-float polarisWater = step(vPositionW.y, polarisVoxel.w + 0.5 * polarisVoxel.x);
-float polarisGrain = mix(0.08, 0.015, polarisWater);
-baseColor.rgb *= 1.0 - 0.5 * polarisGrain + polarisGrain * float((polarisHash >> 8u) & 255u) / 255.0;
+float polarisNoise = float((polarisHash >> 8u) & 255u) / 255.0;
+float polarisWater = step(1.25, vPolarisFlag);
+if (polarisWater > 0.5) {
+  // Keep the square voxel faces readable even where coplanar faces were greedily merged.
+  vec3 polarisWaterCell = (vPositionW - vec3(polarisGrid.x, 0.0, polarisGrid.y)) / polarisVoxel.x;
+  vec2 polarisFace = abs(normalW.y) > 0.5 ? polarisWaterCell.xz
+    : abs(normalW.x) > 0.5 ? polarisWaterCell.zy : polarisWaterCell.xy;
+  vec2 polarisPixel = max(fwidth(polarisFace), vec2(1e-4));
+  float polarisDetail = 1.0 - smoothstep(0.15, 0.85, max(polarisPixel.x, polarisPixel.y));
+  vec2 polarisUv = fract(polarisFace);
+  vec2 polarisLow = 1.0 - smoothstep(vec2(0.08), vec2(0.08) + polarisPixel, polarisUv);
+  vec2 polarisHigh = smoothstep(vec2(0.92) - polarisPixel, vec2(0.92), polarisUv);
+  float polarisLightEdge = normalW.y > 0.5 ? max(polarisHigh.x, polarisLow.y) : max(polarisLow.x, polarisHigh.y);
+  float polarisDarkEdge = normalW.y > 0.5 ? max(polarisLow.x, polarisHigh.y) : max(polarisHigh.x, polarisLow.y);
+  float polarisTone = min(3.0, floor(polarisNoise * 4.0)) / 3.0 - 0.5;
+  baseColor.rgb *= 1.0 + polarisDetail * (0.10 * polarisTone + 0.08 * (polarisLightEdge - polarisDarkEdge));
+} else {
+  baseColor.rgb *= 0.96 + 0.08 * polarisNoise;
+}
 if (vPolarisFlag > 0.25) {
   ivec2 polarisSize = ivec2(polarisVoxel.yz);
   // Each column texel holds the state of the tile owning that voxel column, or zero outside the map.
@@ -451,7 +464,6 @@ export class WorldRenderer {
     Object.assign(this.voxels, {
       tileState: this.tileState, columns: this.columns, voxelSize: world.size, mapWidth: map.width, mapHeight: map.height,
       originX: world.originX, originZ: world.originZ, columnsX: world.columnsX, columnsZ: world.columnsZ,
-      waterTop: waterLevel(world.scale) * world.size,
     })
     for (let index = 0; index < world.chunksX * world.chunksZ; index++) this.buildChunk(index)
     const centre = new Vector3((map.width - 0.5) / 2, 0, (map.height - 1) * HEX_ROW / 2)
