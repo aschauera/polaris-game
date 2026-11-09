@@ -147,6 +147,10 @@ float polarisPatch(vec2 p) {
   return mix(mix(polarisGrain(ivec3(cell.x, 97, cell.y)), polarisGrain(ivec3(cell.x + 1, 97, cell.y)), t.x),
     mix(polarisGrain(ivec3(cell.x, 97, cell.y + 1)), polarisGrain(ivec3(cell.x + 1, 97, cell.y + 1)), t.x), t.y);
 }
+float polarisBand(vec3 nearEdges, vec3 farEdges, vec3 pixelSize, float width) {
+  vec3 coverage = clamp((vec3(width) - min(nearEdges, farEdges)) / pixelSize + 0.5, 0.0, 1.0);
+  return max(max(coverage.x, coverage.y), coverage.z);
+}
 `,
       // Tile state per texel: R explored, G reachable, A charted. B holds the territory owner in its low two bits
       // (0 none, 1 gold, 2 blue) and, above them, one bit per hex edge where that territory ends.
@@ -155,6 +159,10 @@ float polarisPatch(vec2 p) {
 #ifdef POLARIS_VOXEL
 vec2 polarisWidth = fwidth(vPositionW.xz);
 float polarisAa = max(max(polarisWidth.x, polarisWidth.y), 1e-4);
+// Differentiate continuous world coordinates before branching or rounding to a hex.
+vec3 polarisEdgeDx = dFdx(vPositionW.x) * vec3(1.0, 0.5, -0.5) + dFdx(vPositionW.z) * vec3(0.0, 0.8660254, 0.8660254);
+vec3 polarisEdgeDy = dFdy(vPositionW.x) * vec3(1.0, 0.5, -0.5) + dFdy(vPositionW.z) * vec3(0.0, 0.8660254, 0.8660254);
+vec3 polarisEdgePixel = max(sqrt(polarisEdgeDx * polarisEdgeDx + polarisEdgeDy * polarisEdgeDy), vec3(1e-4));
 vec3 polarisInside = vPositionW - normalW * 0.5 * polarisVoxel.x;
 ivec2 polarisColumn = ivec2(floor((polarisInside.xz - polarisGrid.xy) / polarisVoxel.x));
 ivec3 polarisCell = ivec3(polarisColumn.x, int(floor(polarisInside.y / polarisVoxel.x)), polarisColumn.y);
@@ -175,8 +183,8 @@ if (normalW.y > 0.5 && polarisLand + polarisSurface > 0.5) {
     + mix(0.25, 0.55, polarisSurface) * (polarisMaterialGrain - 0.5), 0.0, 0.999);
   polarisTone = floor(polarisTone * 5.0) / 4.0;
   float polarisDetail = 1.0 - smoothstep(0.35, 1.5, polarisAa / (polarisVoxel.x * polarisCellSize));
-  vec3 polarisDark = mix(vec3(0.8, 0.85, 0.82), vec3(0.62, 0.78, 0.88), polarisSurface);
-  vec3 polarisLight = mix(vec3(1.1, 1.08, 0.98), vec3(1.42, 1.25, 1.16), polarisSurface);
+  vec3 polarisDark = mix(vec3(0.8, 0.85, 0.82), vec3(0.62, 0.65, 0.75), polarisSurface);
+  vec3 polarisLight = mix(vec3(1.1, 1.08, 0.98), vec3(1.42, 1.38, 1.29), polarisSurface);
   float polarisContrast = polarisDetail * mix(1.0, 0.35, step(2.125, vPolarisFlag));
   baseColor.rgb *= mix(vec3(1.0), mix(polarisDark, polarisLight, polarisTone), polarisContrast);
 }
@@ -213,13 +221,11 @@ if (vPolarisFlag > 0.25) {
       vec2 polarisP = vPositionW.xz - vec2(polarisCentreX, float(polarisHz) * 0.8660254);
       int polarisHexState = polarisByte(polarisHex.b);
       int polarisHexOwner = polarisHexState & 3;
-      float polarisLineWidth = max(0.012, polarisAa * 0.8);
       // Distances to the six edges, ordered like the domain's directions: east, south-east, south-west in polarisNear,
       // west, north-west, north-east in polarisFar. Every effect fades with distance, so only the nearest edge counts.
       vec3 polarisQ = polarisP.x * vec3(1.0, 0.5, -0.5) + polarisP.y * vec3(0.0, 0.8660254, 0.8660254);
       vec3 polarisNear = 0.5 - polarisQ;
       vec3 polarisFar = 0.5 + polarisQ;
-      float polarisNearest = min(min(min(polarisNear.x, polarisNear.y), polarisNear.z), min(min(polarisFar.x, polarisFar.y), polarisFar.z));
       // Edges without a border bit are pushed out of reach of every border effect.
       vec3 polarisNearMask = vec3((ivec3(polarisHexState) >> ivec3(2, 3, 4)) & 1);
       vec3 polarisFarMask = vec3((ivec3(polarisHexState) >> ivec3(5, 6, 7)) & 1);
@@ -227,19 +233,20 @@ if (vPolarisFlag > 0.25) {
       vec3 polarisFarBorder = polarisFar + (1.0 - polarisFarMask);
       float polarisBorderD = min(min(min(polarisNearBorder.x, polarisNearBorder.y), polarisNearBorder.z),
         min(min(polarisFarBorder.x, polarisFarBorder.y), polarisFarBorder.z));
-      float polarisLines = 1.0 - smoothstep(polarisLineWidth, polarisLineWidth + polarisAa, polarisNearest);
+      vec3 polarisHairline = clamp(0.9 - min(polarisNear, polarisFar) / polarisEdgePixel, 0.0, 0.8);
+      float polarisLines = max(max(polarisHairline.x, polarisHairline.y), polarisHairline.z);
       polarisLines *= 1.0 - polarisWater;
       // The base grid recedes when zoomed out and over open water, so coasts, borders and outlines lead the eye.
-      float polarisGridStrength = mix(0.16, 0.006, polarisWater) * mix(1.0, mix(0.75, 0.45, polarisWater), smoothstep(0.02, 0.06, polarisAa));
-      float polarisOutline = (1.0 - smoothstep(0.045, 0.045 + polarisAa, polarisNearest)) * polarisHex.g;
-      float polarisBorder = 1.0 - smoothstep(0.085, 0.085 + polarisAa, polarisBorderD);
-      float polarisEdge = 1.0 - smoothstep(0.105, 0.105 + polarisAa, polarisBorderD);
-      float polarisGlow = 1.0 - smoothstep(0.085, 0.3, polarisBorderD);
+      float polarisGridStrength = mix(0.42, 0.0, polarisWater) * mix(1.0, 0.55, smoothstep(0.02, 0.06, polarisAa));
+      float polarisOutline = polarisBand(polarisNear, polarisFar, polarisEdgePixel, 0.012) * polarisHex.g;
+      float polarisBorder = polarisBand(polarisNearBorder, polarisFarBorder, polarisEdgePixel, 0.032);
+      float polarisEdge = polarisBand(polarisNearBorder, polarisFarBorder, polarisEdgePixel, 0.043);
+      float polarisGlow = 1.0 - smoothstep(0.032, 0.12, polarisBorderD);
       polarisWaterOverlay = max(0.03 * polarisLines, max(0.85 * polarisOutline, polarisHexOwner > 0 ? 0.95 * polarisBorder : 0.0));
       baseColor.rgb *= 1.0 - polarisGridStrength * polarisLines;
       if (polarisHexOwner > 0) {
         vec3 polarisTeam = polarisFaction(polarisHexOwner);
-        baseColor.rgb = mix(baseColor.rgb, polarisTeam, 0.4 * polarisGlow);
+        baseColor.rgb = mix(baseColor.rgb, polarisTeam, 0.22 * polarisGlow);
         // A thin dark seam inside the band keeps the border crisp against light grass.
         baseColor.rgb *= 1.0 - 0.3 * (polarisEdge - polarisBorder);
         baseColor.rgb = mix(baseColor.rgb, mix(polarisTeam, vec3(1.0), 0.18), polarisBorder);
@@ -386,8 +393,8 @@ export class WorldRenderer {
     this.waterVoxels = new VoxelMaterialPlugin(this.water, true)
     this.terrainAndWater = new MultiMaterial('terrain-and-water', this.scene)
     this.terrainAndWater.subMaterials.push(this.terrain, this.water)
-    this.hover = this.makeMarker(hexRing('hover', 0.88, 0.97, false, this.scene), '#eef7ee')
-    this.selection = this.makeMarker(hexRing('selection', 0.8, 0.98, false, this.scene), '#f6d55c')
+    this.hover = this.makeMarker(hexRing('hover', 0.95, 0.98, false, this.scene), '#eef7ee')
+    this.selection = this.makeMarker(hexRing('selection', 0.92, 0.98, false, this.scene), '#f6d55c')
     this.figureMaterial = new StandardMaterial('figure-material', this.scene)
     this.figureMaterial.diffuseColor = Color3.White()
     this.figureMaterial.specularColor = Color3.Black()
@@ -644,7 +651,7 @@ export class WorldRenderer {
       this.shadows.addShadowCaster(figure, false)
       this.figures.push(figure)
       if (unit.rival) {
-        const ring = hexRing(`rival-${index}`, 0.8, 0.96, true, this.scene)
+        const ring = hexRing(`rival-${index}`, 0.9, 0.97, true, this.scene)
         ring.material = this.rivalMaterial
         ring.position.set(cx, this.heights[unit.tileId]! + 0.03, cz)
         ring.isPickable = false

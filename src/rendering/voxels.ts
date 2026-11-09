@@ -9,22 +9,22 @@ export const CHUNK_COLUMNS = 66
 
 const SOURCE = {
   fog: '#263b4a',
-  grass: '#5fb13f', grassLight: '#68ba46', grassDark: '#57a63b', sand: '#e6cf86',
-  dirt: '#8c5c33', dirtDark: '#744a29', soil: '#5c4630', soilDark: '#4a3925', bedrock: '#382c20',
-  hillGrass: '#8fa64c', hillGrassDark: '#7f9744', rock: '#a29d90', rockDark: '#857f73',
-  cliff: '#9a6a45', cliffDark: '#7d5438', stone: '#bcb7ab',
-  water: '#237fa7', shallow: '#b1efe8', shoal: '#64e3de', shelf: '#32c5d6',
-  waterSurface: '#55c4d2', waterEdge: '#b9ebe5',
-  seabedSand: '#d6c38c', seabedStone: '#56868c', seabedDeep: '#285d70',
-  path: '#cfb07a',
-  trunk: '#6b4a2b',
-  underwaterRock: '#568987',
-  leafTeal: '#2f9a7c', leafTealLight: '#43b391', leafGreen: '#3f9b3a', leafGreenLight: '#57b34b',
-  leafDark: '#23735f', leafDarkLight: '#2f8a70', leafLime: '#86c94a', leafLimeLight: '#a3dc5f',
-  tuft: '#76c457', flowerWhite: '#f1eee4', flowerYellow: '#f1cf4b', flowerRed: '#d9554b', flowerViolet: '#9b72cf',
-  wall: '#efe4cc', timber: '#9c7a55', door: '#5b3f2a', window: '#3f4b57',
-  roof: '#c8473b', roofRidge: '#a5372e', plank: '#a8743f', thatch: '#d9ad4e', thatchRidge: '#bf9238',
-  castle: '#aeaca5', castleDark: '#8f8d86', bannerGold: '#f0c873', bannerBlue: '#5a7fe0',
+  grass: '#a9b946', grassLight: '#b9c34d', grassDark: '#9bac41', sand: '#ffeeb5',
+  dirt: '#ad8b59', dirtDark: '#8d714d', soil: '#85877e', soilDark: '#70776f', bedrock: '#5b665f',
+  hillGrass: '#aab24b', hillGrassDark: '#969f42', rock: '#b4a8aa', rockDark: '#8d8d8f',
+  cliff: '#939087', cliffDark: '#757b76', stone: '#bcb7a9',
+  water: '#147da5', shallow: '#66d5d6', shoal: '#26b5d0', shelf: '#178abe',
+  waterSurface: '#0a7bba', waterShallow: '#43f0fa', waterShoal: '#19d2e2', waterShelf: '#108fca', waterEdge: '#d2f7e7',
+  seabedSand: '#77e4dd', seabedStone: '#219aad', seabedDeep: '#0c709e',
+  path: '#beb69b',
+  trunk: '#78613b',
+  underwaterRock: '#659d9e',
+  leafTeal: '#3d7046', leafTealLight: '#5b8b4b', leafGreen: '#54823c', leafGreenLight: '#719543',
+  leafDark: '#285b3b', leafDarkLight: '#437544', leafLime: '#859f3f', leafLimeLight: '#a5b84f',
+  tuft: '#99b34d', flowerWhite: '#f1eee4', flowerYellow: '#f1cf4b', flowerRed: '#d9554b', flowerViolet: '#9b72cf',
+  wall: '#e6d9bb', timber: '#9c7a55', door: '#5b3f2a', window: '#3f4b57',
+  roof: '#c46b37', roofRidge: '#9f4f2c', plank: '#a8743f', thatch: '#d9ad4e', thatchRidge: '#bf9238',
+  castle: '#b2aea0', castleDark: '#8d8b81', bannerGold: '#f0c873', bannerBlue: '#5a7fe0',
   goldDark: '#b4842f', blueDark: '#3a58ad', skin: '#f0c49a', hair: '#5a3b24', steel: '#c9ced6', leather: '#7a5230',
 } as const
 
@@ -48,11 +48,13 @@ const LEAVES = [
 const FLOWERS = [VOXEL.flowerWhite, VOXEL.flowerYellow, VOXEL.flowerRed, VOXEL.flowerViolet] as const
 // Ambient occlusion per face corner: 0 = enclosed corner, 3 = open.
 export const AO_LIGHT = [0.52, 0.68, 0.84, 1] as const
-/** Vertex colour alpha tells the shader what a face shows. */
+/** Dedicated shader role per vertex; water opacity belongs to its material. */
 export const FACE_FLAG = {
   fog: 0, decoration: 0.5, ground: 1, waterFloor: 1.125, water: 1.5, waterSurface: 2, waterEdge: 2.25,
 } as const
-const WATER_SURFACES = new Set<number>([VOXEL.waterSurface, VOXEL.waterEdge])
+const WATER_SURFACES = new Set<number>([
+  VOXEL.waterSurface, VOXEL.waterShallow, VOXEL.waterShoal, VOXEL.waterShelf, VOXEL.waterEdge,
+])
 const isWaterSurface = (kind: number | undefined) => kind !== undefined && WATER_SURFACES.has(kind)
 
 export interface VoxelWorld {
@@ -322,7 +324,8 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
           ? bottomTexture > 0.86 ? VOXEL.seabedStone : VOXEL.seabedDeep
           : VOXEL.seabedDeep
     const capSurface = surface === VOXEL.shallow && hash(seed, gx, 89, gz) > 0.72
-      ? VOXEL.waterEdge : VOXEL.waterSurface
+      ? VOXEL.waterEdge : surface === VOXEL.shallow ? VOXEL.waterShallow
+        : surface === VOXEL.shoal ? VOXEL.waterShoal : surface === VOXEL.shelf ? VOXEL.waterShelf : VOXEL.waterSurface
     let rockTop = floor
     if (scale >= 4 && hash(seed, tile.x, 81, tile.z) < 0.045) {
       const [cx, cz] = centreColumn(world, tile)

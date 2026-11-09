@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { generateMap, type Tile } from '../src/game/map'
+import { generateMap, type Tile, type WorldMap } from '../src/game/map'
 import { HEX_ROW, hexCenter } from '../src/game/hex'
 import { createVoxelWorld, centreColumn, type VoxelWorld } from '../src/rendering/voxels'
 
@@ -9,6 +9,16 @@ async function settled(page: Page) {
 
 async function stats(page: Page) {
   return page.evaluate(() => window.polarisDiagnostics!.stats())
+}
+
+function flatSurfaceTile(map: WorldMap, terrain: Tile['terrain']) {
+  const tile = map.tiles.filter(tile => tile.terrain === terrain
+    && tile.x > 2 && tile.x < 29 && tile.z > 2 && tile.z < 29
+    && map.tiles.every(other => Math.hypot(other.x - tile.x, other.z - tile.z) > 1.8
+      || (other.terrain === terrain && other.elevation === tile.elevation && other.trees === 0)))
+    .sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16))[0]
+  if (!tile) throw new Error(`No flat, tree-free ${terrain} sample`)
+  return tile
 }
 
 async function sampleSurface(page: Page, world: VoxelWorld, tile: Tile) {
@@ -185,14 +195,15 @@ for (const terrain of ['water', 'grassland'] as const) {
     await page.goto('/?diagnostics=1')
     await expect(page.locator('#map-status')).toContainText('1,024 TILES')
     const initial = await stats(page)
-    const tile = map.tiles.filter(tile => tile.terrain === terrain
-      && tile.x > 2 && tile.x < 29 && tile.z > 2 && tile.z < 29
-      && map.tiles.every(other => Math.hypot(other.x - tile.x, other.z - tile.z) > 1.8
-        || (other.terrain === terrain && other.elevation === tile.elevation && other.trees === 0)))
-      .sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16))[0]
-    expect(tile, `Flat, tree-free ${terrain} sample`).toBeDefined()
-    await inspectSurface(page, tile!)
-    const { samples } = await sampleSurface(page, world, tile!)
+    const tile = flatSurfaceTile(map, terrain)
+    await inspectSurface(page, tile)
+    const { samples } = await sampleSurface(page, world, tile)
+    const target = terrain === 'water' ? [11, 117, 170] : [151, 171, 60]
+    for (const channel of [0, 1, 2]) {
+      const sorted = samples.filter((_, i) => i % 2 === 0).map(pixel => pixel[channel]!).sort((a, b) => a - b)
+      expect(Math.abs(sorted[Math.floor(sorted.length / 2)]! - target[channel]!),
+        `${terrain} rendered RGB channel ${channel} matches the concept median`).toBeLessThanOrEqual(8)
+    }
     const green = samples.filter((_, i) => i % 2 === 0).map(pixel => pixel[1]!)
     expect(Math.max(...green) - Math.min(...green), `${terrain} tonal range`).toBeGreaterThan(18)
     expect(new Set(green.map(value => Math.round(value / 4))).size, `${terrain} tone bands`).toBeGreaterThanOrEqual(4)
@@ -213,7 +224,7 @@ for (const terrain of ['water', 'grassland'] as const) {
     await page.locator('canvas').focus()
     await page.keyboard.press('ArrowRight')
     await settled(page)
-    const shifted = await sampleSurface(page, world, tile!)
+    const shifted = await sampleSurface(page, world, tile)
     const differences = samples.map((pixel, i) => Math.abs(pixel[1]! - shifted.samples[i]![1]!))
     expect(Math.max(...differences), `${terrain} shades must move with the world, not the screen`).toBeLessThanOrEqual(3)
     expect(await stats(page)).toMatchObject({
@@ -221,6 +232,63 @@ for (const terrain of ['water', 'grassland'] as const) {
     })
   })
 }
+
+test('hex grid stays a sharp hairline in every edge direction at different zoom levels', async ({ page }) => {
+  const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
+  const world = createVoxelWorld(map)
+  const tile = flatSurfaceTile(map, 'grassland')
+  await page.goto('/?diagnostics=1')
+  await expect(page.locator('#map-status')).toContainText('1,024 TILES')
+  await inspectSurface(page, tile)
+  const widths: number[] = []
+  for (let zoom = 0; zoom < 2; zoom++) {
+    const { origin, dx, dz } = await sampleSurface(page, world, tile)
+    const profiles = await page.locator('canvas').evaluate((canvas, { origin, dx, dz }) => {
+      const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
+      const rect = canvas.getBoundingClientRect()
+      const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4)
+      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+      return ([[1, 0], [0.5, Math.sqrt(3) / 2], [-0.5, Math.sqrt(3) / 2]] as const).map(([nx, nz]) => {
+        const tx = -nz, tz = nx
+        const tangent = { x: dx.x * tx + dz.x * tz, y: dx.y * tx + dz.y * tz }
+        const length = Math.hypot(tangent.x, tangent.y)
+        const normal = { x: -tangent.y / length, y: tangent.x / length }
+        const profile: number[] = []
+        for (let offset = -4; offset <= 4; offset += 0.25) {
+          let total = 0
+          for (let i = 0; i < 80; i++) {
+            const along = -0.2 + i * 0.4 / 79
+            const u = nx * 0.5 + tx * along, v = nz * 0.5 + tz * along
+            const x = Math.floor((origin.x + u * dx.x + v * dz.x - rect.left) * gl.drawingBufferWidth / rect.width + normal.x * offset)
+            const y = gl.drawingBufferHeight - 1 - Math.floor(
+              (origin.y + u * dx.y + v * dz.y - rect.top) * gl.drawingBufferHeight / rect.height + normal.y * offset)
+            if (x < 0 || y < 0 || x >= gl.drawingBufferWidth || y >= gl.drawingBufferHeight) throw new Error('Grid sample is off-screen')
+            const index = (y * gl.drawingBufferWidth + x) * 4
+            total += 0.2126 * pixels[index]! + 0.7152 * pixels[index + 1]! + 0.0722 * pixels[index + 2]!
+          }
+          profile.push(total / 80)
+        }
+        // Average along the edge; interpolate the background across it to remove material-patch gradients.
+        const left = profile.slice(0, 5).reduce((a, b) => a + b) / 5
+        const right = profile.slice(-5).reduce((a, b) => a + b) / 5
+        const darkness = profile.map((v, i) => left + (right - left) * i / (profile.length - 1) - v)
+        const peak = Math.max(...darkness.slice(14, 19))
+        return { peak, width: darkness.filter(v => v > peak / 2).length * 0.25,
+          tail: Math.max(...darkness.slice(0, 9), ...darkness.slice(24)) }
+      })
+    }, { origin, dx, dz })
+    for (const profile of profiles) {
+      expect(profile.peak, 'Grid remains visible').toBeGreaterThan(12)
+      expect(profile.width, 'Rendered full width at half maximum, in framebuffer pixels').toBeGreaterThanOrEqual(0.75)
+      expect(profile.width).toBeLessThanOrEqual(1.5)
+      expect(profile.tail, 'No broad blurred halo beyond two pixels').toBeLessThan(profile.peak * 0.3)
+      widths.push(profile.width)
+    }
+    for (let i = 0; i < 2; i++) await page.getByRole('button', { name: 'Zoom out', exact: true }).click()
+    await settled(page)
+  }
+  expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(0.5)
+})
 
 test('regenerates repeatably and releases old chunk resources three times', async ({ page }) => {
   await page.goto('/?diagnostics=1')

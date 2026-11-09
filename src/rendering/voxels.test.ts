@@ -181,6 +181,7 @@ describe('hex voxel terrain', () => {
     const meshes = meshAll(world, allKnown(map))
     const waterTop = tileSurface(world, map.tiles[0]!, true) * world.size
     const floorHeights = new Set<number>()
+    const capKinds = new Set([VOXEL.waterSurface, VOXEL.waterShallow, VOXEL.waterShoal, VOXEL.waterShelf, VOXEL.waterEdge])
     let verticalFaces = 0, surfaceArea = 0
     for (const mesh of meshes) {
       const solidCount = mesh.indices.length - mesh.waterIndexCount
@@ -205,6 +206,7 @@ describe('hex voxel terrain', () => {
           if (kindAt(mesh, v) === VOXEL.underwaterRock) verticalFaces++
           else if (mesh.positions[v * 3 + 1]! < waterTop) verticalFaces++
         } else if (flag >= FACE_FLAG.waterSurface) {
+          expect(capKinds.has(kindAt(mesh, v))).toBe(true)
           const xs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3]!)
           const zs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 2]!)
           surfaceArea += (Math.max(...xs) - Math.min(...xs)) * (Math.max(...zs) - Math.min(...zs))
@@ -245,7 +247,8 @@ describe('hex voxel terrain', () => {
     const known = allKnown(map)
     const fine = meshAll(createVoxelWorld(map), known)
     expect(shows(fine, VOXEL.waterSurface)).toBe(true)
-    expect(shows(fine, VOXEL.waterEdge)).toBe(true)
+    const coastCaps = [VOXEL.waterShallow, VOXEL.waterShoal, VOXEL.waterShelf, VOXEL.waterEdge]
+    for (const kind of coastCaps) expect(shows(fine, kind), `Coastal cap ${kind}`).toBe(true)
     expect(shows(fine, VOXEL.seabedSand)).toBe(true)
     expect(shows(fine, VOXEL.seabedStone)).toBe(true)
     expect(shows(fine, VOXEL.seabedDeep)).toBe(true)
@@ -253,7 +256,7 @@ describe('hex voxel terrain', () => {
     // Hidden, the island leaves only plain open water around its fog.
     known[40] = 0
     const hidden = meshAll(createVoxelWorld(map), known)
-    expect(shows(hidden, VOXEL.waterEdge)).toBe(false)
+    for (const kind of coastCaps) expect(shows(hidden, kind), `Hidden coast cap ${kind}`).toBe(false)
     expect(shows(hidden, VOXEL.seabedSand)).toBe(false)
     expect(shows(hidden, VOXEL.seabedStone)).toBe(false)
     expect(shows(hidden, VOXEL.seabedDeep)).toBe(true)
@@ -263,7 +266,7 @@ describe('hex voxel terrain', () => {
     const coarse = createVoxelWorld(large)
     expect(coarse.scale).toBe(2)
     const coarseMeshes = meshAll(coarse, allKnown(large))
-    expect(shows(coarseMeshes, VOXEL.waterEdge)).toBe(false)
+    for (const kind of coastCaps) expect(shows(coarseMeshes, kind), `Coarse coast cap ${kind}`).toBe(false)
     expect(shows(coarseMeshes, VOXEL.seabedSand)).toBe(false)
     expect(shows(coarseMeshes, VOXEL.seabedStone)).toBe(false)
     expect(shows(coarseMeshes, VOXEL.seabedDeep)).toBe(true)
