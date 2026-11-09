@@ -76,12 +76,14 @@ Begin at peace; offer a ten-turn nonaggression pledge or declare war to contest 
 
 ## Visual and interaction direction
 
-**Original voxel Art Deco:** block-built landforms, stepped civic shapes, restrained brass detailing, geometric typography, and clean panels.
+**Original voxel Art Deco:** block-built landforms, stepped civic shapes, restrained brass detailing, geometric typography, and clean panels in the HUD.
 
-| Role | Palette |
+The world itself uses the bright diorama palette of the [hex voxel concept](concept-hex-voxel.jpg) (`VOXEL` in `src/rendering/voxels.ts`): green grass, blue water, sandy coasts, brown soil and cliffs, and leaf colours from teal to lime. The Art Deco palette below is for the HUD and UI; gold also marks focus and city plates.
+
+| HUD and UI role | Palette |
 | --- | --- |
 | Navy background/panels | `#102538` |
-| Teal land/accents | `#287F82` |
+| Teal accents | `#287F82` |
 | Gold focus/civic details | `#D6AF58` |
 | Ivory text/highlights | `#F2E9D4` |
 
@@ -89,6 +91,6 @@ Forest uses clustered stepped crowns; hills use broad terraces; mountains use ta
 
 Selection is a high-contrast gold hex outline plus inspector text. Ownership uses a faction-coloured border band on the inner edge of each territory, distinct from selection; city name plates carry the population. Expedition fog uses subdued explored tiles and opaque uniform unseen tiles, hiding terrain silhouettes, trees, picking and tooltips. Provide readable labels, keyboard-accessible controls, and a non-color selection indicator.
 
-**Hex voxel world (implemented):** the approved concept [`concept-hex-voxel.jpg`](concept-hex-voxel.jpg) combines hex fields with cubic voxels: each hex is a stepped diorama column with cliffs and soil, a calm surface with a few small trees on its back row, so the centre stays free for a unit figure. It draws on the readable board layout of *Into the Breach*, the clear territories and city plates of *Polytopia* and the chunky voxel figures of *Voxel Tactics*, without copying their art. It departs from `showcase.png` in tile shape and palette with explicit user approval; `showcase.png` remains the reference for landforms, composition and scale.
+**Hex voxel world (implemented):** the approved concept [`concept-hex-voxel.jpg`](concept-hex-voxel.jpg) combines hex fields with cubic voxels: each hex is a stepped diorama column with cliffs and soil, a calm surface with a few small trees on its back row, so the centre stays free for a unit figure. It draws on the readable board layout of *Into the Breach*, the clear territories and city plates of *Polytopia* and the chunky voxel figures of *Voxel Tactics*, without copying their art. It departs from `showcase.png` in tile shape and palette with explicit user approval. Since then the two references split the authority: the concept governs the look of the board, and `showcase.png` remains authoritative for landforms, composition and scale. The binding graphics rules are in the [Copilot instructions](../.github/copilot-instructions.md#graphics-rules-for-the-hex-voxel-world).
 
 Prototype controls: bounded pan, bounded zoom, click/tap to inspect, reset view, seed/dimension inputs with inline errors. Keep the camera's orthographic orientation fixed. Display tile coordinates, canonical ID, terrain, and any resource; don't imply future gameplay is already available.

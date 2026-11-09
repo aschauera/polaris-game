@@ -4,14 +4,16 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 
 ![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
 
-*This image is the project's authoritative visual reference and predates the voxel renderer. The renderer keeps its landforms, composition and scale, but with explicit user approval it now builds **hex fields from cubic voxels** after the [hex voxel concept](docs/concept-hex-voxel.jpg), with a brighter diorama palette, soft shadows, territory borders, city name plates and voxel unit figures (see the [expedition captures](#visual-overview)). Adopting a new authoritative reference is an open decision.*
+*This image predates the voxel renderer and remains the authoritative reference for landforms, composition and map scale. With explicit user approval, the look of the board follows the [hex voxel concept](docs/concept-hex-voxel.jpg): **hex fields built from cubic voxels**, a brighter diorama palette, soft shadows, territory borders, city name plates and voxel unit figures (see the [expedition captures](#visual-overview)). Both references and the binding graphics rules are listed in the [Copilot instructions](.github/copilot-instructions.md#visual-references).*
 
 ## Plan and visual direction
 
 - [Game design and planned first playable](docs/game-design.md)
 - [Architecture decisions, determinism, and performance targets](docs/architecture.md)
 - [Dependency-ordered follow-up briefs](docs/roadmap.md)
+- [Approved hex voxel concept](docs/concept-hex-voxel.jpg) — authoritative for the look of the board.
 - [Initial original visual mockup](docs/visual-mockup.svg) — a direction-setting concept, not a rendered screenshot.
+- [Copilot instructions](.github/copilot-instructions.md) — binding rules for every agent and contributor: working order through GitHub *blocked by* relationships, keeping docs and guidance in sync, visual references and graphics rules.
 
 **Implemented:** roadmap briefs 6–7 / issues #7–#8, deterministic commands/turns, movement, exploration, founding, city yields, population growth, and production, plus two-player matches played by exchanging turn messages ([Play by messenger](#play-by-messenger)). Combat, worker actions, research, policies, diplomacy, and opponent AI are deliberately deferred.
 
