@@ -96,7 +96,6 @@ describe('match storage', () => {
       ['null', /damaged/],
       [JSON.stringify({ ...good, match: exportMatch(OTHER_ID, match()) }), /damaged/],
       [JSON.stringify({ ...good, match: { ...good.match, stateHash: '0'.repeat(14) } }), /could not be resumed.*ended differently/],
-      [JSON.stringify({ ...good, match: { ...good.match, rules: 1 } }), /could not be resumed.*game rules/],
       [JSON.stringify({ ...good, faction: 'pirates' }), /did not say which side/],
       [JSON.stringify({ match: good.match }), /did not say which side/],
     ]
@@ -114,6 +113,7 @@ describe('match storage', () => {
     expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
       ok: false, reason: expect.stringMatching(/has been kept.*world generator 3, but your copy uses 4/),
     })
+
     expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
     expect(currentMatchId(storage)).toBeUndefined()
     expect(listMatches(storage).discarded).toEqual([])
@@ -124,12 +124,26 @@ describe('match storage', () => {
     expect(currentMatchId(storage)).toBe(OTHER_ID)
   })
 
+  it('keeps older-rule saves unchanged and listed without replaying them under new movement rules', () => {
+    const raw = JSON.stringify({ faction: 'meridian', match: { ...exportMatch(MATCH_ID, match()), rules: 3 } })
+    const storage = memoryStorage({ [PREFIX + MATCH_ID]: raw, [CURRENT]: MATCH_ID })
+    expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
+      ok: false, reason: expect.stringMatching(/has been kept.*game rules 3.*uses 4/),
+    })
+    expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
+    expect(currentMatchId(storage)).toBeUndefined()
+    expect(listMatches(storage).matches.map(match => match.matchId)).toEqual([MATCH_ID])
+    expect(listMatches(storage).discarded).toEqual([])
+    setCurrentMatch(storage, OTHER_ID)
+    expect(restoreMatch(storage, MATCH_ID)).toMatchObject({ ok: false })
+    expect(currentMatchId(storage)).toBe(OTHER_ID)
+  })
+
   it('drops unreadable entries from the list and says why, keeping the readable ones', () => {
     const good = { faction: 'meridian', match: exportMatch(MATCH_ID, match()) }
     const cases: [string, RegExp][] = [
       ['{not json', /damaged/],
       [JSON.stringify({ ...good, match: exportMatch(OTHER_ID, match()) }), /damaged/],
-      [JSON.stringify({ ...good, match: { ...good.match, rules: 1 } }), /game rules/],
       [JSON.stringify({ ...good, faction: 'pirates' }), /which side/],
     ]
     for (const [raw, reason] of cases) {

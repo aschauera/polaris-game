@@ -60,6 +60,24 @@ function reorder<T extends object>(value: T): T {
 }
 
 describe('match checksums', () => {
+  it('replays founder and produced-unit moves with independent movement budgets', () => {
+    let state = createMatch(WORLD)
+    const founder = state.founders[0]!
+    const to = [...movementRange(state, founder.id).keys()].find(id => id !== founder.tileId)!
+    state = issue(state, { type: 'move', unitId: founder.id, to })
+    state = issue(state, { type: 'found-city', founderId: founder.id })
+    state = issue(state, { type: 'queue-production', cityId: state.cities[0]!.id, itemId: 'worker' })
+    for (let turn = 0; turn < 8 && (!state.units.length || state.activeFaction !== 'meridian'); turn++) {
+      state = issue(state, { type: 'end-turn' })
+    }
+    const worker = state.units[0]!
+    expect(worker).toBeDefined()
+    const target = [...movementRange(state, worker.id).keys()].find(id => id !== worker.tileId)!
+    state = issue(state, { type: 'move', unitId: worker.id, to: target })
+    const opened = openMatch(exportMatch(MATCH_ID, state))
+    expect(opened.ok).toBe(true)
+    if (opened.ok) expect(opened.state).toEqual(state)
+  })
   it('hashes equal worlds and states identically and any difference differently', () => {
     const state = createMatch(WORLD)
     expect(mapHash(state.map)).toMatch(CHECKSUM)
@@ -203,7 +221,7 @@ describe('rejecting turns that cannot be trusted', () => {
 
   it('rejects orders for units of the faction that is not moving', () => {
     const forged = edit({ commands: [['m', 'scout-lantern', 1]] })
-    expect(failure(forged)).toMatch(/Order 1 was rejected: Choose a scout belonging to the active faction/)
+    expect(failure(forged)).toMatch(/Order 1 was rejected: Choose a unit belonging to the active faction/)
   })
 
   it('rejects malformed orders by position', () => {

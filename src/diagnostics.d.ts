@@ -12,6 +12,7 @@ declare global {
       expedition(): {
         round: number; movement: number; scoutTileId: number; commandCount: number
         founders: readonly Founder[]; cities: readonly City[]; units: readonly ProducedUnit[]
+        selectedUnitId?: string; selectedCityId?: string; selectedReachable: readonly number[]
         fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
         reachable: readonly number[]
       } | undefined

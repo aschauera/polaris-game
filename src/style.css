@@ -81,6 +81,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .city-plate.gold { background: #b98a2c; border-color: #f4d270; }
 .city-plate.blue { background: #2f63a8; border-color: #92c4f4; }
 .city-plate-population { font-size: 11px; color: #ffe7a0; }
+.city-plates button { pointer-events: auto; touch-action: none; min-height: 44px; margin: 0; }
+.city-plate.available { box-shadow: 0 0 8px 3px #ffe58ba8, 0 0 20px #ffe58b70; }
+.city-plate[aria-pressed="true"] { outline: 2px solid #fff3bd; outline-offset: 3px; }
+.city-plates .unit-target { position: absolute; transform: translate(-50%, -50%); min-height: 0; min-width: 0; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; }
+.unit-target:hover, .unit-target:active { background: transparent; }
+.unit-target.available { box-shadow: 0 0 9px 3px #ffe58baa, inset 0 0 8px #fff3bda0; }
+.unit-target[aria-pressed="true"] { outline: 1px solid #ffe58b; outline-offset: 2px; }
+.city-plates [hidden] { display: none; }
 .resource-marker { position: absolute; transform: translate(-50%, -100%); line-height: 0; filter: drop-shadow(0 0 2px #e8f4ce) drop-shadow(0 1px 2px #18394a); }
 .resource-marker svg { display: block; width: 100%; height: auto; }
 .camera-tools { position: absolute; right: 24px; bottom: 68px; display: flex; gap: 6px; }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GENERATOR_VERSION, generateMap, type Terrain, type WorldMap } from './map'
 import {
-  applyCommand, cityYields, createExpedition, findPath, knownTile, movementRange, neighbors, SCOUT, visibilityAt,
+  applyCommand, cityYields, createExpedition, findPath, knownTile, movementRange, neighbors, SCOUT, unitsOf, visibilityAt,
   type Command, type Expedition,
 } from './expedition'
 
@@ -39,6 +39,29 @@ function accepted(state: Expedition, command: Command): Expedition {
 }
 
 describe('expedition movement and commands', () => {
+  it.each(['founder', 'guard', 'worker'] as const)('moves a %s with its own budget, occupancy, fog and turn reset', kind => {
+    const base = fixture({ 29: 'hills', 36: 'water' })
+    const unit = { id: 'moving-unit', factionId: 'meridian' as const, tileId: 28, movement: 2 }
+    const state: Expedition = { ...base,
+      founders: kind === 'founder' ? [unit] : [],
+      units: kind === 'founder' ? [] : [{ ...unit, type: kind }],
+    }
+    const command: Command = { type: 'move', unitId: unit.id, to: 29, factionId: 'meridian', sequence: 1 }
+    expect(findPath(state, unit.id, 27)).toBeUndefined()
+    expect(findPath(state, unit.id, 36)).toBeUndefined()
+    expect(findPath(state, unit.id, 29)?.cost).toBe(2)
+    const moved = accepted(state, command)
+    expect(unitsOf(moved).find(item => item.id === unit.id)).toMatchObject({ tileId: 29, movement: 0 })
+    expect(moved.scouts).toEqual(state.scouts)
+    expect(movementRange(moved, unit.id).size).toBe(1)
+    expect(applyCommand(moved, { ...command, to: 30, sequence: 2 }).ok).toBe(false)
+    expect(moved.rngState).toBe(state.rngState)
+    expect(visibilityAt(moved, 'meridian', 29)).toBe('visible')
+    const reset = accepted(moved, { type: 'end-turn', factionId: 'meridian', sequence: 2 })
+    expect(unitsOf(reset).find(item => item.id === unit.id)?.movement).toBe(2)
+    expect(accepted(state, command)).toEqual(moved)
+    expect(applyCommand(state, { ...command, factionId: 'lantern' }).ok).toBe(false)
+  })
   it('chooses a reproducible start on the largest connected landmass without consuming RNG', () => {
     for (const seed of ['polaris', 'aurora', 'North_Star-7']) {
       const map = generateMap({ seed, width: 32, height: 24 })
@@ -184,7 +207,7 @@ describe('city founding, economy and production', () => {
   function foundingFixture(terrain: Record<number, Terrain> = {}): Expedition {
     const initial = fixture(terrain)
     return Object.freeze({ ...initial,
-      founders: Object.freeze([Object.freeze({ id: 'founder-meridian', factionId: 'meridian' as const, tileId: 28 })]),
+      founders: Object.freeze([Object.freeze({ id: 'founder-meridian', factionId: 'meridian' as const, tileId: 28, movement: 2 })]),
     })
   }
 
@@ -223,7 +246,7 @@ describe('city founding, economy and production', () => {
     expect(first.ok).toBe(true)
     if (!first.ok) return
     const nearby = Object.freeze({ ...first.state,
-      founders: Object.freeze([Object.freeze({ id: 'founder-next', factionId: 'meridian' as const, tileId: 31 })]),
+      founders: Object.freeze([Object.freeze({ id: 'founder-next', factionId: 'meridian' as const, tileId: 31, movement: 2 })]),
     })
     const tooClose = applyCommand(nearby, found(nearby, 'founder-next'))
     expect(tooClose).toMatchObject({ ok: false, reason: expect.stringMatching(/at least 5 tiles apart/) })
@@ -231,20 +254,20 @@ describe('city founding, economy and production', () => {
 
     const claimed = Object.freeze({ ...first.state,
       cities: Object.freeze([Object.freeze({ ...first.state.cities[0]!, claimTileIds: Object.freeze([76]) })]),
-      founders: Object.freeze([Object.freeze({ id: 'founder-claimed', factionId: 'meridian' as const, tileId: 76 })]),
+      founders: Object.freeze([Object.freeze({ id: 'founder-claimed', factionId: 'meridian' as const, tileId: 76, movement: 2 })]),
     })
     expect(applyCommand(claimed, found(claimed, 'founder-claimed')))
       .toMatchObject({ ok: false, reason: expect.stringMatching(/claim territory/) })
 
     const foreign = Object.freeze({ ...foundingFixture(),
-      founders: Object.freeze([Object.freeze({ id: 'founder-lantern', factionId: 'lantern' as const, tileId: 28 })]),
+      founders: Object.freeze([Object.freeze({ id: 'founder-lantern', factionId: 'lantern' as const, tileId: 28, movement: 2 })]),
     })
     expect(applyCommand(foreign, found(foreign, 'founder-lantern')))
       .toMatchObject({ ok: false, reason: expect.stringMatching(/belonging to the active faction/) })
 
     const overLimit = Object.freeze({ ...first.state,
       cities: Object.freeze([...first.state.cities, Object.freeze({ ...first.state.cities[0]!, id: 'city-meridian-2', tileId: 40 })]),
-      founders: Object.freeze([Object.freeze({ id: 'founder-next', factionId: 'meridian' as const, tileId: 52 })]),
+      founders: Object.freeze([Object.freeze({ id: 'founder-next', factionId: 'meridian' as const, tileId: 52, movement: 2 })]),
     })
     expect(applyCommand(overLimit, found(overLimit, 'founder-next')))
       .toMatchObject({ ok: false, reason: expect.stringMatching(/at most 2 cities/) })
@@ -293,7 +316,7 @@ describe('city founding, economy and production', () => {
     state = accepted(state, { type: 'end-turn', factionId: 'meridian', sequence: 4 })
     expect(state.cities[0]!.production).toBeUndefined()
     expect(state.units).toEqual([{
-      id: 'unit-meridian-1', factionId: 'meridian', type: 'guard', tileId: 29,
+      id: 'unit-meridian-1', factionId: 'meridian', type: 'guard', tileId: 29, movement: 2,
     }])
     expect(neighbors(state.map, state.cities[0]!.tileId)).toContain(state.units[0]!.tileId)
     expect(state.map.tiles[state.units[0]!.tileId]!.terrain).not.toBe('water')
@@ -312,7 +335,7 @@ describe('city founding, economy and production', () => {
     const blocked = Object.freeze({ ...founded.state,
       cities: Object.freeze([Object.freeze({ ...city, production: Object.freeze({ itemId: 'guard' as const, progress: 8 }) })]),
       units: Object.freeze([20, 21, 29, 36, 37].map((tileId, index) => Object.freeze({
-        id: `blocker-${index}`, factionId: 'meridian' as const, type: 'worker' as const, tileId,
+        id: `blocker-${index}`, factionId: 'meridian' as const, type: 'worker' as const, tileId, movement: 2,
       }))),
     })
     const result = applyCommand(blocked, { type: 'end-turn', factionId: 'meridian', sequence: 2 })
@@ -368,13 +391,13 @@ describe('faction exploration', () => {
   it('hides unknown tiles and reveals only the traveled sight regions', () => {
     const state = createExpedition(plainMap())
     const start = state.scouts[0]!.tileId
-    // The founder stands on the eastern neighbour, so the scout steps west and leaves the far east behind.
+    // The founder keeps its eastern sight while the scout steps west.
     const to = start - 1
     expect(knownTile(state, 'meridian', 0)).toBeUndefined()
     const result = applyCommand(state, move(state, to))
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(visibilityAt(result.state, 'meridian', start + 2)).toBe('explored')
+    expect(visibilityAt(result.state, 'meridian', start + 2)).toBe('visible')
     expect(visibilityAt(result.state, 'meridian', to)).toBe('visible')
     expect(visibilityAt(result.state, 'meridian', 0)).toBe('unseen')
     const changed = state.map.tiles.filter(tile =>

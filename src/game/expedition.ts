@@ -1,8 +1,14 @@
 import { hexDistance, hexOffsets } from './hex'
 import type { Terrain, Tile, WorldMap } from './map'
 
-export const RULES_VERSION = 3
+export const RULES_VERSION = 4
 export const SCOUT = Object.freeze({ movement: 4, sight: 2 })
+export const UNIT_RULES = Object.freeze({
+  scout: SCOUT,
+  founder: Object.freeze({ movement: 2, sight: 2 }),
+  guard: Object.freeze({ movement: 2, sight: 2 }),
+  worker: Object.freeze({ movement: 2, sight: 2 }),
+})
 export const MOVEMENT_COST: Readonly<Record<Terrain, number>> = Object.freeze({ grassland: 1, hills: 2, water: Infinity })
 export const FACTIONS = Object.freeze({ meridian: 'Meridian Union', lantern: 'Lantern Compact' })
 export const CITY_NAMES: Readonly<Record<keyof typeof FACTIONS, readonly string[]>> = Object.freeze({
@@ -41,12 +47,14 @@ export interface Founder {
   readonly id: string
   readonly factionId: FactionId
   readonly tileId: number
+  readonly movement: number
 }
 export interface ProducedUnit {
   readonly id: string
   readonly factionId: FactionId
   readonly type: 'guard' | 'worker'
   readonly tileId: number
+  readonly movement: number
 }
 export interface City {
   readonly id: string
@@ -87,6 +95,14 @@ export interface Expedition {
   readonly commands: readonly Command[]
 }
 export interface Route { readonly path: readonly number[]; readonly cost: number }
+export type Unit = (Scout | Founder | ProducedUnit) & { readonly kind: keyof typeof UNIT_RULES }
+export function unitsOf(state: Expedition): readonly Unit[] {
+  return [
+    ...state.scouts.map(unit => ({ ...unit, kind: 'scout' as const })),
+    ...state.founders.map(unit => ({ ...unit, kind: 'founder' as const })),
+    ...state.units.map(unit => ({ ...unit, kind: unit.type })),
+  ]
+}
 export type CommandResult =
   | { readonly ok: false; readonly state: Expedition; readonly reason: string }
   | { readonly ok: true; readonly state: Expedition; readonly dirtyTiles: readonly number[]; readonly message: string }
@@ -172,13 +188,14 @@ export function createExpedition(map: WorldMap, factionIds: readonly FactionId[]
       map.tiles[id]!.terrain !== 'water' && !occupied.has(id))
     if (tileId === undefined) throw new Error('This world has too little connected land for each faction to place a founder.')
     occupied.add(tileId)
-    return Object.freeze({ id: `founder-${factionId}`, factionId, tileId })
+    return Object.freeze({ id: `founder-${factionId}`, factionId, tileId, movement: UNIT_RULES.founder.movement })
   })
   const scouts = factionIds.map((factionId, index) =>
     Object.freeze({ id: `scout-${factionId}`, factionId, tileId: starts[index]!, movement: SCOUT.movement }))
   const factions = factionIds.map((id, index) => {
     const fog: Record<number, 'visible'> = {}
     for (const tileId of sight(map, starts[index]!)) fog[tileId] = 'visible'
+    for (const tileId of sight(map, founders[index]!.tileId)) fog[tileId] = 'visible'
     return Object.freeze({ id, fog: Object.freeze(fog) })
   })
   return Object.freeze({
@@ -223,7 +240,7 @@ function completeProduction(state: Expedition, city: City, units: ProducedUnit[]
   const tileId = productionPlacement(state, city, occupiedTiles({ ...state, units }))
   if (tileId === undefined) return { city, units, nextUnitId, completed: undefined }
   const unit = Object.freeze({ id: `unit-${city.factionId}-${nextUnitId}`, factionId: city.factionId,
-    type: itemId, tileId })
+    type: itemId, tileId, movement: UNIT_RULES[itemId].movement })
   units.push(unit)
   return { city: Object.freeze({ ...city, production: undefined }),
     units, nextUnitId: nextUnitId + 1, completed: PRODUCTION_ITEMS[itemId].name }
@@ -323,13 +340,13 @@ function search(state: Expedition, scout: Scout, goal?: number) {
 }
 
 export function movementRange(state: Expedition, unitId: string): ReadonlyMap<number, number> {
-  const scout = state.scouts.find(unit => unit.id === unitId)
+  const scout = unitsOf(state).find(unit => unit.id === unitId)
   if (!scout || scout.factionId !== state.activeFaction) return new Map()
   return search(state, scout).costs
 }
 
 export function findPath(state: Expedition, unitId: string, to: number): Route | undefined {
-  const scout = state.scouts.find(unit => unit.id === unitId)
+  const scout = unitsOf(state).find(unit => unit.id === unitId)
   if (!scout || scout.factionId !== state.activeFaction || !Number.isInteger(to) ||
     !knownTile(state, scout.factionId, to)) return
   const { costs, parents } = search(state, scout, to)
@@ -340,10 +357,10 @@ export function findPath(state: Expedition, unitId: string, to: number): Route |
   return { path: Object.freeze(path), cost }
 }
 
-function moveFog(state: Expedition, scout: Scout, path: readonly number[], scouts: readonly Scout[]) {
-  const faction = state.factions.find(faction => faction.id === scout.factionId)!
+function refreshFog(state: Expedition, factionId: FactionId, path: readonly number[] = []) {
+  const faction = state.factions.find(faction => faction.id === factionId)!
   const fog = { ...faction.fog }
-  const affected = new Set<number>(sight(state.map, scout.tileId))
+  const affected = new Set<number>(Object.keys(fog).map(Number))
   for (const id of affected) fog[id] = 'explored'
   for (const id of path) {
     for (const seen of sight(state.map, id)) {
@@ -351,14 +368,22 @@ function moveFog(state: Expedition, scout: Scout, path: readonly number[], scout
       fog[seen] = 'explored'
     }
   }
-  for (const unit of scouts) {
-    if (unit.factionId !== scout.factionId) continue
+  for (const unit of unitsOf(state)) {
+    if (unit.factionId !== factionId) continue
     for (const seen of sight(state.map, unit.tileId)) {
       affected.add(seen)
       fog[seen] = 'visible'
     }
   }
+  for (const city of state.cities) {
+    if (city.factionId !== factionId) continue
+    for (const seen of sight(state.map, city.tileId)) {
+      affected.add(seen)
+      fog[seen] = 'visible'
+    }
+  }
   const dirtyTiles = [...affected].filter(id => fog[id] !== faction.fog[id]).sort((a, b) => a - b)
+  if (!dirtyTiles.length) return { factions: state.factions, dirtyTiles: Object.freeze(dirtyTiles) }
   const factions = state.factions.map(item => item === faction ? Object.freeze({ ...item, fog: Object.freeze(fog) }) : item)
   return { factions: Object.freeze(factions), dirtyTiles: Object.freeze(dirtyTiles) }
 }
@@ -383,9 +408,14 @@ export function applyCommand(state: Expedition, command: Command): CommandResult
     const activeFaction = state.factions[next]!.id
     const scouts = Object.freeze(state.scouts.map(scout => scout.factionId === activeFaction
       ? Object.freeze({ ...scout, movement: SCOUT.movement }) : scout))
-    return { ok: true, state: Object.freeze({ ...state, commands, scouts, cities: Object.freeze(cities),
-      units: Object.freeze(units), nextUnitId, activeFaction,
-      round: state.round + Number(next === 0) }), dirtyTiles: [],
+    const founders = Object.freeze(state.founders.map(unit => unit.factionId === activeFaction
+      ? Object.freeze({ ...unit, movement: UNIT_RULES.founder.movement }) : unit))
+    const refreshedUnits = Object.freeze(units.map(unit => unit.factionId === activeFaction
+      ? Object.freeze({ ...unit, movement: UNIT_RULES[unit.type].movement }) : unit))
+    const nextState = { ...state, commands, scouts, founders, cities: Object.freeze(cities),
+      units: refreshedUnits, nextUnitId, activeFaction, round: state.round + Number(next === 0) }
+    const { factions, dirtyTiles } = refreshFog(nextState, state.activeFaction)
+    return { ok: true, state: Object.freeze({ ...nextState, factions }), dirtyTiles,
     message: `${resolutions.map(result => result.message).join(' ')}${resolutions.length ? ' ' : ''}` +
       `${FACTIONS[activeFaction]} is ready. Movement restored.` }
   }
@@ -428,21 +458,24 @@ export function applyCommand(state: Expedition, command: Command): CommandResult
       message: `${PRODUCTION_ITEMS[command.itemId].name} queued in ${city.name} (${PRODUCTION_ITEMS[command.itemId].cost} materials).` }
   }
   if (command.type !== 'move') return reject('Unknown expedition order.')
-  const scout = state.scouts.find(unit => unit.id === command.unitId)
-  if (!scout || scout.factionId !== command.factionId) return reject('Choose a scout belonging to the active faction.')
+  const scout = unitsOf(state).find(unit => unit.id === command.unitId)
+  if (!scout || scout.factionId !== command.factionId) return reject('Choose a unit belonging to the active faction.')
   if (!Number.isInteger(command.to) || !state.map.tiles[command.to]) return reject('Choose a tile inside the map.')
   const tile = knownTile(state, command.factionId, command.to)
   if (!tile) return reject('That territory is uncharted. Explore closer before issuing an order.')
-  if (command.to === scout.tileId) return reject('The scout is already on that tile.')
-  if (tile.terrain === 'water') return reject('Scouts cannot cross water.')
+  if (command.to === scout.tileId) return reject('The unit is already on that tile.')
+  if (tile.terrain === 'water') return reject('Units cannot cross water.')
   if ([...state.scouts, ...state.founders, ...state.units].some(unit => unit.tileId === command.to)) {
     return reject('The destination is occupied.')
   }
   const route = findPath(state, scout.id, command.to)
   if (!route) return reject('No known, unoccupied route fits the remaining movement. End the turn or choose a closer tile.')
-  const scouts = Object.freeze(state.scouts.map(unit => unit === scout
-    ? Object.freeze({ ...unit, tileId: command.to, movement: unit.movement - route.cost }) : unit))
-  const { factions, dirtyTiles } = moveFog(state, scout, route.path, scouts)
-  return { ok: true, state: Object.freeze({ ...state, commands, scouts, factions }), dirtyTiles,
-    message: `Scout moved to (${tile.x}, ${tile.z}). Used ${route.cost} movement.` }
+  const moved = <T extends Scout>(unit: T): T => unit.id === scout.id
+    ? Object.freeze({ ...unit, tileId: command.to, movement: unit.movement - route.cost }) : unit
+  const next = { ...state, commands, scouts: Object.freeze(state.scouts.map(moved)),
+    founders: Object.freeze(state.founders.map(moved)), units: Object.freeze(state.units.map(moved)) }
+  const { factions, dirtyTiles } = refreshFog(next, scout.factionId, route.path)
+  const name = scout.kind[0]!.toUpperCase() + scout.kind.slice(1)
+  return { ok: true, state: Object.freeze({ ...next, factions }), dirtyTiles,
+    message: `${name} moved to (${tile.x}, ${tile.z}). Used ${route.cost} movement.` }
 }

@@ -1,4 +1,4 @@
-import type { Expedition, FactionId } from '../game/expedition'
+import { RULES_VERSION, type Expedition, type FactionId } from '../game/expedition'
 import { GENERATOR_VERSION } from '../game/map'
 import { MATCH_FACTIONS, matchIdOf, matchProgress, openMatch, parseMatch, type MatchPackage } from '../game/match'
 
@@ -87,7 +87,7 @@ export function restoreMatch(storage: Store, matchId: string): RestoredMatch | u
   if (!opened.ok) {
     const parsed = parseMatch(entry.match)
     if (parsed.ok && parsed.value.matchId === matchId && isFaction(entry.faction)
-      && parsed.value.generator !== GENERATOR_VERSION) {
+      && (parsed.value.generator !== GENERATOR_VERSION || parsed.value.rules !== RULES_VERSION)) {
       if (currentMatchId(storage) === matchId) setCurrentMatch(storage)
       return { ok: false, reason: `The saved match has been kept, but cannot be resumed in this version. ${opened.reason}` }
     }

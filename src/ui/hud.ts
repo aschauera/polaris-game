@@ -13,6 +13,8 @@ export interface ExpeditionSummary {
   discovered: number
   total: number
   scoutSelected: boolean
+  unitSelected: boolean
+  unitName?: string
   canOrder: boolean
   // Messenger matches lock the controls while the opponent is on turn; a solo expedition always may act.
   canAct?: boolean
@@ -53,12 +55,12 @@ export function createHud() {
         <button id="start-expedition" class="primary" disabled>Start expedition</button>
         <section id="messenger" class="messenger" aria-label="Play by messenger" hidden></section>
         <section id="expedition" class="expedition" aria-label="Expedition controls" hidden>
-          <div class="section-label">SCOUT EXPEDITION</div>
+          <div class="section-label">EXPEDITION</div>
           <p id="turn-info" aria-live="polite" aria-atomic="true"></p>
           <p id="scout-info"></p>
           <p id="exploration-info"></p>
           <button id="select-scout" aria-pressed="false">Select scout</button>
-          <button id="move-scout" disabled>Move scout here</button>
+          <button id="move-scout" disabled>Move unit here</button>
           <button id="found-city" disabled>Found city</button>
           <section id="city-controls" aria-label="City economy" hidden>
             <label for="city-choice">City</label><select id="city-choice"></select>
@@ -67,19 +69,20 @@ export function createHud() {
             <select id="production-choice"></select>
             <button id="queue-production">Queue production</button>
           </section>
-          <div class="direction-tools" aria-label="Hex scout movement">
-            <button id="move-up-left" aria-label="Move scout up and left">↖</button>
-            <button id="move-up" aria-label="Move scout up">↑</button>
-            <button id="move-up-right" aria-label="Move scout up and right">↗</button>
-            <button id="move-down-left" aria-label="Move scout down and left">↙</button>
-            <button id="move-down" aria-label="Move scout down">↓</button>
-            <button id="move-down-right" aria-label="Move scout down and right">↘</button>
+          <div class="direction-tools" aria-label="Hex unit movement">
+            <button id="move-up-left" aria-label="Move unit up and left">↖</button>
+            <button id="move-up" aria-label="Move unit up">↑</button>
+            <button id="move-up-right" aria-label="Move unit up and right">↗</button>
+            <button id="move-down-left" aria-label="Move unit down and left">↙</button>
+            <button id="move-down" aria-label="Move unit down">↓</button>
+            <button id="move-down-right" aria-label="Move unit down and right">↘</button>
           </div>
           <p id="order-status" aria-live="polite"></p>
           <button id="end-turn" class="primary">End turn</button>
           <button id="leave-expedition">Return to atlas (discard expedition)</button>
-          <p class="help">Select the gold scout, then a charted hex and Move scout here.
-            The six arrows step the selected scout to a neighbouring hex. Grassland costs 1, hills 2; water blocks movement.
+          <p class="help">Tap or click a unit, then a highlighted hex to move immediately.
+            Glowing units can still move; glowing cities need production. Tap a city or its name to choose production.
+            The six arrows step the selected unit to a neighbouring hex. Grassland costs 1, hills 2; water blocks movement.
             Dark hexes are uncharted, dim hexes remembered, bright hexes in sight.
             Outlined hexes are reachable this turn; coloured borders mark city territory.<span id="help-regenerate"> Regenerating starts a new expedition.</span></p>
         </section>
@@ -152,14 +155,15 @@ export function createHud() {
     cityChoice: get<HTMLSelectElement>('city-choice'), productionChoice,
     queueProduction: get<HTMLButtonElement>('queue-production'),
     selectedCityId: () => get<HTMLSelectElement>('city-choice').value,
-    cities: (cities: readonly CitySummary[], founder?: FounderSummary, canAct = true) => {
+    revealCity: () => get('city-controls').scrollIntoView({ block: 'nearest' }),
+    cities: (cities: readonly CitySummary[], founder?: FounderSummary, canAct = true, selectedCityId?: string) => {
       const founderButton = get<HTMLButtonElement>('found-city')
       founderButton.disabled = !founder || !canAct
       founderButton.textContent = founder ? `Found city at (${founder.x}, ${founder.z})` : 'Found city'
       const controls = get('city-controls')
       controls.hidden = !cities.length
       const cityChoice = get<HTMLSelectElement>('city-choice')
-      const previous = cityChoice.value
+      const previous = selectedCityId ?? cityChoice.value
       cityChoice.replaceChildren(...cities.map(city => {
         const option = document.createElement('option')
         option.value = city.id
@@ -179,6 +183,7 @@ export function createHud() {
         `${city.storehouse ? 'Storehouse built' : 'No storehouse'} · ${production} · ` +
         `Units: ${city.units.length ? city.units.join(', ') : 'none'}`
       const choice = get<HTMLSelectElement>('production-choice')
+      choice.disabled = !canAct || !!city.production
       const duplicateStorehouse = choice.value === 'storehouse' && city.storehouse
       get<HTMLButtonElement>('queue-production').disabled = !canAct || !!city.production || duplicateStorehouse
     },
@@ -193,11 +198,12 @@ export function createHud() {
       }
       const canAct = summary.canAct !== false
       get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}${summary.status ? ` · ${summary.status}` : ''}`
-      get('scout-info').textContent = `Scout · ${summary.movement}/${summary.maxMovement} movement`
+      const name = summary.unitName ? summary.unitName[0]!.toUpperCase() + summary.unitName.slice(1) : 'No unit selected'
+      get('scout-info').textContent = `${name} · ${summary.movement}/${summary.maxMovement} movement`
       get('exploration-info').textContent = `${summary.discovered}/${summary.total} tiles charted`
       get('select-scout').setAttribute('aria-pressed', String(summary.scoutSelected))
       get<HTMLButtonElement>('move-scout').disabled = !summary.canOrder
-      for (const button of Object.values(directions)) button.disabled = !summary.scoutSelected || !canAct
+      for (const button of Object.values(directions)) button.disabled = !summary.unitSelected || !canAct
       get<HTMLButtonElement>('end-turn').disabled = !canAct
       get('leave-expedition').hidden = !!summary.inMatch
       get('help-regenerate').hidden = !!summary.inMatch

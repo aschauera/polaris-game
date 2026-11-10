@@ -142,8 +142,8 @@ export function parseMatch(input: unknown): { readonly ok: true; readonly value:
   if (!isRecord(input) || input.format !== MATCH_FORMAT) {
     return fail('This is not a Polaris turn, or it was made by a newer version of the game.')
   }
-  if (input.rules !== RULES_VERSION) {
-    return fail(`This turn uses game rules ${String(input.rules)}, but your copy uses ${RULES_VERSION}. Both players need the same version of Polaris.`)
+  if (typeof input.rules !== 'number' || !Number.isInteger(input.rules) || input.rules < 1) {
+    return fail('This turn has no valid game rules version.')
   }
   const { matchId, seed, width, height, factions, commands, mapHash: world, stateHash: result, generator } = input
   if (typeof matchId !== 'string' || !MATCH_ID.test(matchId)) return fail('The turn has no valid match identifier.')
@@ -167,7 +167,7 @@ export function parseMatch(input: unknown): { readonly ok: true; readonly value:
     return fail('The turn has no valid checksums.')
   }
   return { ok: true, value: Object.freeze({
-    format: MATCH_FORMAT, matchId, rules: RULES_VERSION, generator, seed, width, height,
+    format: MATCH_FORMAT, matchId, rules: input.rules, generator, seed, width, height,
     factions: MATCH_FACTIONS, commands: Object.freeze(orders), mapHash: world, stateHash: result,
   }) }
 }
@@ -198,6 +198,9 @@ export function openMatch(input: unknown): OpenResult {
   const parsed = parseMatch(input)
   if (!parsed.ok) return parsed
   const pkg = parsed.value
+  if (pkg.rules !== RULES_VERSION) {
+    return { ok: false, reason: `This turn uses game rules ${pkg.rules}, but your copy uses ${RULES_VERSION}. Both players need the same version of Polaris.` }
+  }
   let state: Expedition
   try {
     const map = generateMap({ seed: pkg.seed, width: pkg.width, height: pkg.height })

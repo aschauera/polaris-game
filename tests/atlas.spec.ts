@@ -13,6 +13,50 @@ async function stats(page: Page) {
   return page.evaluate(() => window.polarisDiagnostics!.stats())
 }
 
+test('water glints animate sparse cap pixels with bounded frames and respect reduced motion', async ({ page }, info) => {
+  test.slow()
+  await page.goto('/?diagnostics=1')
+  const world = createVoxelWorld(generateMap({ seed: 'polaris', width: 32, height: 32 }))
+  await inspectSurface(page, flatSurfaceTile(world, 'water'))
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect.poll(async () => (await stats(page)).waterGlint).toBeGreaterThan(0)
+  const before = await stats(page)
+  const change = await page.locator('canvas').evaluate(async canvas => {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
+    const read = () => {
+      const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4)
+      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+      return pixels
+    }
+    const first = read()
+    await new Promise(resolve => setTimeout(resolve, 1100))
+    const second = read()
+    let changed = 0
+    for (let i = 0; i < first.length; i += 4) {
+      if (Math.abs(first[i]! - second[i]!) + Math.abs(first[i + 1]! - second[i + 1]!)
+        + Math.abs(first[i + 2]! - second[i + 2]!) > 10) changed++
+    }
+    return { changed, pixels: first.length / 4 }
+  })
+  const after = await stats(page)
+  expect(change.changed).toBeGreaterThan(5)
+  expect(change.changed / change.pixels).toBeLessThan(0.04)
+  expect(after.renderedFrames! - before.renderedFrames!).toBeGreaterThan(0)
+  expect(after.renderedFrames! - before.renderedFrames!).toBeLessThanOrEqual(17)
+  expect(after).toMatchObject({ vertices: before.vertices, geometries: before.geometries, meshes: before.meshes,
+    materials: before.materials, rngState: before.rngState })
+  await page.screenshot({ path: info.outputPath('water-glints.png') })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect.poll(async () => (await stats(page)).waterGlint).toBe(0)
+  await settled(page)
+  const stopped = await stats(page)
+  await page.waitForTimeout(300)
+  expect((await stats(page)).renderedFrames).toBe(stopped.renderedFrames)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.locator('#fixture').click()
+  await expect.poll(async () => (await stats(page)).waterGlint).toBe(0)
+})
+
 function flatSurfaceTile(world: VoxelWorld, terrain: Tile['terrain']) {
   const { map } = world
   const tile = map.tiles.filter(tile => tile.terrain === terrain
@@ -494,11 +538,11 @@ test.describe('adaptive terrain detail', () => {
 })
 
 test('resource annotations respect uncharted and remembered fog and disappear when a city is founded', async ({ page }) => {
-  const map = generateMap({ seed: 'resources-10', width: 32, height: 32 }), world = createVoxelWorld(map)
+  const map = generateMap({ seed: 'resources-47', width: 32, height: 32 }), world = createVoxelWorld(map)
   let state = createExpedition(map)
   const founder = map.tiles[state.founders[0]!.tileId]!
   expect(resourceAt(world, founder)).toBe('apples')
-  await page.goto('/?diagnostics=1&seed=resources-10')
+  await page.goto('/?diagnostics=1&seed=resources-47')
   await page.getByRole('button', { name: 'Start expedition' }).click()
   await inspectSurface(page, founder)
   const marker = page.locator(`.resource-marker[data-tile-id="${founder.id}"]`)
@@ -519,22 +563,25 @@ test('resource annotations respect uncharted and remembered fog and disappear wh
     const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, to)
     await page.mouse.click(point.x, point.y)
     await expect(page.locator('#selection')).toContainText(`Tile ${to}`)
-    await page.getByRole('button', { name: 'Move scout here' }).click()
     const moved = applyCommand(state, { type: 'move', unitId: scout.id, factionId: state.activeFaction,
       sequence: state.commands.length + 1, to })
     expect(moved.ok).toBe(true)
     state = moved.state
     expect((await page.evaluate(() => window.polarisDiagnostics!.expedition()))!.scoutTileId).toBe(to)
   }
-  expect(state.factions[0]!.fog[founder.id]).toBe('explored')
+  expect(state.factions[0]!.fog[founder.id]).toBe('visible')
+  const remembered = map.tiles.find(tile => resourceAt(world, tile) && state.factions[0]!.fog[tile.id] === 'explored')
+  expect(remembered, 'A resource outside all current unit sight must remain dimmed').toBeDefined()
+  await inspectSurface(page, remembered!)
+  await expect(page.locator(`.resource-marker[data-tile-id="${remembered!.id}"]`)).toHaveCSS('opacity', '0.58')
   await inspectSurface(page, founder)
-  await expect(marker).toHaveCSS('opacity', '0.58')
+  await expect(marker).toHaveCSS('opacity', '1')
   const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, founder.id)
   await page.mouse.click(point.x, point.y)
   await expect(page.locator('#selection')).toContainText(`Tile ${founder.id}`)
   await expect(page.locator('#resource-info')).toContainText('Apple grove')
   await page.getByRole('button', { name: /^Found city at/ }).click()
-  await expect(page.locator('#selection')).toContainText(`Tile ${state.scouts[0]!.tileId}`)
+  await expect(page.locator('#selection')).toContainText(`Tile ${founder.id}`)
   const city = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, founder.id)
   await page.mouse.click(city.x, city.y)
   await expect(page.locator('#selection')).toContainText(`Tile ${founder.id}`)

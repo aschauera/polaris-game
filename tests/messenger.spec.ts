@@ -31,6 +31,7 @@ async function openDevice(browser: Browser, testInfo: TestInfo) {
   const context = await browser.newContext({
     baseURL: testInfo.project.use.baseURL,
     viewport: { width: 1100, height: 760 },
+    reducedMotion: 'reduce',
     permissions: ['clipboard-read', 'clipboard-write'],
   })
   const page = await context.newPage()
@@ -70,7 +71,7 @@ function finishTurn(state: Expedition): Expedition {
 async function playTurn(page: Page, before: Expedition): Promise<Expedition> {
   await page.getByRole('button', { name: 'Select scout', exact: true }).click()
   const step = legalStep(before)
-  await page.getByRole('button', { name: `Move scout ${step.direction}`, exact: true }).click()
+  await page.getByRole('button', { name: `Move unit ${step.direction}`, exact: true }).click()
   expect(await matchOf(page)).toMatchObject({ commandCount: step.state.commands.length, stateHash: stateHash(step.state) })
   await endTurnButton(page).click()
   const after = finishTurn(step.state)
@@ -106,9 +107,14 @@ test('two devices exchange turns through a link and a pasted code and stay in sy
     await expect(host.page.locator('#turn-info')).toContainText('Turn 1 · Lantern Compact · opponent\'s turn')
     await expect(endTurnButton(host.page)).toBeDisabled()
     for (const direction of SCREEN_LABELS) {
-      await expect(host.page.getByRole('button', { name: `Move scout ${direction}`, exact: true })).toBeDisabled()
+      await expect(host.page.getByRole('button', { name: `Move unit ${direction}`, exact: true })).toBeDisabled()
     }
     expect((await expeditionOf(host.page))!.reachable).toEqual([])
+    await expect(host.page.locator('.unit-target.available, .city-plate.available')).toHaveCount(0)
+    const waiting = await matchOf(host.page)
+    await host.page.locator('.unit-target[data-unit-id="founder-meridian"]').click()
+    expect(await matchOf(host.page)).toEqual(waiting)
+    expect((await expeditionOf(host.page))!.selectedReachable).toEqual([])
 
     const hostLink = await host.page.locator('#messenger-link').inputValue()
     await host.page.getByRole('button', { name: 'Copy link' }).click()

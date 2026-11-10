@@ -23,15 +23,21 @@ export interface SettlementView extends Settlement {
   readonly population: number
   /** Tiles the city claims; their hexes take the owner's tint and a border where the territory ends. */
   readonly claimTileIds: readonly number[]
+  readonly available?: boolean
+  readonly selected?: boolean
+  readonly own?: boolean
 }
 
 export interface UnitView {
+  readonly id?: string
   readonly tileId: number
   readonly kind: FigureKind
   /** Team colour: 0 gold, 1 blue. */
   readonly banner: 0 | 1
   /** Rival units stand on a dashed red ring. */
   readonly rival: boolean
+  readonly available?: boolean
+  readonly selected?: boolean
 }
 
 export interface ExplorationView {
@@ -62,6 +68,10 @@ export interface RenderStats {
   resourceMarkers: number
   drawCalls: number
   frameMs: number
+  /** Frames drawn since the renderer started; idle frames are skipped. */
+  renderedFrames: number
+  /** Current glint intensity, 0 when water glints and their animation frames are off. */
+  waterGlint: number
   webGLVersion: number
   fogUpdates: number
 }
@@ -75,6 +85,12 @@ const VIEW = new Vector3(Math.cos(YAW) * Math.cos(PITCH), Math.sin(PITCH), Math.
 /** World height above a tile surface where a city's name plate floats, over its keep. */
 const PLATE_HEIGHT = 0.95
 const MAX_RESOURCE_MARKERS = 128
+/** Water glints redraw at this interval rather than every display frame, which bounds GPU and battery use. */
+const GLINT_FRAME_MS = 80
+/** Glint cells start at one finest voxel and double until each covers this many framebuffer pixels. */
+const GLINT_FINEST_CELL = 1 / 16
+const GLINT_MAX_CELL = 0.25
+const GLINT_MIN_PIXELS = 3
 /** Figures face the camera, turned slightly so two sides of each voxel body show. */
 const FIGURE_YAW = Math.PI / 2 - YAW - 0.4
 
@@ -96,6 +112,9 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   offsetX = 0
   offsetZ = 0
   waterTop = 0
+  glintTime = 0
+  glintCell = GLINT_FINEST_CELL
+  glintStrength = 0
   readonly fogColor = new Color3(PALETTE[VOXEL.fog * 3], PALETTE[VOXEL.fog * 3 + 1], PALETTE[VOXEL.fog * 3 + 2])
 
   constructor(material: Material, private readonly waterPass = false) {
@@ -116,8 +135,10 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   override getUniforms() {
     return {
       ubo: [{ name: 'polarisVoxel', size: 4, type: 'vec4' }, { name: 'polarisGrid', size: 4, type: 'vec4' },
-        { name: 'polarisFog', size: 3, type: 'vec3' }, { name: 'polarisOffset', size: 2, type: 'vec2' }],
-      fragment: 'uniform vec4 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;\nuniform vec2 polarisOffset;',
+        { name: 'polarisFog', size: 3, type: 'vec3' }, { name: 'polarisOffset', size: 2, type: 'vec2' },
+        { name: 'polarisGlint', size: 3, type: 'vec3' }],
+      fragment: 'uniform vec4 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;\nuniform vec2 polarisOffset;\n'
+        + 'uniform vec3 polarisGlint;',
     }
   }
 
@@ -126,6 +147,7 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
     uniformBuffer.updateFloat4('polarisGrid', this.originX, this.originZ, this.columnsX, this.columnsZ)
     uniformBuffer.updateColor3('polarisFog', this.fogColor)
     uniformBuffer.updateFloat2('polarisOffset', this.offsetX, this.offsetZ)
+    uniformBuffer.updateFloat3('polarisGlint', this.glintTime, this.glintCell, this.glintStrength)
     if (this.tileState) uniformBuffer.setTexture('polarisTileState', this.tileState)
     if (this.columns) uniformBuffer.setTexture('polarisColumns', this.columns)
   }
@@ -160,6 +182,18 @@ float polarisBand(vec3 nearEdges, vec3 farEdges, vec3 pixelSize, float width) {
   vec3 coverage = clamp((vec3(width) - min(nearEdges, farEdges)) / pixelSize + 0.5, 0.0, 1.0);
   return max(max(coverage.x, coverage.y), coverage.z);
 }
+// Sparse sun glints on the water cap. Square cells sit on the finest voxel lattice in world space; each flashes
+// briefly at its own pace, and drifting gusts gather them so the calm water appears to move.
+float polarisSparkle(vec2 position, vec3 glint) {
+  ivec2 cell = ivec2(floor((position - vec2(-0.5, -0.625)) / glint.y));
+  float period = 2.6 + 2.4 * polarisGrain(ivec3(cell.x, -301, cell.y));
+  float cycle = glint.x / period + polarisGrain(ivec3(cell.x, -302, cell.y));
+  float gust = smoothstep(0.35, 0.85, polarisPatch(position * 0.45 + glint.x * vec2(0.11, 0.07)));
+  float chance = 0.004 + 0.06 * gust;
+  float chosen = step(1.0 - chance, polarisGrain(ivec3(cell.x, 4096 + (int(floor(cycle)) & 4095), cell.y)));
+  float seconds = fract(cycle) * period;
+  return chosen * clamp(seconds / 0.08, 0.0, 1.0) * (1.0 - smoothstep(0.08, 0.5, seconds));
+}
 `,
       // Tile state per texel: R explored, G reachable, A charted. B holds the territory owner in its low two bits
       // (0 none, 1 gold, 2 blue) and, above them, one bit per hex edge where that territory ends.
@@ -181,6 +215,7 @@ float polarisWater = step(1.25, vPolarisFlag);
 float polarisSurface = step(1.75, vPolarisFlag);
 float polarisLand = step(0.75, vPolarisFlag) * (1.0 - step(1.1, vPolarisFlag));
 float polarisWaterOverlay = 0.0;
+float polarisGlintLevel = 0.0;
 if (polarisSurface < 0.5) baseColor.rgb *= 0.96 + 0.08 * polarisNoise;
 // Constant tones within world-space voxel cells form material patches, not painted depth or moving waves.
 if (normalW.y > 0.5 && polarisLand + polarisSurface > 0.5) {
@@ -208,6 +243,10 @@ if (vPolarisFlag > 0.25) {
   // Each column texel holds the state of the tile owning that voxel column, or zero outside the map.
   vec4 polarisState = texelFetch(polarisColumns, clamp(polarisColumn, ivec2(0), ivec2(polarisGrid.zw) - 1), 0);
   int polarisOwner = polarisByte(polarisState.b) & 3;
+  // Remembered water stays still; only charted water in sight glints.
+  if (polarisSurface > 0.5 && normalW.y > 0.5 && polarisGlint.z > 0.0) {
+    polarisGlintLevel = 0.85 * polarisGlint.z * (1.0 - polarisState.r) * polarisSparkle(vPositionW.xz, polarisGlint);
+  }
   // Territory and reachable tints stay on land; water gets only the ordinary hex hairline.
   float polarisGround = polarisLand;
   if (polarisOwner > 0) baseColor.rgb = mix(baseColor.rgb, polarisFaction(polarisOwner), 0.14 * polarisGround);
@@ -273,6 +312,8 @@ if (vPolarisFlag < 0.25) color = vec4(polarisFog * (normalW.y > 0.5 ? 1.0 : 0.72
 // Scattered light softens submerged shadows without flattening the actual cube faces.
 if (vPolarisFlag > 1.25) color.rgb = mix(color.rgb, baseColor.rgb, 0.28);
 if (vPolarisFlag > 1.75) color.a = max(color.a, max(polarisWaterOverlay, 0.5 * step(2.125, vPolarisFlag)));
+// Glints reflect the sun, so they bypass diffuse lighting and shadow.
+color = mix(color, vec4(1.0, 0.98, 0.9, 1.0), polarisGlintLevel);
 #endif
 `,
     }
@@ -336,6 +377,7 @@ export class WorldRenderer {
   private exploration?: ExplorationView
   private figures: Mesh[] = []
   private plates: { element: HTMLElement; tileId: number }[] = []
+  private unitTargets: { element: HTMLButtonElement; position: Vector3 }[] = []
   private readonly resourceMarkers = new Map<number, HTMLElement>()
   private fogUpdates = 0
   private map?: WorldMap
@@ -347,7 +389,13 @@ export class WorldRenderer {
   private streamedChunks = 0
   private shadowsStale = true
   private dirty = true
-  private pointer?: { id: number; x: number; y: number; lastX: number; lastY: number; dragged: boolean }
+  private renderedFrames = 0
+  private reducedMotion = false
+  private liveWater = false
+  private lastGlintFrame = 0
+  private readonly glintStart = performance.now()
+  private pointer?: { id: number; x: number; y: number; lastX: number; lastY: number; dragged: boolean;
+    entity?: { tileId: number; unitId?: string; city: boolean } }
   private readonly touches = new Map<number, { x: number; y: number }>()
   private pinchDistance?: number
   private pinched = false
@@ -355,7 +403,8 @@ export class WorldRenderer {
   private readonly removeListeners: (() => void)[] = []
   private disposed = false
 
-  constructor(private readonly canvas: HTMLCanvasElement, private readonly onSelect: (tile?: Tile) => void,
+  constructor(private readonly canvas: HTMLCanvasElement,
+    private readonly onSelect: (tile?: Tile, unitId?: string, city?: boolean) => void,
     private readonly onHover: (tile?: Tile) => void, onError: (message: string) => void) {
     // No WebGL1 or non-rendering fallback: the prototype requires the stated baseline.
     const context = canvas.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: true })
@@ -412,7 +461,25 @@ export class WorldRenderer {
     this.rivalMaterial = this.markerMaterial('rival', '#e0483e')
     this.plateLayer = document.createElement('div')
     this.plateLayer.className = 'city-plates'
-    this.plateLayer.setAttribute('aria-hidden', 'true')
+    this.plateLayer.addEventListener('pointerdown', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-tile-id]')
+      if (!button) return
+      // Default button focus can interrupt capture transferred to the canvas.
+      event.preventDefault()
+      this.pointerDown(event)
+      if (this.pointer) this.pointer.entity = {
+        tileId: Number(button.dataset.tileId), unitId: button.dataset.unitId, city: button.classList.contains('city-plate'),
+      }
+    })
+    this.plateLayer.addEventListener('pointermove', event => this.pointerMove(event))
+    this.plateLayer.addEventListener('pointerup', event => this.pointerUp(event))
+    this.plateLayer.addEventListener('pointercancel', event => this.cancelPointer(event))
+    this.plateLayer.addEventListener('click', event => {
+      if (event.detail !== 0) return
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-tile-id]')
+      if (button) this.showSelection(this.map?.tiles[Number(button.dataset.tileId)], true,
+        button.dataset.unitId, button.classList.contains('city-plate'))
+    })
     // Plates sit directly above the canvas, beneath the map's heading and camera controls.
     canvas.after(this.plateLayer)
     this.instrumentation = new SceneInstrumentation(this.scene)
@@ -447,9 +514,27 @@ export class WorldRenderer {
       onError('Rendering context lost. Reload the page to restore the atlas.')
     })
     this.engine.onResizeObservable.add(() => this.invalidate())
+    const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    if (motion) {
+      this.reducedMotion = motion.matches
+      const changed = (event: MediaQueryListEvent) => {
+        this.reducedMotion = event.matches
+        this.updateGlint()
+        this.invalidate()
+      }
+      motion.addEventListener('change', changed)
+      this.removeListeners.push(() => motion.removeEventListener('change', changed))
+    }
     this.engine.runRenderLoop(() => {
-      // The map has no animation, so frames are drawn only after a change; idle turns cost no GPU time.
-      if (!this.dirty) return
+      // Water glints are the only animation: they tick at a reduced rate, and otherwise frames are drawn only after a
+      // change, so idle turns without glints cost no GPU time.
+      const now = performance.now()
+      const glinting = this.voxels.glintStrength > 0
+      if (!this.dirty && !(glinting && now - this.lastGlintFrame >= GLINT_FRAME_MS)) return
+      if (glinting) {
+        this.lastGlintFrame = now
+        this.voxels.glintTime = this.waterVoxels.glintTime = (now - this.glintStart) / 1000 % 3600
+      }
       const ready = this.scene.isReady()
       // Casters whose shaders are still compiling would be missing from a one-shot shadow map.
       if (this.shadowsStale && ready) {
@@ -457,6 +542,7 @@ export class WorldRenderer {
         this.shadows.getShadowMap()!.resetRefreshCounter()
       }
       this.scene.render()
+      this.renderedFrames++
       // Meshes whose shaders are still compiling were skipped, so drawing continues until the scene is complete.
       this.dirty = !ready
     })
@@ -571,9 +657,12 @@ export class WorldRenderer {
     if (!columnTile) return
     const tiles = new Uint32Array(this.tileStateData.buffer, this.tileStateData.byteOffset, this.tileStateData.length / 4)
     const columns = new Uint32Array(this.columnStateData.buffer, this.columnStateData.byteOffset, columnTile.length)
+    this.liveWater = false
     for (let index = 0; index < columnTile.length; index++) {
       const id = columnTile[index]!
       if (id >= 0) columns[index] = tiles[id]!
+      this.liveWater ||= id >= 0 && this.known[id] === 1 && this.tileStateData[id * 4] === 0
+        && this.map!.tiles[id]!.terrain === 'water'
     }
   }
 
@@ -660,6 +749,7 @@ export class WorldRenderer {
     this.fogUpdates += ids.size
     this.buildFigures(view)
     this.buildPlates(view)
+    this.updateGlint()
     this.shadowsStale = true
     this.invalidate()
     this.showHover()
@@ -668,6 +758,7 @@ export class WorldRenderer {
   }
 
   private buildFigures(view?: ExplorationView): void {
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.unitId : undefined
     this.clearFigures()
     const { map, world } = this
     if (!view || !map || !world) return
@@ -697,6 +788,17 @@ export class WorldRenderer {
       figure.renderingGroupId = 1
       this.shadows.addShadowCaster(figure, false)
       this.figures.push(figure)
+      if (!unit.rival && unit.id) {
+        const element = document.createElement('button')
+        element.className = `unit-target${unit.available ? ' available' : ''}`
+        element.dataset.tileId = String(unit.tileId)
+        element.dataset.unitId = unit.id
+        element.setAttribute('aria-label', `${unit.kind[0]!.toUpperCase() + unit.kind.slice(1)} (${tile.x}, ${tile.z})`
+          + (unit.available ? ' - can move' : ' - no movement available'))
+        element.setAttribute('aria-pressed', String(!!unit.selected))
+        this.plateLayer.append(element)
+        this.unitTargets.push({ element, position: new Vector3(x, ground + 0.3, z) })
+      }
       if (unit.rival) {
         const ring = hexRing(`rival-${index}`, 0.9, 0.97, true, this.scene)
         ring.material = this.rivalMaterial
@@ -706,6 +808,8 @@ export class WorldRenderer {
         this.figures.push(ring)
       }
     }
+    this.placePlates()
+    this.unitTargets.find(target => target.element.dataset.unitId === focused)?.element.focus({ preventScroll: true })
   }
 
   private clearFigures(): void {
@@ -714,14 +818,22 @@ export class WorldRenderer {
       mesh.dispose(false, false)
     }
     this.figures = []
+    for (const target of this.unitTargets) target.element.remove()
+    this.unitTargets = []
   }
 
   private buildPlates(view?: ExplorationView): void {
+    const focused = this.plates.find(plate => plate.element === document.activeElement)?.tileId
     this.clearPlates()
     for (const settlement of view?.settlements ?? []) {
       if (!this.known[settlement.tileId]) continue
-      const element = document.createElement('div')
-      element.className = `city-plate ${settlement.banner ? 'blue' : 'gold'}`
+      const element = document.createElement(settlement.own ? 'button' : 'div')
+      element.className = `city-plate ${settlement.banner ? 'blue' : 'gold'}${settlement.available ? ' available' : ''}`
+      if (settlement.own) {
+        element.dataset.tileId = String(settlement.tileId)
+        element.setAttribute('aria-pressed', String(!!settlement.selected))
+        element.setAttribute('aria-label', `${settlement.name}${settlement.available ? ' - choose production' : ' - producing'}`)
+      }
       const name = document.createElement('span')
       name.textContent = settlement.name
       const population = document.createElement('span')
@@ -732,6 +844,7 @@ export class WorldRenderer {
       this.plates.push({ element, tileId: settlement.tileId })
     }
     this.placePlates()
+    this.plates.find(plate => plate.tileId === focused)?.element.focus({ preventScroll: true })
   }
 
   private clearPlates(): void {
@@ -746,6 +859,14 @@ export class WorldRenderer {
     const width = this.canvas.clientWidth
     const height = this.canvas.clientHeight
     const viewport = new Viewport(0, 0, width, height)
+    for (const { element, position } of this.unitTargets) {
+      const point = Vector3.Project(position, Matrix.Identity(), transform, viewport)
+      const size = Math.max(12, Math.min(44, 0.65 * height / (2 * this.halfHeight)))
+      element.style.width = element.style.height = `${size}px`
+      element.hidden = point.x < 0 || point.y < 0 || point.x > width || point.y > height
+      element.style.left = `${this.canvas.offsetLeft + point.x}px`
+      element.style.top = `${this.canvas.offsetTop + point.y}px`
+    }
     for (const { element, tileId } of this.plates) {
       const tile = map.tiles[tileId]!
       const [x, z] = hexCenter(tile.x, tile.z)
@@ -818,8 +939,8 @@ export class WorldRenderer {
     }
   }
 
-  selectTile(id: number): void {
-    this.showSelection(this.exploration && !this.exploration.fog[id] ? undefined : this.map?.tiles[id])
+  selectTile(id: number, unitId?: string, city = false): void {
+    this.showSelection(this.exploration && !this.exploration.fog[id] ? undefined : this.map?.tiles[id], true, unitId, city)
   }
 
   focusTile(id: number): void {
@@ -898,8 +1019,25 @@ export class WorldRenderer {
     this.camera.getViewMatrix(true)
     this.camera.getProjectionMatrix(true)
     this.updateDetail(aspect)
+    this.updateGlint()
     this.placePlates()
     this.invalidate()
+  }
+
+  /**
+   * Glints need visible water and enough pixels per cell. They stay off under reduced motion, in far overviews where
+   * cells would shrink below a pixel or two, and when only remembered water is charted.
+   */
+  private updateGlint(): void {
+    const pixel = 2 * this.halfHeight / Math.max(1, this.engine.getRenderHeight())
+    let cell = GLINT_FINEST_CELL
+    while (cell < GLINT_MIN_PIXELS * pixel && cell < GLINT_MAX_CELL) cell *= 2
+    const shown = !this.reducedMotion && this.liveWater && this.chunks.some(chunk => chunk.waterQuads > 0)
+    const strength = shown ? Math.min(1, Math.max(0, (cell / pixel - 1.5) / 1.5)) : 0
+    for (const plugin of [this.voxels, this.waterVoxels]) {
+      plugin.glintCell = cell
+      plugin.glintStrength = strength
+    }
   }
 
   /** Requests a frame; every change to the scene must call this, because unchanged frames are not redrawn. */
@@ -952,7 +1090,11 @@ export class WorldRenderer {
     const pointer = this.pointer
     if (!pointer || pointer.id !== event.pointerId) return
     const moved = Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5
-    if (!pointer.dragged && !moved) this.showSelection(this.pick(event.clientX, event.clientY))
+    if (!pointer.dragged && !moved) {
+      const entity = pointer.entity
+      this.showSelection(entity ? this.map?.tiles[entity.tileId] : this.pick(event.clientX, event.clientY),
+        true, entity?.unitId, entity?.city)
+    }
     this.pointer = undefined
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId)
   }
@@ -995,10 +1137,10 @@ export class WorldRenderer {
   }
 
   private showHover(tile?: Tile): void { this.placeMarker(this.hover, tile); this.onHover(tile) }
-  private showSelection(tile?: Tile): void {
+  private showSelection(tile?: Tile, notify = false, unitId?: string, city = false): void {
     this.selectedTile = tile
     this.placeMarker(this.selection, tile)
-    this.onSelect(tile)
+    if (notify) this.onSelect(tile, unitId, city)
   }
 
   stats(): RenderStats {
@@ -1014,7 +1156,8 @@ export class WorldRenderer {
       settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code ? 1 : 0), 0) : 0,
       resourceMarkers: this.resourceMarkers.size,
       drawCalls: this.engine._drawCalls.current,
-      frameMs: this.instrumentation.frameTimeCounter.current, webGLVersion: this.engine.webGLVersion,
+      frameMs: this.instrumentation.frameTimeCounter.current, renderedFrames: this.renderedFrames,
+      waterGlint: this.voxels.glintStrength, webGLVersion: this.engine.webGLVersion,
       fogUpdates: this.fogUpdates,
     }
   }
