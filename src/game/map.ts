@@ -3,7 +3,7 @@ import { HEX_ROW, hexCenter } from './hex'
 export const TERRAIN = {
   grassland: { name: 'Grassland', height: 0.65 },
   water: { name: 'Water', height: 0.25 },
-  hills: { name: 'Hills', height: 1.35 },
+  hills: { name: 'Hills', height: 0.65 },
 } as const
 
 export type Terrain = keyof typeof TERRAIN
@@ -16,14 +16,17 @@ export interface Tile {
   readonly elevation: number
   readonly trees: number
 }
-export const GENERATOR_VERSION = 3
+export const GENERATOR_VERSION = 4
 export interface WorldMap extends MapConfig {
   readonly generatorVersion: typeof GENERATOR_VERSION
   readonly rngState: number
   readonly tiles: readonly Tile[]
 }
 
-interface Landform { x: number; z: number; radiusX: number; radiusZ: number; angle: number }
+interface Landform {
+  x: number; z: number; radiusX: number; radiusZ: number; angle: number
+  bay?: { angle: number; width: number; bend: number }
+}
 
 export function validateConfig(config: MapConfig): void {
   if (typeof config.seed !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(config.seed)) {
@@ -68,12 +71,12 @@ function noise(seed: number, x: number, z: number, spacing: number): number {
   return top * (1 - tz) + bottom * tz
 }
 
-function distanceTo(form: Landform, x: number, z: number): number {
+function localPoint(form: Landform, x: number, z: number): [number, number] {
   const dx = x - form.x, dz = z - form.z
   const cos = Math.cos(form.angle), sin = Math.sin(form.angle)
   const rotatedX = dx * cos - dz * sin
   const rotatedZ = dx * sin + dz * cos
-  return Math.sqrt((rotatedX / form.radiusX) ** 2 + (rotatedZ / form.radiusZ) ** 2)
+  return [rotatedX / form.radiusX, rotatedZ / form.radiusZ]
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -111,7 +114,7 @@ export function generateMap(config: MapConfig): WorldMap {
       }
     }
     if (!separated && continents.length) continue
-    const radius = landScale * (0.15 + random() * 0.05)
+    const radius = landScale * (0.156 + random() * 0.052)
     continents.push({
       x, z, radiusX: radius * (0.78 + random() * 0.54), radiusZ: radius * (0.78 + random() * 0.54),
       angle: random() * Math.PI,
@@ -125,7 +128,7 @@ export function generateMap(config: MapConfig): WorldMap {
       angle: random() * Math.PI,
     }
   })
-  const landforms = [...continents, ...islands]
+  const landforms: Landform[] = [...continents, ...islands]
   const inlandSea = random() < 0.28
     ? { x: extentX * (0.2 + random() * 0.6), z: extentZ * (0.2 + random() * 0.6),
       radius: landScale * (0.045 + random() * 0.04) }
@@ -133,16 +136,35 @@ export function generateMap(config: MapConfig): WorldMap {
   const tiles: Tile[] = []
   const broadScale = minDimension * 0.19
   const detailScale = Math.max(2, minDimension * 0.07)
+  for (const [index, form] of continents.entries()) {
+    if (Math.min(form.radiusX, form.radiusZ) < 2) continue
+    form.bay = {
+      angle: hash(state ^ 0x518cc1b7, index, 0) * Math.PI * 2,
+      width: 0.3 + hash(state ^ 0x421f0a3d, index, 1) * 0.12,
+      bend: (hash(state ^ 0x76da8279, index, 2) - 0.5) * 0.5,
+    }
+  }
   for (let z = 0; z < config.height; z++) {
     for (let x = 0; x < config.width; x++) {
       const [px, pz] = hexCenter(x, z)
+      const warpedX = px + (noise(state ^ 0x4ab17c93, px, pz, broadScale) - 0.5) * landScale * 0.09
+      const warpedZ = pz + (noise(state ^ 0x792edb61, px, pz, broadScale) - 0.5) * landScale * 0.09
+      const coastWarp = (noise(state ^ 0x68bc21eb, px, pz, broadScale) - 0.5) * 0.3
+        + (noise(state ^ 0x02e5be93, px, pz, detailScale) - 0.5) * 0.16
       let landScore = -Infinity
       let nearestRadius = Infinity
       for (const form of landforms) {
-        const radius = distanceTo(form, px, pz)
-        const coastWarp = (noise(state ^ 0x68bc21eb, px, pz, broadScale) - 0.5) * 0.58
-          + (noise(state ^ 0x02e5be93, px, pz, detailScale) - 0.5) * 0.2
-        const score = 1 - radius + coastWarp
+        const [u, v] = localPoint(form, warpedX, warpedZ)
+        const radius = Math.hypot(u, v)
+        let score = 1 - radius + coastWarp
+        if (form.bay) {
+          const cos = Math.cos(form.bay.angle), sin = Math.sin(form.bay.angle)
+          const along = u * cos + v * sin, across = v * cos - u * sin
+          const bend = form.bay.bend * Math.max(0, 1.1 - along) ** 2
+          // The rounded inlet head reaches inland; its far end extends beyond the shore into open sea.
+          const inlet = Math.hypot((along - 1.1) / 1.1, (across - bend) / form.bay.width)
+          score = Math.min(score, inlet - 1)
+        }
         if (score > landScore) {
           landScore = score
           nearestRadius = radius

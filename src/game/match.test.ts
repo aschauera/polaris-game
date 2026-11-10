@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyCommand, movementRange, type Expedition, type ProductionItemId } from './expedition'
+import { GENERATOR_VERSION } from './map'
 import {
   compactCommand, createMatch, exportMatch, mapHash, MATCH_FORMAT, MATCH_LIMITS, matchIdOf, matchProgress, openMatch,
   receiveTurn, stateHash, type LocalMatch, type MatchPackage,
@@ -105,7 +106,7 @@ describe('exporting and opening a match', () => {
     const state = play(2)
     const pkg = exportMatch(MATCH_ID, state)
     expect(pkg).toMatchObject({
-      format: MATCH_FORMAT, matchId: MATCH_ID, rules: state.rulesVersion, generator: 3, seed: 'polaris', width: 32, height: 24,
+      format: MATCH_FORMAT, matchId: MATCH_ID, rules: state.rulesVersion, generator: GENERATOR_VERSION, seed: 'polaris', width: 32, height: 24,
       factions: ['meridian', 'lantern'], mapHash: mapHash(state.map), stateHash: stateHash(state),
     })
     expect(pkg.commands).toHaveLength(state.commands.length)
@@ -158,6 +159,7 @@ describe('rejecting turns that cannot be trusted', () => {
   it('rejects another version of the rules or of the world generator', () => {
     expect(failure(edit({ rules: pkg.rules - 1 }))).toMatch(/game rules .* same version/)
     expect(failure(edit({ generator: pkg.generator + 1 }))).toMatch(/world generator .* same version/)
+    expect(failure(edit({ generator: 3 }))).toMatch(/world generator 3, but your copy uses 4/)
   })
 
   it('rejects a world this device does not generate identically', () => {

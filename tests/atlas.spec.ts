@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { generateMap, type Tile } from '../src/game/map'
-import { applyCommand, createExpedition, movementRange } from '../src/game/expedition'
+import { applyCommand, createExpedition, movementRange, neighbors } from '../src/game/expedition'
 import { HEX_ROW, hexCenter } from '../src/game/hex'
 import { createVoxelWorld, centreColumn, groundHeight, pickTile, resourceAt, tileSurface, type VoxelWorld } from '../src/rendering/voxels'
 import { RESOURCES } from '../src/rendering/resources'
@@ -17,8 +17,11 @@ function flatSurfaceTile(world: VoxelWorld, terrain: Tile['terrain']) {
   const { map } = world
   const tile = map.tiles.filter(tile => tile.terrain === terrain
     && tile.x > 2 && tile.x < 29 && tile.z > 2 && tile.z < 29
-    && map.tiles.every(other => Math.hypot(other.x - tile.x, other.z - tile.z) > 1.8
-      || (other.terrain === terrain && other.elevation === tile.elevation && other.trees === 0 && !resourceAt(world, other))))
+    && map.tiles.every(other => {
+      const [x, z] = hexCenter(tile.x, tile.z), [ox, oz] = hexCenter(other.x, other.z)
+      return Math.hypot(ox - x, oz - z) > 1.8
+        || (other.terrain === terrain && other.elevation === tile.elevation && other.trees === 0 && !resourceAt(world, other))
+    }))
     .sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16))[0]
   if (!tile) throw new Error(`No flat, tree-free ${terrain} sample`)
   return tile
@@ -201,6 +204,58 @@ test('renders submerged water detail while picking the unchanged level surface',
   expect((await stats(page)).waterSurfaceQuads).toBeGreaterThan(0)
 })
 
+test('shows an incised bay as real selectable water, not a painted gap on land', async ({ page }, testInfo) => {
+  const map = generateMap({ seed: 'polaris', width: 32, height: 32 }), world = createVoxelWorld(map)
+  // The main island's bay head, 2.77 world units inside its convex hull; map tests also verify its ocean connection.
+  const tile = pickableTile(world, [map.tiles[27 * map.width + 16]!])
+  expect(tile.terrain).toBe('water')
+  expect(neighbors(map, tile.id).filter(id => map.tiles[id]!.terrain === 'water').length).toBeGreaterThanOrEqual(4)
+  await page.goto('/?diagnostics=1')
+  await expect(page.locator('#map-status')).toContainText('GENERATOR 04')
+  await inspectSurface(page, tile)
+  const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
+  await page.mouse.click(point.x, point.y)
+  await expect(page.locator('#selection')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
+  await settled(page)
+  const colour = await page.locator('canvas').evaluate((canvas, point) => {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!, rect = canvas.getBoundingClientRect()
+    const pixel = new Uint8Array(4)
+    gl.readPixels(Math.floor((point.x - rect.left) * gl.drawingBufferWidth / rect.width),
+      gl.drawingBufferHeight - 1 - Math.floor((point.y - rect.top) * gl.drawingBufferHeight / rect.height), 1, 1,
+      gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+    return [...pixel]
+  }, point)
+  expect(colour[2]!).toBeGreaterThan(colour[0]! * 1.5)
+  expect(colour[1]!).toBeGreaterThan(colour[0]! * 1.5)
+  await page.locator('canvas').screenshot({ path: testInfo.outputPath('organic-bay.png') })
+})
+
+test('renders low highlands with grey rock clusters instead of repeated grassy pillars', async ({ page }, testInfo) => {
+  const map = generateMap({ seed: 'polaris', width: 32, height: 32 }), world = createVoxelWorld(map)
+  const tile = pickableTile(world, map.tiles.filter(tile => resourceAt(world, tile) === 'stone'))
+  expect(tileSurface(world, tile, true) * world.size).toBeLessThanOrEqual(1)
+  await page.goto('/?diagnostics=1')
+  await inspectSurface(page, tile)
+  const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
+  await page.mouse.click(point.x, point.y)
+  await expect(page.locator('#resource-info')).toContainText('Stone deposit')
+  const grey = await page.locator('canvas').evaluate((canvas, point) => {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!, rect = canvas.getBoundingClientRect()
+    const width = 100, height = 90, pixels = new Uint8Array(width * height * 4)
+    gl.readPixels(Math.floor((point.x - rect.left) * gl.drawingBufferWidth / rect.width) - width / 2,
+      gl.drawingBufferHeight - 1 - Math.floor((point.y - rect.top) * gl.drawingBufferHeight / rect.height),
+      width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+    let count = 0
+    for (let i = 0; i < pixels.length; i += 4) {
+      const r = pixels[i]!, g = pixels[i + 1]!, b = pixels[i + 2]!
+      if (r > 65 && Math.abs(r - g) < 16 && r >= b && Math.abs(r - b) < 30) count++
+    }
+    return count
+  }, point)
+  expect(grey, 'Real grey geometry in the WebGL framebuffer, not the DOM resource glyph').toBeGreaterThan(250)
+  await page.locator('canvas').screenshot({ path: testInfo.outputPath('low-stone-outcrops.png') })
+})
+
 test('renders a broad lowered sandbank and picks its original land tile', async ({ page }, testInfo) => {
   const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
   const world = createVoxelWorld(map)
@@ -352,11 +407,11 @@ test.describe('wide-view resource budget', () => {
 })
 
 test('resource annotations respect uncharted and remembered fog and disappear when a city is founded', async ({ page }) => {
-  const map = generateMap({ seed: 'resources-16', width: 32, height: 32 }), world = createVoxelWorld(map)
+  const map = generateMap({ seed: 'resources-10', width: 32, height: 32 }), world = createVoxelWorld(map)
   let state = createExpedition(map)
   const founder = map.tiles[state.founders[0]!.tileId]!
   expect(resourceAt(world, founder)).toBe('apples')
-  await page.goto('/?diagnostics=1&seed=resources-16')
+  await page.goto('/?diagnostics=1&seed=resources-10')
   await page.getByRole('button', { name: 'Start expedition' }).click()
   await inspectSurface(page, founder)
   const marker = page.locator(`.resource-marker[data-tile-id="${founder.id}"]`)

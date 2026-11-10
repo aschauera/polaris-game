@@ -104,7 +104,7 @@ export function createHud() {
         <section class="legend" aria-label="Terrain legend">
           <div><i class="grass"></i> Grassland <small>low plateau</small></div>
           <div><i class="water"></i> Water <small>blue shelf</small></div>
-          <div><i class="hills"></i> Hills <small>raised block</small></div>
+          <div><i class="hills"></i> Hills <small>low upland</small></div>
         </section>
         <p class="scope">PROCEDURAL PLACEHOLDERS<br>Scout exploration and the first city economy are playable. Combat &amp; AI remain planned.</p>
       </aside>

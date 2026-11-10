@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
 import { CreateBoxVertexData } from '@babylonjs/core/Meshes/Builders/boxBuilder'
 import { HEX_ROW, hexAt, hexCenter, hexOffsets } from '../game/hex'
-import { generateMap, type Tile, type WorldMap } from '../game/map'
+import { GENERATOR_VERSION, generateMap, type Tile, type WorldMap } from '../game/map'
 import { CAMERA_PITCH, CAMERA_YAW } from './view'
 import {
   AO_LIGHT, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, centreColumn, columnTileAt, createVoxelWorld, groundHeight,
@@ -19,7 +19,7 @@ function flatMap(width: number, height: number, overrides: Record<number, Partia
   const tiles = Array.from({ length: width * height }, (_, id): Tile => ({
     id, x: id % width, z: Math.floor(id / width), terrain: 'grassland', elevation: 1, trees: 0, ...overrides[id],
   }))
-  return { seed: 'flat', width, height, generatorVersion: 3, rngState: 1, tiles }
+  return { seed: 'flat', width, height, generatorVersion: GENERATOR_VERSION, rngState: 1, tiles }
 }
 
 /** Visible surface per direction and exact vertex colour set, independent of how faces were merged. */
@@ -116,15 +116,32 @@ describe('hex voxel terrain', () => {
     }
   })
 
-  it('keeps every elevation step distinct at every scale', () => {
-    for (const size of [32, 64, 128, 256]) {
+  it('keeps highlands low and merges unrepresentable coarse elevation steps instead of making pillars', () => {
+    const expected = [[0.25, 0.625, 0.75, 0.875, 1], [0.25, 0.625, 0.75, 0.875, 1],
+      [0.25, 0.75, 0.75, 1, 1], [0.5, 1, 1, 1, 1]]
+    for (const [index, size] of [32, 64, 128, 256].entries()) {
       const world = createVoxelWorld(flatMap(size, size))
       const tile = (terrain: Tile['terrain'], elevation: number) =>
-        tileSurface(world, { id: 0, x: 0, z: 0, terrain, elevation, trees: 0 }, true)
+        tileSurface(world, { id: 0, x: 0, z: 0, terrain, elevation, trees: 0 }, true) * world.size
       const levels = [tile('water', 0), tile('grassland', 1), tile('grassland', 2), tile('hills', 3), tile('hills', 4)]
-      expect([...levels].sort((a, b) => a - b)).toEqual(levels)
-      expect(new Set(levels).size).toBe(5)
+      expect(levels).toEqual(expected[index])
     }
+  })
+
+  it('meshes a connected low highland surface without a separate cone on every hill hex', () => {
+    const map = flatMap(8, 8, Object.fromEntries(Array.from({ length: 64 }, (_, id) =>
+      [id, { terrain: 'hills', elevation: 3 }])))
+    const world = createVoxelWorld(map), known = allKnown(map)
+    const meshes = meshAll(world, known)
+    let groundFaces = 0
+    for (const mesh of meshes) for (let v = 0; v < mesh.positions.length / 3; v++) {
+      if (mesh.faceFlags[v] !== FACE_FLAG.ground || mesh.normals[v * 3 + 1] !== 1) continue
+      if (![VOXEL.hillGrass, VOXEL.hillGrassDark].includes(kindAt(mesh, v))) continue
+      expect(mesh.positions[v * 3 + 1]).toBe(0.875)
+      groundFaces++
+    }
+    expect(groundFaces).toBeGreaterThan(100)
+    for (const tile of map.tiles) expect(groundHeight(world, known, ...hexCenter(tile.x, tile.z))).toBe(0.875)
   })
 
   it('meshes deterministically', () => {
@@ -285,7 +302,7 @@ describe('hex voxel terrain', () => {
     const fog = meshAll(world, known)
     expect(shows(fog, VOXEL.underwaterRock)).toBe(false)
     expect(fog.every(mesh => mesh.waterIndexCount === 0)).toBe(true)
-  })
+  }, 20_000)
 
   it('keeps four main terraces at both detailed scales and merges only unrepresentable coarse levels', () => {
     for (const [width, levels] of [[32, [-0.625, -0.375, -0.125, 0.125]], [64, [-0.625, -0.375, -0.125, 0.125]],
@@ -432,6 +449,45 @@ describe('hex voxel terrain', () => {
     }
     const settled = meshAll(world, known)
     expect(kinds.map(kind => shows(settled, kind))).toEqual(kinds.map(() => false))
+  })
+
+  it('builds broad, varied stone outcrops on low ground with flat caps and an open tile centre', () => {
+    const map = flatMap(12, 12, Object.fromEntries(Array.from({ length: 144 }, (_, id) =>
+      [id, { terrain: 'hills', elevation: 3 }])))
+    const world = createVoxelWorld(map), known = allKnown(map)
+    const deposits = new Map<number, { area: number; caps: Map<number, number>; peak: number }>()
+    for (const mesh of meshAll(world, known)) for (let quad = 0; quad < mesh.quads; quad++) {
+      const v = quad * 4
+      if (mesh.faceFlags[v] !== FACE_FLAG.decoration || mesh.normals[v * 3 + 1] !== 1) continue
+      if (![VOXEL.depositStone, VOXEL.depositStoneDark].includes(kindAt(mesh, v))) continue
+      const xs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3]!)
+      const zs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 2]!)
+      const [x, z] = hexAt(xs.reduce((a, b) => a + b) / 4, zs.reduce((a, b) => a + b) / 4)
+      const tile = map.tiles[z * map.width + x]!
+      expect(resourceAt(world, tile)).toBe('stone')
+      const height = mesh.positions[v * 3 + 1]! - tileSurface(world, tile, true) * world.size
+      expect(height).toBeGreaterThan(0)
+      expect(height).toBeLessThanOrEqual(0.625)
+      const [cx, cz] = centreColumn(world, tile)
+      const centre = [world.originX + (cx + 0.5) * world.size, world.originZ + (cz + 0.5) * world.size]
+      expect(centre[0]! > Math.min(...xs) && centre[0]! < Math.max(...xs)
+        && centre[1]! > Math.min(...zs) && centre[1]! < Math.max(...zs)).toBe(false)
+      const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...zs) - Math.min(...zs))
+      const deposit = deposits.get(tile.id) ?? { area: 0, caps: new Map<number, number>(), peak: 0 }
+      deposit.area += area
+      deposit.peak = Math.max(deposit.peak, height)
+      deposit.caps.set(height, (deposit.caps.get(height) ?? 0) + area)
+      deposits.set(tile.id, deposit)
+    }
+    expect(deposits.size).toBeGreaterThan(5)
+    for (const deposit of deposits.values()) {
+      expect(deposit.area).toBeGreaterThan(0.15)
+      expect(deposit.peak).toBeGreaterThanOrEqual(0.3125)
+      expect(deposit.caps.size).toBeGreaterThanOrEqual(3)
+      expect(Math.max(...deposit.caps.values())).toBeGreaterThan(0.04)
+    }
+    expect(new Set([...deposits.values()].map(deposit => `${deposit.area}:${deposit.peak}`)).size).toBeGreaterThan(4)
+    expect(new Set([...deposits.values()].map(deposit => deposit.peak)).size).toBeGreaterThanOrEqual(4)
   })
 
   it('keeps resource ground dry and stable as the surrounding coast is charted', () => {

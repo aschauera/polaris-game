@@ -216,6 +216,32 @@ test('a running match survives a reload and is forgotten when the player leaves'
   expect(await expeditionOf(page)).toBeUndefined()
 })
 
+test('keeps a generator-v3 saved match and explains incompatibility without rebuilding or deleting it', async ({ page }) => {
+  const id = 'older-world-03'
+  const key = `polaris.matches.v1.${id}`
+  const raw = JSON.stringify({ faction: 'meridian', name: 'Earlier world',
+    match: { ...exportMatch(id, newMatch()), generator: 3 } })
+  await page.addInitScript(({ id, key, raw }) => {
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, raw)
+      localStorage.setItem('polaris.current-match.v1', id)
+    }
+  }, { id, key, raw })
+  await page.goto(WORLD_URL)
+  await expect(page.locator('#messenger-notice')).toContainText('The saved match has been kept')
+  await expect(page.locator('#messenger-notice')).toContainText('world generator 3, but your copy uses 4')
+  expect(await matchOf(page)).toBeUndefined()
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw)
+  expect(await page.evaluate(() => localStorage.getItem('polaris.current-match.v1'))).toBeNull()
+  await page.reload()
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw)
+  await expect(page.locator('#messenger-saved-list')).toContainText('Earlier world')
+  await page.getByRole('button', { name: 'Start messenger match' }).click()
+  expect(await storedMatchKeys(page)).toHaveLength(2)
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw)
+  expect(await matchOf(page)).toBeDefined()
+})
+
 test('rejects damaged, unfinished, tampered and repeated turns, and opens a foreign turn as its own match', async ({ page }) => {
   await page.goto(WORLD_URL)
   const inbox = page.locator('#messenger-inbox')
@@ -233,6 +259,7 @@ test('rejects damaged, unfinished, tampered and repeated turns, and opens a fore
     [await encodeTurn(unfinished), 'finished turn'],
     [await encodeTurn({ ...finished, stateHash: '0'.repeat(14) }), 'ended differently'],
     [await encodeTurn({ ...finished, mapHash: '0'.repeat(14) }), 'different world'],
+    [await encodeTurn({ ...finished, generator: 3 }), 'world generator 3, but your copy uses 4'],
   ]
   for (const [text, reason] of rejections) {
     await open(text)

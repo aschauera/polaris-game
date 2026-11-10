@@ -156,11 +156,9 @@ export function waterLevel(scale: number): number { return Math.max(1, Math.roun
 function shoalReach(scale: number): number { return scale >= 4 ? scale / 2 : 0 }
 function sandbankReach(scale: number): number { return scale >= 4 ? Math.ceil(scale * 0.9) : 0 }
 function fogLevel(scale: number): number { return Math.max(1, Math.round(0.65 * scale)) }
-function bumpLimit(scale: number): number { return scale >= 4 ? scale / 4 : 0 }
-
 function landLevel(scale: number, terrain: 'grassland' | 'hills', elevation: number): number {
-  // At coarse scales every elevation step still needs at least one voxel.
-  return Math.max(Math.round((TERRAIN[terrain].height + (elevation - 1) * 0.24) * scale), waterLevel(scale) + elevation)
+  // Coarse grids merge small height steps instead of magnifying them into tall columns.
+  return Math.max(Math.round((TERRAIN[terrain].height + (elevation - 1) * 0.125) * scale), waterLevel(scale) + 1)
 }
 
 export function createVoxelWorld(map: WorldMap, chunkColumns = CHUNK_COLUMNS): VoxelWorld {
@@ -181,7 +179,7 @@ export function createVoxelWorld(map: WorldMap, chunkColumns = CHUNK_COLUMNS): V
       columnTile[gz * columnsX + gx] = x >= 0 && z >= 0 && x < map.width && z < map.height ? z * map.width + x : -1
     }
   }
-  const highest = landLevel(scale, 'hills', 4) + bumpLimit(scale)
+  const highest = landLevel(scale, 'hills', 4)
   // Smaller trees must not reduce the space reserved for keeps and their banners.
   const detail = Math.max(1, scale / 8)
   const tree = shape.trunk + shape.trunkVariance + shape.layers + shape.layerVariance + (scale >= 4 ? detail : 0)
@@ -248,8 +246,6 @@ type Column = { top: number; surface: number; tile: Tile; known: boolean } & (
   { body: 'water'; floor: number; floorSurface: number; capSurface: number; rockTop: number }
   | { body: 'fog' | 'dirt' | 'cliff' | 'sand' }
 )
-
-const AXES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const
 
 const isLand = (tile: Tile) => tile.terrain !== 'water'
 const isWater = (tile: Tile) => tile.terrain === 'water'
@@ -377,18 +373,8 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
     const surface = patch < 0.3 ? VOXEL.grassDark : patch > 0.72 ? VOXEL.grassLight : VOXEL.grass
     return { top: level, surface, body: 'dirt', tile, known: true }
   }
-  const inner = AXES.every(([dx, dz]) => columnTileAt(world, gx + dx, gz + dz) === id)
-  const limit = bumpLimit(scale)
-  // Each hill tile rises as a terraced hex mound; low-frequency noise keeps the terraces irregular but calm.
-  const [hx, hz] = hexCenter(tile.x, tile.z)
-  const px = world.originX + (gx + 0.5) * world.size - hx
-  const pz = world.originZ + (gz + 0.5) * world.size - hz
-  const dome = 1 - Math.max(Math.abs(px), Math.abs(0.5 * px + HEX_ROW * pz), Math.abs(-0.5 * px + HEX_ROW * pz)) / 0.5
-  const bump = inner ? Math.max(0, Math.min(limit, Math.floor(dome * (limit + 1) + (noise(seed, 2, gx, gz, 6) - 0.5) * 0.9))) : 0
-  const rocky = (limit > 0 && bump === limit && noise(seed, 7, gx, gz, 3) > 0.5) || noise(seed, 3, gx, gz, 6) > 0.8
-  const surface = rocky ? (hash(seed, gx, 4, gz) < 0.5 ? VOXEL.rock : VOXEL.rockDark)
-    : hash(seed, gx, 5, gz) < 0.35 ? VOXEL.hillGrassDark : VOXEL.hillGrass
-  return { top: level + bump, surface, body: 'cliff', tile, known: true }
+  const surface = noise(seed, 3, gx, gz, scale * 0.7) < 0.35 ? VOXEL.hillGrassDark : VOXEL.hillGrass
+  return { top: level, surface, body: 'cliff', tile, known: true }
 }
 
 function columnHeight(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): number | undefined {
@@ -635,21 +621,37 @@ function stampTrees(world: VoxelWorld, known: Uint8Array, volume: Volume): void 
 }
 
 function stampDeposits(world: VoxelWorld, known: Uint8Array, volume: Volume): void {
-  const { scale, base } = world
+  const { scale, base, seed } = world
   const detail = Math.max(1, scale / 8)
   for (const tile of tilesNear(world, volume, 0)) {
     if (known[tile.id] !== 1 || resourceAt(world, tile) !== 'stone') continue
     const [cx, cz] = centreColumn(world, tile)
-    for (const [right, down, radius, height] of [[-0.18, -0.15, 0.15, 0.2], [0.12, -0.26, 0.2, 0.34], [0.24, 0.04, 0.13, 0.15]] as const) {
-      const x = Math.round(cx + (right * SCREEN_RIGHT[0] + down * SCREEN_DOWN[0]) * scale)
-      const z = Math.round(cz + (right * SCREEN_RIGHT[1] + down * SCREEN_DOWN[1]) * scale)
-      const span = Math.max(0, Math.round(radius * scale) - 1)
-      for (let dz = -span; dz <= span; dz++) for (let dx = -span; dx <= span; dx++) {
+    const mirror = hash(seed, tile.x, 121, tile.z) < 0.5 ? -1 : 1
+    const dominant = Math.floor(hash(seed, tile.id, 128, 0) * 2)
+    const lobes = [[-0.22, -0.24, 0.24, 0.22, 0.32], [0.18, -0.21, 0.23, 0.23, 0.32],
+      [-0.3, 0.09, 0.15, 0.13, 0.2], [0.28, 0.16, 0.11, 0.13, 0.12]] as const
+    for (const [index, [right, down, radiusX, radiusZ, height]] of lobes.entries()) {
+      if (index === 3 && hash(seed, tile.id, 125, 0) < 0.5) continue
+      const shift = (hash(seed, tile.id, 123, index) - 0.5) * 0.08
+      const x = Math.round(cx + ((mirror * right + shift) * SCREEN_RIGHT[0] + down * SCREEN_DOWN[0]) * scale)
+      const z = Math.round(cz + ((mirror * right + shift) * SCREEN_RIGHT[1] + down * SCREEN_DOWN[1]) * scale)
+      const spread = 0.9 + hash(seed, tile.id, 126, index) * 0.2
+      const spanX = Math.floor(radiusX * scale * spread)
+      const spanZ = Math.floor(radiusZ * scale * spread)
+      const peak = Math.max(1, Math.round((index === dominant ? 0.5 : height) * scale
+        * (0.7 + hash(seed, tile.id, 122, index) * 0.5)))
+      const corner = Math.floor(hash(seed, tile.id, 127, index) * 4)
+      for (let dz = -spanZ; dz <= spanZ; dz++) for (let dx = -spanX; dx <= spanX; dx++) {
         if (columnTileAt(world, x + dx, z + dz) !== tile.id) continue
+        if (scale >= 4 && Math.hypot(x + dx - cx, z + dz - cz) < scale * 0.16) continue
+        if (spanX > 0 && spanZ > 0 && Math.abs(dx) + Math.abs(dz) > spanX + spanZ - Math.ceil(detail * 0.7)) continue
         const ground = column(world, known, x + dx, z + dz)!.top
-        const top = Math.max(1, Math.round(height * scale) - Math.floor((Math.abs(dx) + Math.abs(dz)) / detail))
+        // Broad flat blocks with a chipped shoulder, not another stack of concentric hill terraces.
+        const shoulder = dx * (corner & 1 ? -1 : 1) > spanX * 0.25 && dz * (corner & 2 ? -1 : 1) > spanZ * 0.25 ? detail : 0
+        const top = Math.max(1, peak - shoulder)
         for (let y = 0; y < top; y++) placeVoxel(volume, x + dx, base + ground + y, z + dz,
-          (dx + dz + Math.floor(y / detail)) % 3 === 0 ? VOXEL.depositStoneDark : VOXEL.depositStone)
+          hash(seed, Math.floor((x + dx) / detail), 124 + Math.floor(y / detail), Math.floor((z + dz) / detail)) < 0.22
+            ? VOXEL.depositStoneDark : VOXEL.depositStone)
       }
     }
   }

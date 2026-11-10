@@ -107,6 +107,23 @@ describe('match storage', () => {
     }
   })
 
+  it('keeps generator-v3 saves unchanged and stops auto-resuming them rather than rebuilding or deleting them', () => {
+    const old = { faction: 'meridian', name: 'Earlier world', match: { ...exportMatch(MATCH_ID, match()), generator: 3 } }
+    const raw = JSON.stringify(old)
+    const storage = memoryStorage({ [PREFIX + MATCH_ID]: raw, [CURRENT]: MATCH_ID })
+    expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
+      ok: false, reason: expect.stringMatching(/has been kept.*world generator 3, but your copy uses 4/),
+    })
+    expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
+    expect(currentMatchId(storage)).toBeUndefined()
+    expect(listMatches(storage).discarded).toEqual([])
+    expect(listMatches(storage).matches.map(match => match.matchId)).toEqual([MATCH_ID])
+    setCurrentMatch(storage, OTHER_ID)
+    expect(restoreMatch(storage, MATCH_ID)).toMatchObject({ ok: false })
+    expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
+    expect(currentMatchId(storage)).toBe(OTHER_ID)
+  })
+
   it('drops unreadable entries from the list and says why, keeping the readable ones', () => {
     const good = { faction: 'meridian', match: exportMatch(MATCH_ID, match()) }
     const cases: [string, RegExp][] = [

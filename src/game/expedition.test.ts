@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateMap, type Terrain, type WorldMap } from './map'
+import { GENERATOR_VERSION, generateMap, type Terrain, type WorldMap } from './map'
 import {
   applyCommand, cityYields, createExpedition, findPath, knownTile, movementRange, neighbors, SCOUT, visibilityAt,
   type Command, type Expedition,
@@ -7,7 +7,7 @@ import {
 
 function plainMap(width = 8, height = 12, terrain: Record<number, Terrain> = {}): WorldMap {
   return Object.freeze({
-    seed: 'fixture', width, height, generatorVersion: 3, rngState: 42,
+    seed: 'fixture', width, height, generatorVersion: GENERATOR_VERSION, rngState: 42,
     tiles: Object.freeze(Array.from({ length: width * height }, (_, id) => Object.freeze({
       id, x: id % width, z: Math.floor(id / width), terrain: terrain[id] ?? 'grassland', elevation: 1, trees: 0,
     }))),

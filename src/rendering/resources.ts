@@ -1,7 +1,7 @@
 // Original vector markers, not terrain textures; occurrences currently have no simulation effects.
 export const RESOURCES = {
   stone: {
-    name: 'Stone deposit', height: 0.65,
+    name: 'Stone deposit', height: 0.9,
     icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><g stroke="#f4f3df" stroke-width=".8" stroke-linejoin="round">
       <path fill="#d0ccc1" d="M2 12 7 9 12 12 12 19 7 22 2 19Z"/><path fill="#898c89" d="M7 15 12 12 12 19 7 22Z"/>
       <path fill="#b9b9b0" d="M7 15 2 12 7 9 12 12Z"/><path fill="#ded9cc" d="M9 5 15 2 21 5 21 16 15 19 9 16Z"/>
