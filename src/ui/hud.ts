@@ -198,8 +198,8 @@ export function createHud() {
       }
       const canAct = summary.canAct !== false
       get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}${summary.status ? ` · ${summary.status}` : ''}`
-      const name = summary.unitName ? summary.unitName[0]!.toUpperCase() + summary.unitName.slice(1) : 'No unit selected'
-      get('scout-info').textContent = `${name} · ${summary.movement}/${summary.maxMovement} movement`
+      const name = summary.unitName && summary.unitName[0]!.toUpperCase() + summary.unitName.slice(1)
+      get('scout-info').textContent = name ? `${name} · ${summary.movement}/${summary.maxMovement} movement` : 'No unit selected'
       get('exploration-info').textContent = `${summary.discovered}/${summary.total} tiles charted`
       get('select-scout').setAttribute('aria-pressed', String(summary.scoutSelected))
       get<HTMLButtonElement>('move-scout').disabled = !summary.canOrder
