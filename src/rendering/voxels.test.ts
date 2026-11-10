@@ -6,7 +6,7 @@ import { generateMap, type Tile, type WorldMap } from '../game/map'
 import { CAMERA_PITCH, CAMERA_YAW } from './view'
 import {
   AO_LIGHT, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, centreColumn, columnTileAt, createVoxelWorld, groundHeight,
-  meshChunk, pickTile, siteCode, territoryCode, tileSurface, voxelScale, type ChunkMesh, type VoxelWorld,
+  meshChunk, pickTile, resourceAt, siteCode, territoryCode, tileSurface, voxelScale, type ChunkMesh, type VoxelWorld,
 } from './voxels'
 
 const allKnown = (map: WorldMap) => new Uint8Array(map.tiles.length).fill(1)
@@ -222,18 +222,65 @@ describe('hex voxel terrain', () => {
     expect(verticalFaces).toBeGreaterThan(20)
   })
 
-  it('builds deterministic submerged outcrops only on charted water', () => {
+  it('builds submerged and emerged coastal rocks with exact water-cap holes and canonical water picks', () => {
     const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
     const world = createVoxelWorld(map)
     const known = allKnown(map)
     const meshes = meshAll(world, known)
     expect(shows(meshes, VOXEL.underwaterRock)).toBe(true)
     const waterTop = tileSurface(world, map.tiles.find(tile => tile.terrain === 'water')!, true) * world.size
+    const coverage = new Uint8Array(world.columnTile.length)
+    const rockHeights = new Map<number, number>()
+    let capColumns = 0, rockColumns = 0
     for (const mesh of meshes) for (let v = 0; v < mesh.positions.length / 3; v += 4) {
-      if (kindAt(mesh, v) === VOXEL.underwaterRock) {
-        for (let k = 0; k < 4; k++) expect(mesh.positions[(v + k) * 3 + 1]).toBeLessThan(waterTop)
+      const kind = kindAt(mesh, v)
+      if (kind === VOXEL.underwaterRock) {
+        const ys = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 1]!)
+        expect(Math.max(...ys)).toBeLessThanOrEqual(waterTop)
+        expect(Math.max(...ys) - Math.min(...ys), 'Compact outcrops, not tall underwater pillars').toBeLessThanOrEqual(0.375)
+      }
+      if (mesh.normals[v * 3 + 1] !== 1) continue
+      const cap = mesh.faceFlags[v]! >= FACE_FLAG.waterSurface
+      const rock = kind === VOXEL.underwaterRock || kind === VOXEL.stone
+      if (!cap && !rock) continue
+      const height = mesh.positions[v * 3 + 1]!
+      const xs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3]!)
+      const zs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 2]!)
+      const left = Math.round((Math.min(...xs) - world.originX) * world.scale)
+      const right = Math.round((Math.max(...xs) - world.originX) * world.scale)
+      const top = Math.round((Math.min(...zs) - world.originZ) * world.scale)
+      const bottom = Math.round((Math.max(...zs) - world.originZ) * world.scale)
+      for (let z = top; z < bottom; z++) for (let x = left; x < right; x++) {
+        const id = columnTileAt(world, x, z)
+        if (id < 0 || map.tiles[id]!.terrain !== 'water') { expect(cap).toBe(false); continue }
+        if (rock) rockHeights.set(id, Math.max(height, rockHeights.get(id) ?? -Infinity))
+        if (height < waterTop) continue
+        coverage[z * world.columnsX + x]!++
+        if (cap) { capColumns++; expect(height).toBe(waterTop); continue }
+        rockColumns++
+        const wx = world.originX + (x + 0.5) * world.size, wz = world.originZ + (z + 0.5) * world.size
+        expect(groundHeight(world, known, wx, wz)).toBe(height)
+        expect(pickTile(world, known, [wx, height + 1, wz], [0, -1, 0])).toBe(id)
       }
     }
+    const waterColumns = world.columnTile.filter(id => id >= 0 && map.tiles[id]!.terrain === 'water').length
+    expect(capColumns).toBeGreaterThan(0)
+    expect(rockColumns).toBeGreaterThan(0)
+    expect(capColumns + rockColumns).toBe(waterColumns)
+    expect(coverage.some(value => value > 1), 'Never draw a water cap through an exposed rock').toBe(false)
+    expect(coverage.filter(value => value === 1).length).toBe(waterColumns)
+    expect([...rockHeights.values()].some(height => height < waterTop), 'Fully submerged groups').toBe(true)
+    expect([...rockHeights.values()].some(height => height > waterTop), 'Emerged groups').toBe(true)
+    for (const id of rockHeights.keys()) {
+      const tile = map.tiles[id]!, [x, z] = hexCenter(tile.x, tile.z)
+      expect(map.tiles.some(land => land.terrain !== 'water'
+        && Math.hypot(x - hexCenter(land.x, land.z)[0], z - hexCenter(land.x, land.z)[1]) < 1.8)).toBe(true)
+      expect(resourceAt(world, tile)).not.toBe('fish')
+    }
+    known.set(Uint8Array.from(map.tiles, tile => tile.terrain === 'water' ? 1 : 0))
+    const hiddenCoast = meshAll(world, known)
+    expect(shows(hiddenCoast, VOXEL.underwaterRock)).toBe(false)
+    expect(shows(hiddenCoast, VOXEL.stone)).toBe(false)
     known.fill(0)
     const fog = meshAll(world, known)
     expect(shows(fog, VOXEL.underwaterRock)).toBe(false)
@@ -305,8 +352,104 @@ describe('hex voxel terrain', () => {
     expect(shows(meshAll(world, known), VOXEL.sand)).toBe(true)
     for (const tile of map.tiles) if (tile.terrain !== 'water') world.sites[tile.id] = siteCode({ houses: 1, storehouse: false, banner: 0 })
     expect(shows(meshAll(world, known), VOXEL.sand)).toBe(false)
-    for (const tile of map.tiles) {
+    for (const tile of map.tiles.filter(tile => tile.terrain !== 'water')) {
       expect(groundHeight(world, known, ...hexCenter(tile.x, tile.z))).toBe(tileSurface(world, tile, true) * world.size)
+    }
+  })
+
+  it('keeps trees at most three quarters of a hex high, with narrower detailed crowns', () => {
+    const leaves = new Set([VOXEL.leafTeal, VOXEL.leafTealLight, VOXEL.leafGreen, VOXEL.leafGreenLight,
+      VOXEL.leafDark, VOXEL.leafDarkLight, VOXEL.leafLime, VOXEL.leafLimeLight])
+    for (const width of [32, 64, 128, 256]) {
+      const map = flatMap(width, 4, Object.fromEntries([1, 2, 3].map(x => [2 * width + x, { trees: 1 }])))
+      const world = createVoxelWorld(map)
+      const tile = map.tiles.find(tile => tile.trees && !resourceAt(world, tile))!
+      const known = new Uint8Array(map.tiles.length)
+      known[tile.id] = 1
+      const mesh = meshChunk(world, known, 0)
+      const ground = tileSurface(world, tile, true) * world.size
+      const trunks = new Map<number, { minZ: number; maxZ: number }>()
+      const canopy: [number, number, number][] = []
+      for (let v = 0; v < mesh.faceFlags.length; v += 4) {
+        const kind = kindAt(mesh, v)
+        if (leaves.has(kind)) for (let k = 0; k < 4; k++) {
+          canopy.push([mesh.positions[(v + k) * 3]!, mesh.positions[(v + k) * 3 + 1]!, mesh.positions[(v + k) * 3 + 2]!])
+        }
+        if (kind !== VOXEL.trunk || !mesh.normals[v * 3]) continue
+        const ys = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 1]!)
+        if (Math.min(...ys) !== ground) continue
+        const x = mesh.positions[v * 3]! - mesh.normals[v * 3]! * Math.max(1, world.scale / 8) * world.size / 2
+        const zs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 2]!)
+        const previous = trunks.get(x)
+        trunks.set(x, { minZ: Math.min(...zs, previous?.minZ ?? Infinity), maxZ: Math.max(...zs, previous?.maxZ ?? -Infinity) })
+      }
+      expect(canopy.length, `${width}: a charted forest retains its canopy`).toBeGreaterThan(0)
+      const height = Math.max(...canopy.map(point => point[1])) - ground
+      expect(height).toBeGreaterThanOrEqual(0.5)
+      expect(height).toBeLessThanOrEqual(0.75)
+      if (world.scale < 8) continue
+      expect(trunks.size).toBe(2)
+      for (const [x, , z] of canopy) {
+        expect(Math.min(...[...trunks].map(([tx, bounds]) => Math.hypot(x - tx, z - (bounds.minZ + bounds.maxZ) / 2)))).toBeLessThan(0.28)
+      }
+    }
+  })
+
+  it('assigns deterministic visual resources without changing map data or the simulation RNG', () => {
+    const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
+    const original = structuredClone(map)
+    const world = createVoxelWorld(map)
+    const resources = map.tiles.map(tile => resourceAt(world, tile))
+    const otherChunks = createVoxelWorld(map, 32)
+    expect(map.tiles.map(tile => resourceAt(otherChunks, tile))).toEqual(resources)
+    expect(new Set(resources)).toEqual(new Set([undefined, 'stone', 'apples', 'fish']))
+    for (const tile of map.tiles) {
+      const kind = resources[tile.id]
+      if (!kind) continue
+      expect(tile.terrain).toBe(kind === 'fish' ? 'water' : kind === 'stone' ? 'hills' : 'grassland')
+      world.sites[tile.id] = siteCode({ houses: 1, storehouse: false, banner: 0 })
+      expect(resourceAt(world, tile)).toBeUndefined()
+    }
+    expect(map).toEqual(original)
+  })
+
+  it('meshes real fruit and stone deposits only on charted, unsettled resource tiles', () => {
+    const map = flatMap(16, 12, Object.fromEntries(Array.from({ length: 192 }, (_, id) => [id, id % 16 < 5
+      ? { terrain: 'water' as const, elevation: 0 } : id % 16 < 11 ? {} : { terrain: 'hills' as const, elevation: 3 }])))
+    const world = createVoxelWorld(map)
+    const known = allKnown(map)
+    const resources = map.tiles.filter(tile => resourceAt(world, tile))
+    expect(new Set(resources.map(tile => resourceAt(world, tile)))).toEqual(new Set(['stone', 'apples', 'fish']))
+    const kinds = [VOXEL.depositStone, VOXEL.depositStoneDark, VOXEL.appleRed, VOXEL.appleLight]
+    const visible = meshAll(world, known)
+    expect(kinds.map(kind => shows(visible, kind))).toEqual(kinds.map(() => true))
+    for (const tile of resources) known[tile.id] = 0
+    const hidden = meshAll(world, known)
+    expect(kinds.map(kind => shows(hidden, kind))).toEqual(kinds.map(() => false))
+    known.fill(1)
+    for (const tile of resources.filter(tile => tile.terrain !== 'water')) {
+      world.sites[tile.id] = siteCode({ houses: 1, storehouse: false, banner: 0 })
+    }
+    const settled = meshAll(world, known)
+    expect(kinds.map(kind => shows(settled, kind))).toEqual(kinds.map(() => false))
+  })
+
+  it('keeps resource ground dry and stable as the surrounding coast is charted', () => {
+    const plain = flatMap(12, 12), plainWorld = createVoxelWorld(plain)
+    const grove = plain.tiles.find(tile => tile.x > 1 && tile.x < 10 && tile.z > 1 && tile.z < 10
+      && resourceAt(plainWorld, tile) === 'apples')!
+    expect(grove).toBeDefined()
+    const water = Object.fromEntries(hexOffsets(grove.z).map(([dx, dz]) =>
+      [(grove.z + dz) * 12 + grove.x + dx, { terrain: 'water' as const, elevation: 0 }]))
+    const map = flatMap(12, 12, water), world = createVoxelWorld(map), known = allKnown(map)
+    const hidden = Uint8Array.from(map.tiles, tile => tile.terrain === 'water' ? 0 : 1)
+    expect(resourceAt(world, map.tiles[grove.id]!)).toBe('apples')
+    for (let z = 0; z < world.columnsZ; z++) for (let x = 0; x < world.columnsX; x++) {
+      if (columnTileAt(world, x, z) !== grove.id) continue
+      const wx = world.originX + (x + 0.5) * world.size, wz = world.originZ + (z + 0.5) * world.size
+      const height = groundHeight(world, known, wx, wz)
+      expect(height).toBe(tileSurface(world, grove, true) * world.size)
+      expect(groundHeight(world, hidden, wx, wz)).toBe(height)
     }
   })
 
@@ -386,12 +529,14 @@ describe('hex voxel terrain', () => {
     const map = flatMap(4, 4, { 5: { trees: 3 }, 10: { terrain: 'hills', elevation: 3 } })
     const known = allKnown(map)
     const world = createVoxelWorld(map)
-    expect(shows(meshAll(world, known), VOXEL.trunk)).toBe(true)
-    expect(shows(meshAll(world, known), VOXEL.roof)).toBe(false)
+    const forest = meshAll(world, known)
+    expect(trunksPerHex(forest, world.size).get('1,1')).toBeGreaterThan(0)
+    expect(shows(forest, VOXEL.roof)).toBe(false)
     world.sites[5] = siteCode({ houses: 1, storehouse: false, banner: 1 })
     const village = meshAll(world, known)
     expect([VOXEL.roof, VOXEL.castle, VOXEL.bannerBlue, VOXEL.path].map(kind => shows(village, kind))).toEqual([true, true, true, true])
-    expect([VOXEL.trunk, VOXEL.bannerGold, VOXEL.thatch].map(kind => shows(village, kind))).toEqual([false, false, false])
+    expect(trunksPerHex(village, world.size).has('1,1')).toBe(false)
+    expect([VOXEL.bannerGold, VOXEL.thatch].map(kind => shows(village, kind))).toEqual([false, false])
     world.sites[5] = siteCode({ houses: 3, storehouse: true, banner: 0 })
     const town = meshAll(world, known)
     expect([VOXEL.thatch, VOXEL.bannerGold].map(kind => shows(town, kind))).toEqual([true, true])

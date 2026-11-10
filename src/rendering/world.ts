@@ -8,9 +8,10 @@ import { HEX_RADIUS, HEX_ROW, hexCenter } from '../game/hex'
 import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
 import { figureMesh, type FigureKind } from './figures'
+import { RESOURCES, type ResourceKind } from './resources'
 import { CAMERA_PITCH as PITCH, CAMERA_YAW as YAW, SCREEN_DOWN as DOWN, SCREEN_RIGHT as RIGHT } from './view'
 import {
-  PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, siteCode, territoryCode,
+  PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, resourceAt, siteCode, territoryCode,
   waterLevel,
   type ChunkMesh, type Settlement, type VoxelWorld,
 } from './voxels'
@@ -55,6 +56,7 @@ export interface RenderStats {
   disposedChunks: number
   remeshedChunks: number
   settlements: number
+  resourceMarkers: number
   drawCalls: number
   frameMs: number
   webGLVersion: number
@@ -69,6 +71,7 @@ const SHADOW_MAP_SIZE = 1024
 const VIEW = new Vector3(Math.cos(YAW) * Math.cos(PITCH), Math.sin(PITCH), Math.sin(YAW) * Math.cos(PITCH))
 /** World height above a tile surface where a city's name plate floats, over its keep. */
 const PLATE_HEIGHT = 0.95
+const MAX_RESOURCE_MARKERS = 128
 /** Figures face the camera, turned slightly so two sides of each voxel body show. */
 const FIGURE_YAW = Math.PI / 2 - YAW - 0.4
 
@@ -198,12 +201,11 @@ if (vPolarisFlag > 0.25) {
   // Each column texel holds the state of the tile owning that voxel column, or zero outside the map.
   vec4 polarisState = texelFetch(polarisColumns, clamp(polarisColumn, ivec2(0), ivec2(polarisGrid.zw) - 1), 0);
   int polarisOwner = polarisByte(polarisState.b) & 3;
-  // Tints colour the ground only, so buildings and trees keep their own colours.
-  float polarisGround = polarisLand + polarisSurface;
-  ${this.waterPass ? 'polarisGround = 0.0;' : ''}
+  // Territory and reachable tints stay on land; water gets only the ordinary hex hairline.
+  float polarisGround = polarisLand;
   if (polarisOwner > 0) baseColor.rgb = mix(baseColor.rgb, polarisFaction(polarisOwner), 0.14 * polarisGround);
   baseColor.rgb = mix(baseColor.rgb, vec3(0.66, 0.94, 0.46), 0.3 * polarisState.g * polarisGround);
-  if (polarisGround > 0.5 && normalW.y > 0.5) {
+  if (polarisLand + polarisSurface > 0.5 && normalW.y > 0.5) {
     float polarisR = vPositionW.z / 0.8660254;
     vec3 polarisCube = vec3(vPositionW.x - polarisR * 0.5, polarisR, polarisR * 0.5 - vPositionW.x - polarisR);
     vec3 polarisRound = floor(polarisCube + 0.5);
@@ -235,16 +237,15 @@ if (vPolarisFlag > 0.25) {
         min(min(polarisFarBorder.x, polarisFarBorder.y), polarisFarBorder.z));
       vec3 polarisHairline = clamp(0.9 - min(polarisNear, polarisFar) / polarisEdgePixel, 0.0, 0.8);
       float polarisLines = max(max(polarisHairline.x, polarisHairline.y), polarisHairline.z);
-      polarisLines *= 1.0 - polarisWater;
-      // The base grid recedes when zoomed out and over open water, so coasts, borders and outlines lead the eye.
-      float polarisGridStrength = mix(0.42, 0.0, polarisWater) * mix(1.0, 0.55, smoothstep(0.02, 0.06, polarisAa));
-      float polarisOutline = polarisBand(polarisNear, polarisFar, polarisEdgePixel, 0.012) * polarisHex.g;
+      // Fine blue water hexes sit on the level cap, never on the submerged floor.
+      float polarisGridStrength = mix(0.42, 0.5, polarisSurface) * mix(1.0, 0.55, smoothstep(0.02, 0.06, polarisAa));
+      float polarisOutline = polarisBand(polarisNear, polarisFar, polarisEdgePixel, 0.012) * polarisHex.g * polarisLand;
       float polarisBorder = polarisBand(polarisNearBorder, polarisFarBorder, polarisEdgePixel, 0.032);
       float polarisEdge = polarisBand(polarisNearBorder, polarisFarBorder, polarisEdgePixel, 0.043);
       float polarisGlow = 1.0 - smoothstep(0.032, 0.12, polarisBorderD);
-      polarisWaterOverlay = max(0.03 * polarisLines, max(0.85 * polarisOutline, polarisHexOwner > 0 ? 0.95 * polarisBorder : 0.0));
+      polarisWaterOverlay = max(0.03 * polarisLines, 0.85 * polarisOutline);
       baseColor.rgb *= 1.0 - polarisGridStrength * polarisLines;
-      if (polarisHexOwner > 0) {
+      if (polarisHexOwner > 0 && polarisLand > 0.5) {
         vec3 polarisTeam = polarisFaction(polarisHexOwner);
         baseColor.rgb = mix(baseColor.rgb, polarisTeam, 0.22 * polarisGlow);
         // A thin dark seam inside the band keeps the border crisp against light grass.
@@ -328,6 +329,7 @@ export class WorldRenderer {
   private exploration?: ExplorationView
   private figures: Mesh[] = []
   private plates: { element: HTMLElement; tileId: number }[] = []
+  private readonly resourceMarkers = new Map<number, HTMLElement>()
   private fogUpdates = 0
   private map?: WorldMap
   private target = Vector3.Zero()
@@ -478,6 +480,7 @@ export class WorldRenderer {
     this.exploration = undefined
     this.clearFigures()
     this.clearPlates()
+    this.clearResourceMarkers()
     this.pointer = undefined
     this.touches.clear()
     this.pinched = false
@@ -693,7 +696,7 @@ export class WorldRenderer {
 
   private placePlates(): void {
     const { map } = this
-    if (!map || !this.plates.length) return
+    if (!map) return
     const transform = this.camera.getViewMatrix().multiply(this.camera.getProjectionMatrix())
     const width = this.canvas.clientWidth
     const height = this.canvas.clientHeight
@@ -706,6 +709,67 @@ export class WorldRenderer {
       element.hidden = !visible
       element.style.left = `${this.canvas.offsetLeft + point.x}px`
       element.style.top = `${this.canvas.offsetTop + point.y}px`
+    }
+    this.placeResourceMarkers(transform, viewport)
+  }
+
+  resource(id: number): ResourceKind | undefined {
+    const tile = this.map?.tiles[id]
+    return tile && this.world && this.known[id] === 1 ? resourceAt(this.world, tile) : undefined
+  }
+
+  private clearResourceMarkers(): void {
+    for (const element of this.resourceMarkers.values()) element.remove()
+    this.resourceMarkers.clear()
+  }
+
+  private placeResourceMarkers(transform: Matrix, viewport: Viewport): void {
+    const { map, world } = this
+    if (!map || !world) return
+    const { width, height } = viewport
+    const pixels = height / (2 * this.halfHeight)
+    if (pixels < 40) { this.clearResourceMarkers(); return }
+    const halfWidth = this.halfHeight * width / height
+    const down = (this.halfHeight + (world.layers - world.base) * world.size * Math.cos(PITCH)) / Math.sin(PITCH)
+    const extentX = Math.abs(RIGHT[0]) * halfWidth + Math.abs(DOWN[0]) * down + 1
+    const extentZ = Math.abs(RIGHT[1]) * halfWidth + Math.abs(DOWN[1]) * down + 1
+    const top = Math.max(0, Math.floor((this.target.z - extentZ) / HEX_ROW))
+    const bottom = Math.min(map.height - 1, Math.ceil((this.target.z + extentZ) / HEX_ROW))
+    const left = Math.max(0, Math.floor(this.target.x - extentX))
+    const right = Math.min(map.width - 1, Math.ceil(this.target.x + extentX))
+    const visible: { id: number; kind: ResourceKind; point: Vector3; distance: number }[] = []
+    for (let z = top; z <= bottom; z++) for (let x = left; x <= right; x++) {
+      const id = z * map.width + x, kind = this.resource(id)
+      if (!kind) continue
+      const tile = map.tiles[id]!
+      const [cx, cz] = hexCenter(x, z)
+      const point = Vector3.Project(new Vector3(cx, this.tileHeight(tile) + RESOURCES[kind].height, cz),
+        Matrix.Identity(), transform, viewport)
+      if (point.x < 12 || point.y < 24 || point.x > width - 12 || point.y > height - 12) continue
+      visible.push({ id, kind, point, distance: (point.x - width / 2) ** 2 + (point.y - height / 2) ** 2 })
+    }
+    visible.sort((a, b) => a.distance - b.distance || a.id - b.id)
+    const shown = visible.slice(0, MAX_RESOURCE_MARKERS)
+    const ids = new Set(shown.map(item => item.id))
+    for (const [id, element] of this.resourceMarkers) if (!ids.has(id)) {
+      element.remove()
+      this.resourceMarkers.delete(id)
+    }
+    for (const { id, kind, point } of shown) {
+      let element = this.resourceMarkers.get(id)
+      if (!element) {
+        element = document.createElement('span')
+        element.className = 'resource-marker'
+        element.dataset.tileId = String(id)
+        element.dataset.resource = kind
+        element.innerHTML = RESOURCES[kind].icon
+        this.plateLayer.prepend(element)
+        this.resourceMarkers.set(id, element)
+      }
+      element.style.width = `${Math.max(18, Math.min(36, pixels * 0.3))}px`
+      element.style.left = `${this.canvas.offsetLeft + point.x}px`
+      element.style.top = `${this.canvas.offsetTop + point.y}px`
+      element.style.opacity = this.exploration?.fog[id] === 'explored' ? '0.58' : '1'
     }
   }
 
@@ -901,6 +965,7 @@ export class WorldRenderer {
       vertexBufferBytes: this.chunks.reduce((sum, chunk) => sum + chunk.bytes, 0),
       disposedChunks: this.disposedChunks, remeshedChunks: this.remeshedChunks,
       settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code ? 1 : 0), 0) : 0,
+      resourceMarkers: this.resourceMarkers.size,
       drawCalls: this.engine._drawCalls.current,
       frameMs: this.instrumentation.frameTimeCounter.current, webGLVersion: this.engine.webGLVersion,
       fogUpdates: this.fogUpdates,
@@ -933,6 +998,7 @@ export class WorldRenderer {
     this.engine.stopRenderLoop()
     this.instrumentation.dispose()
     this.clearPlates()
+    this.clearResourceMarkers()
     this.plateLayer.remove()
     this.figures = []
     this.scene.dispose()

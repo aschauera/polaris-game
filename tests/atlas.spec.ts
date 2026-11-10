@@ -1,7 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
-import { generateMap, type Tile, type WorldMap } from '../src/game/map'
+import { generateMap, type Tile } from '../src/game/map'
+import { applyCommand, createExpedition, movementRange } from '../src/game/expedition'
 import { HEX_ROW, hexCenter } from '../src/game/hex'
-import { createVoxelWorld, centreColumn, groundHeight, tileSurface, type VoxelWorld } from '../src/rendering/voxels'
+import { createVoxelWorld, centreColumn, groundHeight, pickTile, resourceAt, tileSurface, type VoxelWorld } from '../src/rendering/voxels'
+import { RESOURCES } from '../src/rendering/resources'
 
 async function settled(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
@@ -11,11 +13,12 @@ async function stats(page: Page) {
   return page.evaluate(() => window.polarisDiagnostics!.stats())
 }
 
-function flatSurfaceTile(map: WorldMap, terrain: Tile['terrain']) {
+function flatSurfaceTile(world: VoxelWorld, terrain: Tile['terrain']) {
+  const { map } = world
   const tile = map.tiles.filter(tile => tile.terrain === terrain
     && tile.x > 2 && tile.x < 29 && tile.z > 2 && tile.z < 29
     && map.tiles.every(other => Math.hypot(other.x - tile.x, other.z - tile.z) > 1.8
-      || (other.terrain === terrain && other.elevation === tile.elevation && other.trees === 0)))
+      || (other.terrain === terrain && other.elevation === tile.elevation && other.trees === 0 && !resourceAt(world, other))))
     .sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16))[0]
   if (!tile) throw new Error(`No flat, tree-free ${terrain} sample`)
   return tile
@@ -66,6 +69,16 @@ async function inspectSurface(page: Page, tile: Tile) {
   await page.mouse.up()
   for (let zoom = 0; zoom < 8; zoom++) await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
   await settled(page)
+}
+
+function pickableTile(world: VoxelWorld, tiles: Tile[]): Tile {
+  const known = new Uint8Array(world.map.tiles.length).fill(1)
+  const tile = tiles.sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16)).find(tile => {
+    const [x, z] = hexCenter(tile.x, tile.z), y = groundHeight(world, known, x, z)!
+    return pickTile(world, known, [x + 4, y + 4, z + 4], [-1, -1, -1]) === tile.id
+  })
+  if (!tile) throw new Error('No unobstructed tile centre in the visual fixture')
+  return tile
 }
 
 async function selectTile(page: Page, width = 32, height = width) {
@@ -225,6 +238,188 @@ test('renders a broad lowered sandbank and picks its original land tile', async 
   await page.locator('canvas').screenshot({ path: testInfo.outputPath('sandbank-selection.png') })
 })
 
+test('emerged coastal rocks are opaque above the cap and still select their water hex', async ({ page }, testInfo) => {
+  const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
+  const world = createVoxelWorld(map), known = new Uint8Array(map.tiles.length).fill(1)
+  const tile = pickableTile(world, map.tiles.filter(tile => tile.terrain === 'water'
+    && groundHeight(world, known, ...hexCenter(tile.x, tile.z))! > tileSurface(world, tile, true) * world.size))
+  await page.goto('/?diagnostics=1')
+  await expect(page.locator('#map-status')).toContainText('1,024 TILES')
+  await inspectSurface(page, tile)
+  const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
+  const rockPixels = await page.locator('canvas').evaluate((canvas, point) => {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!, rect = canvas.getBoundingClientRect()
+    const pixels = new Uint8Array(17 * 17 * 4)
+    gl.readPixels(Math.floor((point.x - rect.left) * gl.drawingBufferWidth / rect.width) - 8,
+      gl.drawingBufferHeight - 1 - Math.floor((point.y - rect.top) * gl.drawingBufferHeight / rect.height) - 8,
+      17, 17, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+    let grey = 0
+    for (let i = 0; i < pixels.length; i += 4) {
+      const r = pixels[i]!, g = pixels[i + 1]!, b = pixels[i + 2]!
+      if (r > 70 && Math.abs(r - g) < 15 && r > b * 1.03 && Math.abs(r - b) < 35) grey++
+    }
+    return grey
+  }, point)
+  expect(rockPixels, 'An actual grey rock, not just blue underwater relief').toBeGreaterThan(20)
+  await page.mouse.click(point.x, point.y)
+  await expect(page.locator('#selection')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
+  await expect(page.locator('#resource-info')).toBeHidden()
+  await page.locator('canvas').screenshot({ path: testInfo.outputPath('coastal-rock-selection.png') })
+})
+
+test('resource markers and inspection share real occurrences, follow the world and release their nodes', async ({ page }, testInfo) => {
+  const map = generateMap({ seed: 'polaris', width: 32, height: 32 }), world = createVoxelWorld(map)
+  await page.goto('/?diagnostics=1')
+  await expect(page.locator('#map-status')).toContainText('1,024 TILES')
+  const initial = await stats(page)
+  await expect(page.locator('.resource-marker')).toHaveCount(0)
+  for (const kind of ['apples', 'stone', 'fish'] as const) {
+    const tile = pickableTile(world, map.tiles.filter(tile => resourceAt(world, tile) === kind))
+    await inspectSurface(page, tile)
+    const marker = page.locator(`.resource-marker[data-tile-id="${tile.id}"]`)
+    await expect(marker).toBeVisible()
+    await expect(marker).toHaveAttribute('data-resource', kind)
+    await expect(marker.locator('svg')).toHaveCount(1)
+    const before = (await marker.boundingBox())!
+    const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
+    expect(Math.abs(before.x + before.width / 2 - point.x)).toBeLessThan(1)
+    expect(point.y - before.y - before.height).toBeGreaterThan(8)
+    await page.mouse.move(point.x, point.y)
+    await expect(page.locator('#hover')).toContainText(RESOURCES[kind].name)
+    await page.mouse.click(point.x, point.y)
+    await expect(page.locator('#selection')).toContainText(`Tile ${tile.id}`)
+    await expect(page.locator('#resource-info')).toHaveText(`${RESOURCES[kind].name} · Visual occurrence; harvesting is not available yet.`)
+    await page.locator('canvas').focus()
+    await page.keyboard.press('ArrowRight')
+    await settled(page)
+    const moved = (await marker.boundingBox())!
+    const shifted = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
+    expect(Math.abs(moved.x - before.x - (shifted.x - point.x))).toBeLessThan(1)
+    expect(Math.abs(moved.y - before.y - (shifted.y - point.y))).toBeLessThan(1)
+    await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
+    await settled(page)
+    const zoomed = (await marker.boundingBox())!
+    const zoomPoint = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
+    expect(Math.abs(zoomed.x + zoomed.width / 2 - zoomPoint.x)).toBeLessThan(1)
+    expect((zoomPoint.y - zoomed.y - zoomed.height) / (shifted.y - moved.y - moved.height)).toBeCloseTo(1 / 0.85, 1)
+    const count = await page.locator('.resource-marker').count()
+    expect(count).toBeGreaterThan(0)
+    expect(count).toBeLessThanOrEqual(128)
+    expect(await stats(page)).toMatchObject({ resourceMarkers: count, meshes: initial.meshes, geometries: initial.geometries,
+      materials: initial.materials, rngState: initial.rngState, vertices: initial.vertices, remeshedChunks: initial.remeshedChunks })
+    await page.mouse.move(20, 20)
+    await page.locator('canvas').screenshot({ path: testInfo.outputPath(`resource-${kind}.png`) })
+  }
+  const oldMarker = await page.locator('.resource-marker').first().elementHandle()
+  await page.getByRole('button', { name: 'Regenerate atlas' }).click()
+  await expect(page.locator('.resource-marker')).toHaveCount(0)
+  expect(await oldMarker!.evaluate(element => element.isConnected)).toBe(false)
+  await oldMarker!.dispose()
+  await expect(page.locator('#resource-info')).toBeHidden()
+  expect(await stats(page)).toMatchObject({ resourceMarkers: 0, meshes: initial.meshes, geometries: initial.geometries,
+    materials: initial.materials, rngState: initial.rngState, vertices: initial.vertices })
+})
+
+test.describe('wide-view resource budget', () => {
+  // A wide CSS viewport stresses annotation count without a needlessly large framebuffer.
+  test.use({ viewport: { width: 3200, height: 1800 }, deviceScaleFactor: 0.5 })
+  test('caps a dense large-map view at 128 markers and clears them in the overview', async ({ page }) => {
+    const map = generateMap({ seed: 'polaris', width: 256, height: 256 })
+    const tile = map.tiles.filter(tile => tile.terrain === 'hills')
+      .sort((a, b) => Math.hypot(a.x - 128, a.z - 128) - Math.hypot(b.x - 128, b.z - 128))[0]!
+    await page.goto('/?diagnostics=1&width=256&height=256')
+    await expect(page.locator('#map-status')).toContainText('65,536 TILES')
+    const initial = await stats(page)
+    await inspectSurface(page, tile)
+    const markers = page.locator('.resource-marker')
+    for (let zoom = 0; zoom < 16 && await markers.count() === 0; zoom++) {
+      await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
+    }
+    await expect(markers).toHaveCount(128)
+    const first = await markers.evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.tileId))
+    await page.locator('canvas').focus()
+    await page.keyboard.press('ArrowRight')
+    await settled(page)
+    await expect(markers).toHaveCount(128)
+    const shifted = await markers.evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.tileId))
+    expect(shifted).not.toEqual(first)
+    expect(await stats(page)).toMatchObject({ resourceMarkers: 128, meshes: initial.meshes, geometries: initial.geometries,
+      materials: initial.materials, rngState: initial.rngState, vertices: initial.vertices })
+    await page.getByRole('button', { name: 'Reset view' }).click()
+    await expect(markers).toHaveCount(0)
+    expect((await stats(page)).resourceMarkers).toBe(0)
+  })
+})
+
+test('resource annotations respect uncharted and remembered fog and disappear when a city is founded', async ({ page }) => {
+  const map = generateMap({ seed: 'resources-16', width: 32, height: 32 }), world = createVoxelWorld(map)
+  let state = createExpedition(map)
+  const founder = map.tiles[state.founders[0]!.tileId]!
+  expect(resourceAt(world, founder)).toBe('apples')
+  await page.goto('/?diagnostics=1&seed=resources-16')
+  await page.getByRole('button', { name: 'Start expedition' }).click()
+  await inspectSurface(page, founder)
+  const marker = page.locator(`.resource-marker[data-tile-id="${founder.id}"]`)
+  await expect(marker).toBeVisible()
+  await expect(marker).toHaveCSS('opacity', '1')
+  for (let turn = 0; turn < 2; turn++) {
+    if (turn) {
+      await page.getByRole('button', { name: 'End turn', exact: true }).click()
+      const ended = applyCommand(state, { type: 'end-turn', factionId: state.activeFaction, sequence: state.commands.length + 1 })
+      expect(ended.ok).toBe(true)
+      state = ended.state
+    }
+    const scout = state.scouts[0]!
+    const [to] = [...movementRange(state, scout.id)].filter(([id]) => id !== scout.tileId)
+      .sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]!
+    await page.getByRole('button', { name: 'Reset view' }).click()
+    await page.getByRole('button', { name: 'Select scout', exact: true }).click()
+    const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, to)
+    await page.mouse.click(point.x, point.y)
+    await expect(page.locator('#selection')).toContainText(`Tile ${to}`)
+    await page.getByRole('button', { name: 'Move scout here' }).click()
+    const moved = applyCommand(state, { type: 'move', unitId: scout.id, factionId: state.activeFaction,
+      sequence: state.commands.length + 1, to })
+    expect(moved.ok).toBe(true)
+    state = moved.state
+    expect((await page.evaluate(() => window.polarisDiagnostics!.expedition()))!.scoutTileId).toBe(to)
+  }
+  expect(state.factions[0]!.fog[founder.id]).toBe('explored')
+  await inspectSurface(page, founder)
+  await expect(marker).toHaveCSS('opacity', '0.58')
+  const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, founder.id)
+  await page.mouse.click(point.x, point.y)
+  await expect(page.locator('#selection')).toContainText(`Tile ${founder.id}`)
+  await expect(page.locator('#resource-info')).toContainText('Apple grove')
+  await page.getByRole('button', { name: /^Found city at/ }).click()
+  await expect(page.locator('#selection')).toContainText(`Tile ${state.scouts[0]!.tileId}`)
+  const city = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, founder.id)
+  await page.mouse.click(city.x, city.y)
+  await expect(page.locator('#selection')).toContainText(`Tile ${founder.id}`)
+  await expect(page.locator('#resource-info')).toBeHidden()
+  await expect(marker).toHaveCount(0)
+  const founded = applyCommand(state, { type: 'found-city', founderId: state.founders[0]!.id,
+    factionId: state.activeFaction, sequence: state.commands.length + 1 })
+  expect(founded.ok).toBe(true)
+  const actual = await page.evaluate(() => window.polarisDiagnostics!.expedition())
+  expect(actual!.cities).toEqual(founded.state.cities)
+
+  const hidden = map.tiles.find(tile => resourceAt(world, tile) && !founded.state.factions[0]!.fog[tile.id])!
+  expect(hidden).toBeDefined()
+  await inspectSurface(page, hidden)
+  const hiddenMarker = page.locator(`.resource-marker[data-tile-id="${hidden.id}"]`)
+  await expect(hiddenMarker).toHaveCount(0)
+  const concealed = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, hidden.id)
+  await page.mouse.click(concealed.x, concealed.y)
+  await expect(page.locator('#selection')).toHaveText('No tile selected')
+  await expect(page.locator('#resource-info')).toBeHidden()
+  const ids = await page.locator('.resource-marker').evaluateAll(elements => elements.map(element => Number((element as HTMLElement).dataset.tileId)))
+  for (const id of ids) expect(founded.state.factions[0]!.fog[id]).toBeTruthy()
+  await page.getByRole('button', { name: 'Return to atlas (discard expedition)', exact: true }).click()
+  await inspectSurface(page, hidden)
+  await expect(hiddenMarker).toBeVisible()
+})
+
 for (const terrain of ['water', 'grassland'] as const) {
   test(`${terrain} shows voxel-sized material shades anchored to the world`, async ({ page }, testInfo) => {
     const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
@@ -232,7 +427,7 @@ for (const terrain of ['water', 'grassland'] as const) {
     await page.goto('/?diagnostics=1')
     await expect(page.locator('#map-status')).toContainText('1,024 TILES')
     const initial = await stats(page)
-    const tile = flatSurfaceTile(map, terrain)
+    const tile = flatSurfaceTile(world, terrain)
     await inspectSurface(page, tile)
     const { samples } = await sampleSurface(page, world, tile)
     const target = terrain === 'water' ? [11, 117, 170] : [151, 171, 60]
@@ -270,62 +465,64 @@ for (const terrain of ['water', 'grassland'] as const) {
   })
 }
 
-test('hex grid stays a sharp hairline in every edge direction at different zoom levels', async ({ page }) => {
-  const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
-  const world = createVoxelWorld(map)
-  const tile = flatSurfaceTile(map, 'grassland')
-  await page.goto('/?diagnostics=1')
-  await expect(page.locator('#map-status')).toContainText('1,024 TILES')
-  await inspectSurface(page, tile)
-  const widths: number[] = []
-  for (let zoom = 0; zoom < 2; zoom++) {
-    const { origin, dx, dz } = await sampleSurface(page, world, tile)
-    const profiles = await page.locator('canvas').evaluate((canvas, { origin, dx, dz }) => {
-      const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
-      const rect = canvas.getBoundingClientRect()
-      const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4)
-      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
-      return ([[1, 0], [0.5, Math.sqrt(3) / 2], [-0.5, Math.sqrt(3) / 2]] as const).map(([nx, nz]) => {
-        const tx = -nz, tz = nx
-        const tangent = { x: dx.x * tx + dz.x * tz, y: dx.y * tx + dz.y * tz }
-        const length = Math.hypot(tangent.x, tangent.y)
-        const normal = { x: -tangent.y / length, y: tangent.x / length }
-        const profile: number[] = []
-        for (let offset = -4; offset <= 4; offset += 0.25) {
-          let total = 0
-          for (let i = 0; i < 80; i++) {
-            const along = -0.2 + i * 0.4 / 79
-            const u = nx * 0.5 + tx * along, v = nz * 0.5 + tz * along
-            const x = Math.floor((origin.x + u * dx.x + v * dz.x - rect.left) * gl.drawingBufferWidth / rect.width + normal.x * offset)
-            const y = gl.drawingBufferHeight - 1 - Math.floor(
-              (origin.y + u * dx.y + v * dz.y - rect.top) * gl.drawingBufferHeight / rect.height + normal.y * offset)
-            if (x < 0 || y < 0 || x >= gl.drawingBufferWidth || y >= gl.drawingBufferHeight) throw new Error('Grid sample is off-screen')
-            const index = (y * gl.drawingBufferWidth + x) * 4
-            total += 0.2126 * pixels[index]! + 0.7152 * pixels[index + 1]! + 0.0722 * pixels[index + 2]!
+for (const terrain of ['grassland', 'water'] as const) {
+  test(`${terrain} hex grid stays a sharp hairline in every edge direction at different zoom levels`, async ({ page }) => {
+    const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
+    const world = createVoxelWorld(map)
+    const tile = flatSurfaceTile(world, terrain)
+    await page.goto('/?diagnostics=1')
+    await expect(page.locator('#map-status')).toContainText('1,024 TILES')
+    await inspectSurface(page, tile)
+    const widths: number[] = []
+    for (let zoom = 0; zoom < 2; zoom++) {
+      const { origin, dx, dz } = await sampleSurface(page, world, tile)
+      const profiles = await page.locator('canvas').evaluate((canvas, { origin, dx, dz }) => {
+        const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
+        const rect = canvas.getBoundingClientRect()
+        const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4)
+        gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+        return ([[1, 0], [0.5, Math.sqrt(3) / 2], [-0.5, Math.sqrt(3) / 2]] as const).map(([nx, nz]) => {
+          const tx = -nz, tz = nx
+          const tangent = { x: dx.x * tx + dz.x * tz, y: dx.y * tx + dz.y * tz }
+          const length = Math.hypot(tangent.x, tangent.y)
+          const normal = { x: -tangent.y / length, y: tangent.x / length }
+          const profile: number[] = []
+          for (let offset = -4; offset <= 4; offset += 0.25) {
+            let total = 0
+            for (let i = 0; i < 80; i++) {
+              const along = -0.2 + i * 0.4 / 79
+              const u = nx * 0.5 + tx * along, v = nz * 0.5 + tz * along
+              const x = Math.floor((origin.x + u * dx.x + v * dz.x - rect.left) * gl.drawingBufferWidth / rect.width + normal.x * offset)
+              const y = gl.drawingBufferHeight - 1 - Math.floor(
+                (origin.y + u * dx.y + v * dz.y - rect.top) * gl.drawingBufferHeight / rect.height + normal.y * offset)
+              if (x < 0 || y < 0 || x >= gl.drawingBufferWidth || y >= gl.drawingBufferHeight) throw new Error('Grid sample is off-screen')
+              const index = (y * gl.drawingBufferWidth + x) * 4
+              total += 0.2126 * pixels[index]! + 0.7152 * pixels[index + 1]! + 0.0722 * pixels[index + 2]!
+            }
+            profile.push(total / 80)
           }
-          profile.push(total / 80)
-        }
-        // Average along the edge; interpolate the background across it to remove material-patch gradients.
-        const left = profile.slice(0, 5).reduce((a, b) => a + b) / 5
-        const right = profile.slice(-5).reduce((a, b) => a + b) / 5
-        const darkness = profile.map((v, i) => left + (right - left) * i / (profile.length - 1) - v)
-        const peak = Math.max(...darkness.slice(14, 19))
-        return { peak, width: darkness.filter(v => v > peak / 2).length * 0.25,
-          tail: Math.max(...darkness.slice(0, 9), ...darkness.slice(24)) }
-      })
-    }, { origin, dx, dz })
-    for (const profile of profiles) {
-      expect(profile.peak, 'Grid remains visible').toBeGreaterThan(12)
-      expect(profile.width, 'Rendered full width at half maximum, in framebuffer pixels').toBeGreaterThanOrEqual(0.75)
-      expect(profile.width).toBeLessThanOrEqual(1.5)
-      expect(profile.tail, 'No broad blurred halo beyond two pixels').toBeLessThan(profile.peak * 0.3)
-      widths.push(profile.width)
+          // Average along the edge; interpolate the background across it to remove material-patch gradients.
+          const left = profile.slice(0, 5).reduce((a, b) => a + b) / 5
+          const right = profile.slice(-5).reduce((a, b) => a + b) / 5
+          const darkness = profile.map((v, i) => left + (right - left) * i / (profile.length - 1) - v)
+          const peak = Math.max(...darkness.slice(14, 19))
+          return { peak, width: darkness.filter(v => v > peak / 2).length * 0.25,
+            tail: Math.max(...darkness.slice(0, 9), ...darkness.slice(24)) }
+        })
+      }, { origin, dx, dz })
+      for (const profile of profiles) {
+        expect(profile.peak, 'Grid remains visible').toBeGreaterThan(terrain === 'water' ? 8 : 12)
+        expect(profile.width, 'Rendered full width at half maximum, in framebuffer pixels').toBeGreaterThanOrEqual(0.75)
+        expect(profile.width).toBeLessThanOrEqual(1.5)
+        expect(profile.tail, 'No broad blurred halo beyond two pixels').toBeLessThan(profile.peak * 0.3)
+        widths.push(profile.width)
+      }
+      for (let i = 0; i < 2; i++) await page.getByRole('button', { name: 'Zoom out', exact: true }).click()
+      await settled(page)
     }
-    for (let i = 0; i < 2; i++) await page.getByRole('button', { name: 'Zoom out', exact: true }).click()
-    await settled(page)
-  }
-  expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(0.5)
-})
+    expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(0.5)
+  })
+}
 
 test('regenerates repeatably and releases old chunk resources three times', async ({ page }) => {
   await page.goto('/?diagnostics=1')

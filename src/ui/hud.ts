@@ -98,6 +98,7 @@ export function createHud() {
         <section class="tile-card" aria-labelledby="tile-heading">
           <div class="section-label" id="tile-heading">SELECTED TERRITORY</div>
           <div id="selection" role="status" aria-live="polite">No tile selected</div>
+          <div id="resource-info" aria-live="polite" hidden></div>
           <div id="hover">Hover over the map to survey a tile.</div>
         </section>
         <section class="legend" aria-label="Terrain legend">
@@ -129,11 +130,14 @@ export function createHud() {
   }))
   const directions = Object.fromEntries(SCREEN_DIRECTIONS.map(direction =>
     [direction, get<HTMLButtonElement>(`move-${direction}`)])) as Record<ScreenDirection, HTMLButtonElement>
-  const selection = (tile?: Tile) => {
+  const selection = (tile?: Tile, resource?: string) => {
     get('selection').textContent = tile ? `(${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name} · Tile ${tile.id}` : 'No tile selected'
+    get('resource-info').hidden = !tile || !resource
+    get('resource-info').textContent = tile && resource ? `${resource} · Visual occurrence; harvesting is not available yet.` : ''
   }
-  const hover = (tile?: Tile) => {
-    get('hover').textContent = tile ? `Surveying (${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name}` : 'Hover over the map to survey a tile.'
+  const hover = (tile?: Tile, resource?: string) => {
+    get('hover').textContent = tile ? `Surveying (${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name}${resource ? ` · ${resource}` : ''}`
+      : 'Hover over the map to survey a tile.'
   }
   return {
     inputs, selection, hover, directions,

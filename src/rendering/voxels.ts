@@ -1,6 +1,7 @@
 import { HEX_RADIUS, HEX_ROW, hexAt, hexCenter, hexOffsets } from '../game/hex'
 import { TERRAIN, seedState, type Tile, type WorldMap } from '../game/map'
 import { SCREEN_DOWN, SCREEN_RIGHT } from './view'
+import type { ResourceKind } from './resources'
 
 // Pure voxel construction: no Babylon objects, so meshing and picking are unit-testable in Node.
 
@@ -26,6 +27,7 @@ const SOURCE = {
   roof: '#c46b37', roofRidge: '#9f4f2c', plank: '#a8743f', thatch: '#d9ad4e', thatchRidge: '#bf9238',
   castle: '#b2aea0', castleDark: '#8d8b81', bannerGold: '#f0c873', bannerBlue: '#5a7fe0',
   goldDark: '#b4842f', blueDark: '#3a58ad', skin: '#f0c49a', hair: '#5a3b24', steel: '#c9ced6', leather: '#7a5230',
+  depositStone: '#b6b2a7', depositStoneDark: '#8e938c', appleRed: '#d83b28', appleLight: '#ef6840',
 } as const
 
 export type VoxelKind = keyof typeof SOURCE
@@ -142,11 +144,11 @@ export function voxelScale(width: number, height: number): number {
 function treeShape(scale: number): TreeShape {
   if (scale >= 8) {
     const detail = scale / 8
-    return { trunk: detail, trunkVariance: detail, radius: 1.35 * detail, radiusVariance: 0.45 * detail,
-      layers: 4 * detail, layerVariance: 2 * detail, spots: 5 }
+    return { trunk: detail, trunkVariance: 0, radius: 1.05 * detail, radiusVariance: 0.3 * detail,
+      layers: 3 * detail, layerVariance: detail, spots: 5 }
   }
-  if (scale >= 4) return { trunk: 1, trunkVariance: 0, radius: 1, radiusVariance: 0, layers: 2, layerVariance: 1, spots: 2 }
-  return { trunk: 0, trunkVariance: 0, radius: 0.6, radiusVariance: 0, layers: 2, layerVariance: 0, spots: 1 }
+  if (scale >= 4) return { trunk: 1, trunkVariance: 0, radius: 0.6, radiusVariance: 0, layers: 1, layerVariance: 0, spots: 2 }
+  return { trunk: 0, trunkVariance: 0, radius: 0.6, radiusVariance: 0, layers: 1, layerVariance: 0, spots: 1 }
 }
 
 export function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
@@ -180,11 +182,12 @@ export function createVoxelWorld(map: WorldMap, chunkColumns = CHUNK_COLUMNS): V
     }
   }
   const highest = landLevel(scale, 'hills', 4) + bumpLimit(scale)
-  // Conifers grow one layer taller than round crowns.
+  // Smaller trees must not reduce the space reserved for keeps and their banners.
   const detail = Math.max(1, scale / 8)
-  const tree = shape.trunk + shape.trunkVariance + shape.layers + shape.layerVariance + detail
+  const tree = shape.trunk + shape.trunkVariance + shape.layers + shape.layerVariance + (scale >= 4 ? detail : 0)
+  const decoration = Math.max(tree, scale >= 8 ? 6 * detail : scale >= 4 ? 3 : 2)
   return {
-    map, scale, size, originX, originZ, columnsX, columnsZ, columnTile, base, layers: base + highest + tree + 1, chunkColumns,
+    map, scale, size, originX, originZ, columnsX, columnsZ, columnTile, base, layers: base + highest + decoration + 1, chunkColumns,
     chunksX: Math.ceil(columnsX / chunkColumns), chunksZ: Math.ceil(columnsZ / chunkColumns),
     reach: Math.ceil(shape.radius + shape.radiusVariance + CONIFER_FLARE * detail) + 1, seed: seedState(map.seed),
     sites: new Uint8Array(map.width * map.height),
@@ -214,6 +217,19 @@ function hash(seed: number, x: number, y: number, z: number): number {
   h = Math.imul(h ^ (h >>> 15), 0x85ebca6b)
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+
+/** Seeded presentation occurrences: no map mutation, simulation RNG, yields or movement effects. */
+export function resourceAt(world: VoxelWorld, tile: Tile): ResourceKind | undefined {
+  if (world.sites[tile.id]) return
+  const roll = hash(world.seed, tile.x, 113, tile.z)
+  if (tile.terrain === 'water') return roll < 0.035 ? 'fish' : undefined
+  if (tile.terrain === 'hills') return roll < 0.14 ? 'stone' : undefined
+  if (roll < 0.07) return 'apples'
+}
+
+function hasCoastalRocks(world: VoxelWorld, tile: Tile): boolean {
+  return world.scale >= 4 && resourceAt(world, tile) !== 'fish' && hash(world.seed, tile.x, 81, tile.z) < 0.22
 }
 
 function noise(seed: number, salt: number, x: number, z: number, cell: number): number {
@@ -325,13 +341,20 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
       ? VOXEL.waterEdge : surface === VOXEL.shallow ? VOXEL.waterShallow
         : surface === VOXEL.shoal ? VOXEL.waterShoal : surface === VOXEL.shelf ? VOXEL.waterShelf : VOXEL.waterSurface
     let rockTop = floor
-    if (scale >= 4 && hash(seed, tile.x, 81, tile.z) < 0.045) {
+    if (hasCoastalRocks(world, tile) && Number.isFinite(nearestLand)) {
       const [cx, cz] = centreColumn(world, tile)
+      const turn = Math.floor(hash(seed, tile.x, 85, tile.z) * 4)
       const dx = gx - cx, dz = gz - cz
-      const radius = Math.max(Math.abs(dx), Math.abs(dz))
-      const shape = hash(seed, gx, 82, gz)
-      if (radius <= scale / 3 && shape > 0.25) {
-        rockTop = Math.max(floor, top - detail - Math.floor(shape * 4 * detail) - radius)
+      const rx = turn === 0 ? dx : turn === 1 ? -dz : turn === 2 ? -dx : dz
+      const rz = turn === 0 ? dz : turn === 1 ? dx : turn === 2 ? -dz : -dx
+      const emerged = hash(seed, tile.x, 83, tile.z) < 0.45 && floor >= -detail
+      const variation = hash(seed, tile.x, 84, tile.z)
+      const peak = emerged ? top + Math.round(scale * (0.125 + 0.125 * variation))
+        : Math.min(top - detail, floor + Math.round(scale * (0.25 + 0.125 * variation)))
+      for (const [x, z, radius, drop] of [[-0.9, -0.6, 1.25, 0], [0.8, 0.5, 1.1, 1], [-0.2, 1.1, 0.9, 2]] as const) {
+        const ax = Math.abs(rx - x * detail), az = Math.abs(rz - z * detail)
+        if (Math.max(ax, az) > radius * detail || ax + az > radius * detail * 1.7) continue
+        rockTop = Math.max(rockTop, peak - drop * detail)
       }
     }
     return { top, surface, body: 'water', floor, floorSurface, capSurface, rockTop, tile, known: true }
@@ -347,7 +370,7 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
     return { top: level, surface: path ? VOXEL.path : hills ? VOXEL.hillGrass : VOXEL.grass,
       body: hills ? 'cliff' : 'dirt', tile, known: true }
   }
-  const bank = sandbankLevel(world, known, id, gx, gz)
+  const bank = resourceAt(world, tile) ? undefined : sandbankLevel(world, known, id, gx, gz)
   if (bank !== undefined) return { top: Math.min(level, bank), surface: VOXEL.sand, body: 'sand', tile, known: true }
   if (tile.terrain === 'grassland') {
     const patch = noise(seed, 1, gx, gz, 5)
@@ -372,9 +395,11 @@ function columnHeight(world: VoxelWorld, known: Uint8Array, gx: number, gz: numb
   const id = columnTileAt(world, gx, gz)
   if (id < 0) return
   const tile = world.map.tiles[id]!
-  // Picking water/fog needs only the level cap, not an expensive submerged-coast sample.
-  const top = known[id] !== 1 || isWater(tile) ? tileSurface(world, tile, known[id] === 1) : column(world, known, gx, gz)!.top
-  return top * world.size
+  if (known[id] !== 1) return fogLevel(world.scale) * world.size
+  // Most water still needs only the cap; only candidate outcrop tiles require a coastal sample.
+  if (isWater(tile) && !hasCoastalRocks(world, tile)) return waterLevel(world.scale) * world.size
+  const info = column(world, known, gx, gz)!
+  return (info.body === 'water' ? Math.max(info.top, info.rockTop) : info.top) * world.size
 }
 
 /** World y of the visible ground, shared by picking, figures, markers and diagnostic projection. */
@@ -390,7 +415,7 @@ function layerKind(world: VoxelWorld, layer: number, info: Column): number {
     const level = layer - base
     if (level < info.floor) return level === info.floor - 1 || info.floorSurface === VOXEL.seabedDeep
       ? info.floorSurface : VOXEL.seabedStone
-    if (level < info.rockTop) return VOXEL.underwaterRock
+    if (level < info.rockTop) return level < info.top ? VOXEL.underwaterRock : VOXEL.stone
     if (level === info.top - 1) return info.capSurface
     return VOXEL.waterSurface
   }
@@ -544,13 +569,16 @@ function stampTrees(world: VoxelWorld, known: Uint8Array, volume: Volume): void 
   const shape = treeShape(scale)
   const detail = Math.max(1, scale / 8)
   for (const tile of tilesNear(world, volume, reach)) {
-    if (!tile.trees || known[tile.id] !== 1 || world.sites[tile.id]) continue
+    if (known[tile.id] !== 1 || world.sites[tile.id]) continue
+    const resource = resourceAt(world, tile)
+    if (resource === 'stone' || (!tile.trees && resource !== 'apples')) continue
+    const orchard = resource === 'apples'
     const [hx, hz] = hexCenter(tile.x, tile.z)
-    const count = Math.min(TREE_COUNT[tile.trees] ?? 0, shape.spots)
+    const count = Math.min(orchard ? 3 : TREE_COUNT[tile.trees] ?? 0, shape.spots)
     const clearing = settlementBehind(world, known, tile)
     const jitter = scale >= 8 ? detail : 0
     for (let index = 0; index < count; index++) {
-      const [right, down] = TREE_SPOTS[index]!
+      const [right, down] = scale >= 4 ? TREE_SPOTS[index]! : [0, 0]
       if (clearing && down < 0) continue
       const fx = right * SCREEN_RIGHT[0] + down * SCREEN_DOWN[0]
       const fz = right * SCREEN_RIGHT[1] + down * SCREEN_DOWN[1]
@@ -559,23 +587,24 @@ function stampTrees(world: VoxelWorld, known: Uint8Array, volume: Volume): void 
       if (columnTileAt(world, cx, cz) !== tile.id) continue
       const footing = column(world, known, cx, cz)!
       const rootX = cx - Math.floor(detail / 2), rootZ = cz - Math.floor(detail / 2)
-      let onSand = footing.body === 'sand'
-      // Check the whole trunk footprint so a beach cut cannot leave half a tree floating.
-      for (let z = 0; z < detail && !onSand; z++) for (let x = 0; x < detail; x++) {
-        if (column(world, known, rootX + x, rootZ + z)?.body === 'sand') onSand = true
+      let supported = true
+      // The whole trunk must stay on its charted tile, not over sand cuts or the map edge.
+      for (let z = 0; z < detail && supported; z++) for (let x = 0; x < detail; x++) {
+        const support = column(world, known, rootX + x, rootZ + z)
+        if (!support?.known || support.tile.id !== tile.id || support.body === 'sand') supported = false
       }
-      if (onSand) continue
+      if (!supported) continue
       const trunk = shape.trunk + Math.floor(hash(seed, tile.id, 30 + index, 0) * (shape.trunkVariance + 1))
       const radius = shape.radius + hash(seed, tile.id, 40 + index, 0) * shape.radiusVariance
       const layers = shape.layers + Math.floor(hash(seed, tile.id, 50 + index, 0) * (shape.layerVariance + 1))
       const species = hash(seed, tile.id, 60 + index, 0)
-      const conifer = species < 0.5
-      const leaves = LEAVES[conifer ? (species < 0.3 ? 2 : 0) : (species < 0.8 ? 1 : 3)]!
+      const conifer = !orchard && species < 0.5
+      const leaves = LEAVES[orchard ? 1 : conifer ? (species < 0.3 ? 2 : 0) : (species < 0.8 ? 1 : 3)]!
       const ground = base + footing.top
       for (let layer = 0; layer < trunk; layer++) for (let z = 0; z < detail; z++) for (let x = 0; x < detail; x++) {
         placeVoxel(volume, rootX + x, ground + layer, rootZ + z, VOXEL.trunk)
       }
-      const crown = conifer ? layers + detail : layers
+      const crown = conifer && scale >= 4 ? layers + detail : layers
       const span = Math.ceil(radius + CONIFER_FLARE * detail)
       for (let layer = 0; layer < crown; layer++) {
         const rise = layer / Math.max(1, crown - 1)
@@ -595,9 +624,32 @@ function stampTrees(world: VoxelWorld, known: Uint8Array, volume: Volume): void 
             // Nibble the outer shell so canopies read as organic voxel clusters, not spheres.
             if (scale >= 8 && !conifer && extent > 0.62 && grain < 0.22) continue
             const light = grain < 0.2 + 0.4 * rise
-            placeVoxel(volume, gx, gy, gz, light ? leaves[1] : leaves[0])
+            const fruit = orchard && scale >= 8 && extent > 0.4 && layer >= detail
+              && hash(seed, gx, gy + 131, gz) > 0.85
+            placeVoxel(volume, gx, gy, gz, fruit ? light ? VOXEL.appleLight : VOXEL.appleRed : light ? leaves[1] : leaves[0])
           }
         }
+      }
+    }
+  }
+}
+
+function stampDeposits(world: VoxelWorld, known: Uint8Array, volume: Volume): void {
+  const { scale, base } = world
+  const detail = Math.max(1, scale / 8)
+  for (const tile of tilesNear(world, volume, 0)) {
+    if (known[tile.id] !== 1 || resourceAt(world, tile) !== 'stone') continue
+    const [cx, cz] = centreColumn(world, tile)
+    for (const [right, down, radius, height] of [[-0.18, -0.15, 0.15, 0.2], [0.12, -0.26, 0.2, 0.34], [0.24, 0.04, 0.13, 0.15]] as const) {
+      const x = Math.round(cx + (right * SCREEN_RIGHT[0] + down * SCREEN_DOWN[0]) * scale)
+      const z = Math.round(cz + (right * SCREEN_RIGHT[1] + down * SCREEN_DOWN[1]) * scale)
+      const span = Math.max(0, Math.round(radius * scale) - 1)
+      for (let dz = -span; dz <= span; dz++) for (let dx = -span; dx <= span; dx++) {
+        if (columnTileAt(world, x + dx, z + dz) !== tile.id) continue
+        const ground = column(world, known, x + dx, z + dz)!.top
+        const top = Math.max(1, Math.round(height * scale) - Math.floor((Math.abs(dx) + Math.abs(dz)) / detail))
+        for (let y = 0; y < top; y++) placeVoxel(volume, x + dx, base + ground + y, z + dz,
+          (dx + dz + Math.floor(y / detail)) % 3 === 0 ? VOXEL.depositStoneDark : VOXEL.depositStone)
       }
     }
   }
@@ -637,12 +689,14 @@ function fillVolume(world: VoxelWorld, known: Uint8Array, chunk: number): Volume
       const info = column(world, known, x0 + x - 1, z0 + z - 1)
       if (!info) continue
       columns[z * (width + 2) + x] = info
-      for (let layer = 0; layer < base + info.top; layer++) {
+      const top = info.body === 'water' ? Math.max(info.top, info.rockTop) : info.top
+      for (let layer = 0; layer < base + top; layer++) {
         volume.data[(layer + 1) * strideY + z * (width + 2) + x] = layerKind(world, layer, info)
       }
     }
   }
   stampSettlements(world, known, volume)
+  stampDeposits(world, known, volume)
   stampTrees(world, known, volume)
   stampDetails(world, volume, columns)
   return volume

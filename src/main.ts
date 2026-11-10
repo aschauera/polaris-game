@@ -12,6 +12,7 @@ import {
   type MatchSummary,
 } from './exchange/match-storage'
 import { WorldRenderer } from './rendering/world'
+import { RESOURCES } from './rendering/resources'
 import { createHud, SCREEN_DIRECTIONS, type ScreenDirection } from './ui/hud'
 import { createMessengerPanel } from './ui/messenger'
 
@@ -91,9 +92,14 @@ function updateExpeditionHud(): void {
   hud.cities(cities, founder ? { x: state.map.tiles[founder.tileId]!.x, z: state.map.tiles[founder.tileId]!.z } : undefined, acting)
 }
 
+function resourceName(tile?: Tile): string | undefined {
+  const kind = tile && renderer?.resource(tile.id)
+  return kind ? RESOURCES[kind].name : undefined
+}
+
 function select(tile?: Tile): void {
   selectedTile = tile
-  hud.selection(tile)
+  hud.selection(tile, resourceName(tile))
   const state = expedition
   if (!state) return
   const scout = scoutOf(state)
@@ -131,6 +137,7 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
     ].filter(unit => unit.factionId === viewer || fog[unit.tileId] === 'visible')
       .map(unit => ({ tileId: unit.tileId, kind: unit.kind, banner: bannerOf(unit.factionId), rival: unit.factionId !== viewer })),
   }, dirtyTiles)
+  hud.selection(selectedTile, resourceName(selectedTile))
   updateExpeditionHud()
 }
 
@@ -183,7 +190,7 @@ function syncForm(world: WorldMap): void {
 function show(next: WorldMap, session?: Expedition): void {
   try {
     const renderStart = performance.now()
-    renderer ??= new WorldRenderer(hud.canvas, select, hud.hover, hud.error)
+    renderer ??= new WorldRenderer(hud.canvas, select, tile => hud.hover(tile, resourceName(tile)), hud.error)
     expedition = session
     scoutSelected = false
     renderer.setMap(next)
