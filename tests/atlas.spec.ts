@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { generateMap, type Tile, type WorldMap } from '../src/game/map'
 import { HEX_ROW, hexCenter } from '../src/game/hex'
-import { createVoxelWorld, centreColumn, type VoxelWorld } from '../src/rendering/voxels'
+import { createVoxelWorld, centreColumn, groundHeight, tileSurface, type VoxelWorld } from '../src/rendering/voxels'
 
 async function settled(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
@@ -186,6 +186,43 @@ test('renders submerged water detail while picking the unchanged level surface',
   await page.mouse.click(origin!.x, origin!.y)
   await expect(page.getByRole('status')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
   expect((await stats(page)).waterSurfaceQuads).toBeGreaterThan(0)
+})
+
+test('renders a broad lowered sandbank and picks its original land tile', async ({ page }, testInfo) => {
+  const map = generateMap({ seed: 'polaris', width: 32, height: 32 })
+  const world = createVoxelWorld(map)
+  const known = new Uint8Array(map.tiles.length).fill(1)
+  const tile = map.tiles.filter(tile => tile.terrain === 'grassland' && tile.trees === 0
+    && groundHeight(world, known, ...hexCenter(tile.x, tile.z)) === 0.375)
+    .sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16))[0]
+  expect(tile, 'A low sandy pocket occupying the centre of an existing land hex').toBeDefined()
+  expect(tileSurface(world, tile!, true) * world.size).toBeGreaterThan(0.375)
+  await page.goto('/?diagnostics=1')
+  await expect(page.locator('#map-status')).toContainText('1,024 TILES')
+  await inspectSurface(page, tile!)
+  const initial = await stats(page)
+  const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile!.id)
+  await page.mouse.click(point.x, point.y)
+  await expect(page.getByRole('status')).toHaveText(`(${tile!.x}, ${tile!.z}) · Grassland · Tile ${tile!.id}`)
+  await page.mouse.move(20, 20)
+  await settled(page)
+  const sandPixels = await page.locator('canvas').evaluate((canvas, point) => {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!
+    const rect = canvas.getBoundingClientRect()
+    let sand = 0
+    for (let dy = -6; dy <= 6; dy += 3) for (let dx = -6; dx <= 6; dx += 3) {
+      const pixel = new Uint8Array(4)
+      gl.readPixels(Math.floor((point.x - rect.left + dx) * gl.drawingBufferWidth / rect.width),
+        gl.drawingBufferHeight - 1 - Math.floor((point.y - rect.top + dy) * gl.drawingBufferHeight / rect.height),
+        1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+      const r = pixel[0]!, g = pixel[1]!, b = pixel[2]!, a = pixel[3]!
+      if (r >= g * 0.96 && r > b * 1.3 && g > 160 && b > 115 && a === 255) sand++
+    }
+    return sand
+  }, point)
+  expect(sandPixels, 'Actual pale sand covers an area around the lowered centre, not just a border').toBeGreaterThanOrEqual(20)
+  expect(await stats(page)).toMatchObject({ vertices: initial.vertices, remeshedChunks: initial.remeshedChunks, rngState: initial.rngState })
+  await page.locator('canvas').screenshot({ path: testInfo.outputPath('sandbank-selection.png') })
 })
 
 for (const terrain of ['water', 'grassland'] as const) {

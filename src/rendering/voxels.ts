@@ -152,6 +152,7 @@ function treeShape(scale: number): TreeShape {
 export function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
 /** Columns of turquoise shoal water around charted land, beyond the shallow rim; none at the coarsest scale. */
 function shoalReach(scale: number): number { return scale >= 4 ? scale / 2 : 0 }
+function sandbankReach(scale: number): number { return scale >= 4 ? Math.ceil(scale * 0.9) : 0 }
 function fogLevel(scale: number): number { return Math.max(1, Math.round(0.65 * scale)) }
 function bumpLimit(scale: number): number { return scale >= 4 ? scale / 4 : 0 }
 
@@ -229,44 +230,34 @@ function noise(seed: number, salt: number, x: number, z: number, cell: number): 
 
 type Column = { top: number; surface: number; tile: Tile; known: boolean } & (
   { body: 'water'; floor: number; floorSurface: number; capSurface: number; rockTop: number }
-  | { body: 'fog' | 'dirt' | 'cliff' }
+  | { body: 'fog' | 'dirt' | 'cliff' | 'sand' }
 )
 
 const AXES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const
 
-/** Whether a charted tile other than the column's own lies `steps` columns away along a grid axis and matches. */
-function borders(world: VoxelWorld, known: Uint8Array, id: number, gx: number, gz: number, steps: number,
-  matches: (neighbor: Tile) => boolean): boolean {
-  for (const [dx, dz] of AXES) {
-    const other = columnTileAt(world, gx + dx * steps, gz + dz * steps)
-    // Only charted neighbors may shape this tile, or its rim would reveal hidden terrain.
-    if (other >= 0 && other !== id && known[other] === 1 && matches(world.map.tiles[other]!)) return true
-  }
-  return false
-}
-
 const isLand = (tile: Tile) => tile.terrain !== 'water'
 const isWater = (tile: Tile) => tile.terrain === 'water'
 
-/** Nearest charted land column, so water depth follows the real coast rather than concentric bands. */
-function chartedLandDistance(world: VoxelWorld, known: Uint8Array, id: number, gx: number, gz: number, radius: number): number {
-  // Skip open ocean using tile bounds before scanning individual columns. Only charted land participates.
+/** Distance to the charted coast, shared by submerged terraces and land-side sandbanks. */
+function chartedCoastDistance(world: VoxelWorld, known: Uint8Array, id: number, gx: number, gz: number, radius: number,
+  matches: (tile: Tile) => boolean): number {
+  // Reject distant terrain using tile bounds before scanning individual columns.
   const { map, size, originX, originZ } = world
   const x = originX + (gx + 0.5) * size, z = originZ + (gz + 0.5) * size
   const worldRadius = radius * size
   const top = Math.max(0, Math.ceil((z - worldRadius - HEX_RADIUS) / HEX_ROW))
   const bottom = Math.min(map.height - 1, Math.floor((z + worldRadius + HEX_RADIUS) / HEX_ROW))
-  let nearLand = false
-  for (let row = top; row <= bottom && !nearLand; row++) {
+  let nearCoast = false
+  for (let row = top; row <= bottom && !nearCoast; row++) {
     const shift = (row & 1) * 0.5
     const left = Math.max(0, Math.ceil(x - worldRadius - 0.5 - shift))
     const right = Math.min(map.width - 1, Math.floor(x + worldRadius + 0.5 - shift))
     for (let col = left; col <= right; col++) {
       const other = row * map.width + col
-      if (known[other] === 1 && isLand(map.tiles[other]!)) { nearLand = true; break }
+      if (known[other] === 1 && matches(map.tiles[other]!)) { nearCoast = true; break }
     }
   }
-  if (!nearLand) return Infinity
+  if (!nearCoast) return Infinity
   const reach = Math.ceil(radius)
   const radiusSquared = radius * radius
   let nearestSquared = Infinity
@@ -275,13 +266,27 @@ function chartedLandDistance(world: VoxelWorld, known: Uint8Array, id: number, g
       const distanceSquared = dx * dx + dz * dz
       if (distanceSquared > radiusSquared || distanceSquared >= nearestSquared) continue
       const other = columnTileAt(world, gx + dx, gz + dz)
-      // Uncharted land must not shape visible water, or the shoal would outline hidden coasts.
-      if (other >= 0 && other !== id && known[other] === 1 && isLand(world.map.tiles[other]!)) {
+      // Neither sandbanks nor underwater terraces may outline an uncharted neighbour.
+      if (other >= 0 && other !== id && known[other] === 1 && matches(world.map.tiles[other]!)) {
         nearestSquared = distanceSquared
       }
     }
   }
   return Math.sqrt(nearestSquared)
+}
+
+function sandbankLevel(world: VoxelWorld, known: Uint8Array, id: number, gx: number, gz: number): number | undefined {
+  const { scale, seed } = world
+  const reach = sandbankReach(scale)
+  if (!reach) return
+  const broad = noise(seed, 91, gx, gz, scale * 2.5)
+  const edge = noise(seed, 92, gx, gz, scale * 0.6)
+  const width = Math.min(reach, scale * Math.max(0, (broad - 0.45) * 3.2 + (edge - 0.5) * 0.24))
+  if (width < 1) return
+  const distance = chartedCoastDistance(world, known, id, gx, gz, reach, isWater)
+  if (distance > width) return
+  // Broad low beaches and a higher inland shelf cut pockets into the original cliffs.
+  return waterLevel(scale) + Math.max(1, Math.round((distance > width * 0.72 ? 2 : 1) * scale / 8))
 }
 
 function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): Column | undefined {
@@ -291,13 +296,9 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
   const detail = Math.max(1, scale / 8)
   const tile = map.tiles[id]!
   if (known[id] !== 1) return { top: fogLevel(scale), surface: VOXEL.fog, body: 'fog', tile, known: false }
-  // Keep the coast's world-space width when the showcase uses finer voxels.
-  const rim = (matches: (neighbor: Tile) => boolean, salt: number) => scale >= 4
-    && (borders(world, known, id, gx, gz, detail, matches)
-      || (scale >= 8 && noise(seed, salt, gx, gz, 3 * detail) > 0.45 && borders(world, known, id, gx, gz, 2 * detail, matches)))
   if (tile.terrain === 'water') {
     const reach = shoalReach(scale)
-    const nearestLand = reach > 0 ? chartedLandDistance(world, known, id, gx, gz, 2 * reach + 1) : Infinity
+    const nearestLand = reach > 0 ? chartedCoastDistance(world, known, id, gx, gz, 2 * reach + 1, isLand) : Infinity
     const coastWarp = reach > 0
       ? (noise(seed, 88, gx, gz, scale * 3) - 0.5) * scale * 0.85
         + (noise(seed, 90, gx, gz, scale) - 0.5) * scale * 0.3
@@ -308,13 +309,10 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
     else if (coastDistance <= reach) surface = VOXEL.shoal
     else if (coastDistance <= 2 * reach) surface = VOXEL.shelf
     const top = waterLevel(scale)
-    const maxDepth = Math.max(1, Math.round(7 * scale / 8))
-    const nominalDepth = Math.min(maxDepth, Number.isFinite(coastDistance) ? detail + Math.round(coastDistance * 0.75) : maxDepth)
-    const broadRelief = noise(seed, 84, gx, gz, scale * 2)
-    const fineRelief = noise(seed, 86, gx, gz, Math.max(2, scale * 0.75))
-    const reliefScale = surface === VOXEL.water ? 0 : surface === VOXEL.shallow ? 0.8 : 1
-    const depthVariation = Math.round(((broadRelief * 0.75 + fineRelief * 0.25) - 0.5) * 2 * detail * reliefScale)
-    const floor = Math.max(1 - world.base, top - Math.max(1, nominalDepth + depthVariation))
+    // Four world-space terraces, not one depth step per fine voxel; coarse grids merge unrepresentable levels.
+    const depth = Math.max(1, Math.round((surface === VOXEL.shallow ? 1 : surface === VOXEL.shoal ? 3
+      : surface === VOXEL.shelf ? 5 : 7) * scale / 8))
+    const floor = Math.max(1 - world.base, top - depth)
     const bottomTexture = noise(seed, 87, gx, gz, scale * 0.75)
     const floorSurface = surface === VOXEL.shallow
       ? VOXEL.seabedSand
@@ -349,10 +347,11 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
     return { top: level, surface: path ? VOXEL.path : hills ? VOXEL.hillGrass : VOXEL.grass,
       body: hills ? 'cliff' : 'dirt', tile, known: true }
   }
+  const bank = sandbankLevel(world, known, id, gx, gz)
+  if (bank !== undefined) return { top: Math.min(level, bank), surface: VOXEL.sand, body: 'sand', tile, known: true }
   if (tile.terrain === 'grassland') {
-    const beach = tile.elevation === 1 && noise(seed, 6, gx, gz, 3) > 0.42 && rim(isWater, 9)
     const patch = noise(seed, 1, gx, gz, 5)
-    const surface = beach ? VOXEL.sand : patch < 0.3 ? VOXEL.grassDark : patch > 0.72 ? VOXEL.grassLight : VOXEL.grass
+    const surface = patch < 0.3 ? VOXEL.grassDark : patch > 0.72 ? VOXEL.grassLight : VOXEL.grass
     return { top: level, surface, body: 'dirt', tile, known: true }
   }
   const inner = AXES.every(([dx, dz]) => columnTileAt(world, gx + dx, gz + dz) === id)
@@ -369,10 +368,18 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
   return { top: level + bump, surface, body: 'cliff', tile, known: true }
 }
 
-/** World y of the visible ground at a world point, for standing figures on hill mounds. */
+function columnHeight(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): number | undefined {
+  const id = columnTileAt(world, gx, gz)
+  if (id < 0) return
+  const tile = world.map.tiles[id]!
+  // Picking water/fog needs only the level cap, not an expensive submerged-coast sample.
+  const top = known[id] !== 1 || isWater(tile) ? tileSurface(world, tile, known[id] === 1) : column(world, known, gx, gz)!.top
+  return top * world.size
+}
+
+/** World y of the visible ground, shared by picking, figures, markers and diagnostic projection. */
 export function groundHeight(world: VoxelWorld, known: Uint8Array, x: number, z: number): number | undefined {
-  const top = column(world, known, Math.floor((x - world.originX) * world.scale), Math.floor((z - world.originZ) * world.scale))?.top
-  return top === undefined ? undefined : top * world.size
+  return columnHeight(world, known, Math.floor((x - world.originX) * world.scale), Math.floor((z - world.originZ) * world.scale))
 }
 
 function layerKind(world: VoxelWorld, layer: number, info: Column): number {
@@ -394,6 +401,7 @@ function layerKind(world: VoxelWorld, layer: number, info: Column): number {
   }
   const level = layer - base
   if (level === info.top - 1) return info.surface
+  if (info.body === 'sand') return VOXEL.sand
   const band = Math.floor(level / 2) % 3 === 2
   if (info.body === 'cliff') return band ? VOXEL.cliffDark : VOXEL.cliff
   return band ? VOXEL.dirtDark : VOXEL.dirt
@@ -549,15 +557,23 @@ function stampTrees(world: VoxelWorld, known: Uint8Array, volume: Volume): void 
       const cx = Math.floor((hx + fx - originX) * scale) + Math.round((hash(seed, tile.id, 10 + index, 0) * 2 - 1) * jitter)
       const cz = Math.floor((hz + fz - originZ) * scale) + Math.round((hash(seed, tile.id, 20 + index, 0) * 2 - 1) * jitter)
       if (columnTileAt(world, cx, cz) !== tile.id) continue
+      const footing = column(world, known, cx, cz)!
+      const rootX = cx - Math.floor(detail / 2), rootZ = cz - Math.floor(detail / 2)
+      let onSand = footing.body === 'sand'
+      // Check the whole trunk footprint so a beach cut cannot leave half a tree floating.
+      for (let z = 0; z < detail && !onSand; z++) for (let x = 0; x < detail; x++) {
+        if (column(world, known, rootX + x, rootZ + z)?.body === 'sand') onSand = true
+      }
+      if (onSand) continue
       const trunk = shape.trunk + Math.floor(hash(seed, tile.id, 30 + index, 0) * (shape.trunkVariance + 1))
       const radius = shape.radius + hash(seed, tile.id, 40 + index, 0) * shape.radiusVariance
       const layers = shape.layers + Math.floor(hash(seed, tile.id, 50 + index, 0) * (shape.layerVariance + 1))
       const species = hash(seed, tile.id, 60 + index, 0)
       const conifer = species < 0.5
       const leaves = LEAVES[conifer ? (species < 0.3 ? 2 : 0) : (species < 0.8 ? 1 : 3)]!
-      const ground = base + column(world, known, cx, cz)!.top
+      const ground = base + footing.top
       for (let layer = 0; layer < trunk; layer++) for (let z = 0; z < detail; z++) for (let x = 0; x < detail; x++) {
-        placeVoxel(volume, cx + x - Math.floor(detail / 2), ground + layer, cz + z - Math.floor(detail / 2), VOXEL.trunk)
+        placeVoxel(volume, rootX + x, ground + layer, rootZ + z, VOXEL.trunk)
       }
       const crown = conifer ? layers + detail : layers
       const span = Math.ceil(radius + CONIFER_FLARE * detail)
@@ -602,7 +618,9 @@ function stampDetails(world: VoxelWorld, volume: Volume, columns: (Column | unde
       if (info.tile.terrain === 'grassland' && info.surface !== VOXEL.sand && roll < 0.02 * density) {
         const pick = hash(seed, gx, 71, gz)
         placeVoxel(volume, gx, base + info.top, gz, pick < 0.8 ? VOXEL.tuft : FLOWERS[Math.floor((pick - 0.8) / 0.2 * 4)]!)
-      } else if (info.tile.terrain === 'hills' && roll < 0.012 * density) placeVoxel(volume, gx, base + info.top, gz, VOXEL.stone)
+      } else if ((info.tile.terrain === 'hills' || info.body === 'sand') && roll < 0.012 * density) {
+        placeVoxel(volume, gx, base + info.top, gz, VOXEL.stone)
+      }
     }
   }
 }
@@ -808,7 +826,7 @@ export function affectedChunks(world: VoxelWorld, tileIds: Iterable<number>): Se
   const chunks = new Set<number>()
   // A changed tile moves its own columns, its trees, coastal bands next to it and adjacent ambient occlusion.
   // A settlement also clears back-row trees of the hexes east, south-east and south-west of it, half a hex further in x.
-  const margin = Math.max(reach + 3, 2 * shoalReach(scale) + 2)
+  const margin = Math.max(reach + 3, 2 * shoalReach(scale) + 2, sandbankReach(scale) + reach + 1)
   const halfX = scale / 2 + Math.ceil(scale / 2)
   const halfZ = Math.ceil(HEX_RADIUS * scale)
   for (const id of tileIds) {
@@ -823,16 +841,15 @@ export function affectedChunks(world: VoxelWorld, tileIds: Iterable<number>): Se
 }
 
 /**
- * Deterministic tile picking on the visible tile heightfield: march the ray through voxel columns (2D DDA) and
+ * Deterministic tile picking on the actual terrain heightfield: march the ray through voxel columns (2D DDA) and
  * return the tile of the first column whose surface it passes below. Decorations never intercept tile picks.
  */
-export function pickTile(world: VoxelWorld, heights: Float32Array,
+export function pickTile(world: VoxelWorld, known: Uint8Array,
   origin: readonly [number, number, number], direction: readonly [number, number, number]): number | undefined {
   const { columnsX, columnsZ, columnTile, size, originX, originZ } = world
   const [ox, oy, oz] = origin
   const [dx, dy, dz] = direction
-  let top = 0
-  for (const height of heights) top = Math.max(top, height)
+  const top = (world.layers - world.base) * size
   const bounds = [[originX, originX + columnsX * size, ox, dx], [-world.base * size, top + 1e-6, oy, dy],
     [originZ, originZ + columnsZ * size, oz, dz]] as const
   let enter = 0
@@ -860,7 +877,7 @@ export function pickTile(world: VoxelWorld, heights: Float32Array,
   for (;;) {
     const leave = Math.min(tx, tz, exit)
     const id = columnTile[z * columnsX + x]!
-    if (id >= 0 && oy + dy * leave <= heights[id]! + epsilon) return id
+    if (id >= 0 && oy + dy * leave <= columnHeight(world, known, x, z)! + epsilon) return id
     if (leave >= exit) return
     // A ray through an exact column corner passes diagonally; it does not touch the two edge neighbours.
     const both = Math.abs(tx - tz) < epsilon

@@ -215,7 +215,7 @@ describe('hex voxel terrain', () => {
     }
     const waterColumns = world.columnTile.filter(id => id >= 0 && map.tiles[id]!.terrain === 'water').length
     expect(surfaceArea).toBeCloseTo(waterColumns * world.size ** 2, 6)
-    expect(floorHeights.size).toBeGreaterThanOrEqual(4)
+    expect([...floorHeights].sort((a, b) => a - b)).toEqual([-0.625, -0.375, -0.125, 0.125])
     expect(Math.max(...floorHeights)).toBeLessThan(waterTop)
     expect(shows(meshes, VOXEL.seabedSand)).toBe(true)
     expect(shows(meshes, VOXEL.seabedStone)).toBe(true)
@@ -238,6 +238,96 @@ describe('hex voxel terrain', () => {
     const fog = meshAll(world, known)
     expect(shows(fog, VOXEL.underwaterRock)).toBe(false)
     expect(fog.every(mesh => mesh.waterIndexCount === 0)).toBe(true)
+  })
+
+  it('keeps four main terraces at both detailed scales and merges only unrepresentable coarse levels', () => {
+    for (const [width, levels] of [[32, [-0.625, -0.375, -0.125, 0.125]], [64, [-0.625, -0.375, -0.125, 0.125]],
+      [128, [-0.5, -0.25, 0]], [256, [-0.5]]] as const) {
+      const map = flatMap(width, 8, Object.fromEntries(Array.from({ length: width * 8 }, (_, id) =>
+        [id, id === 4 * width + 4 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+      const world = createVoxelWorld(map)
+      const heights = new Set<number>()
+      for (const mesh of meshAll(world, allKnown(map))) for (let v = 0; v < mesh.faceFlags.length; v += 4) {
+        if (mesh.faceFlags[v] === FACE_FLAG.waterFloor && mesh.normals[v * 3 + 1] === 1) heights.add(mesh.positions[v * 3 + 1]!)
+      }
+      expect([...heights].sort((a, b) => a - b), `Scale ${world.scale}`).toEqual(levels)
+    }
+  })
+
+  it('cuts broad, irregular sandbanks into grassland and cliff faces without changing the domain', () => {
+    for (const terrain of ['grassland', 'hills'] as const) {
+      const map = flatMap(12, 12, Object.fromEntries(Array.from({ length: 144 }, (_, id) => [id, id % 12 < 5
+        ? { terrain: 'water' as const, elevation: 0 } : { terrain, elevation: terrain === 'hills' ? 3 : 1 }])))
+      const original = structuredClone(map)
+      const world = createVoxelWorld(map)
+      const known = allKnown(map)
+      const meshes = meshAll(world, known)
+      const sand = new Set<number>(), heights = new Set<number>()
+      const waterTop = tileSurface(world, map.tiles[0]!, true) * world.size
+      for (const mesh of meshes) for (let v = 0; v < mesh.faceFlags.length; v += 4) {
+        if (mesh.normals[v * 3 + 1] !== 1 || kindAt(mesh, v) !== VOXEL.sand) continue
+        const height = mesh.positions[v * 3 + 1]!
+        const xs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3]!)
+        const zs = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 2]!)
+        heights.add(height)
+        expect(height).toBeGreaterThan(waterTop)
+        const left = Math.round((Math.min(...xs) - world.originX) * world.scale)
+        const right = Math.round((Math.max(...xs) - world.originX) * world.scale)
+        const top = Math.round((Math.min(...zs) - world.originZ) * world.scale)
+        const bottom = Math.round((Math.max(...zs) - world.originZ) * world.scale)
+        for (let z = top; z < bottom; z++) for (let x = left; x < right; x++) {
+          const id = columnTileAt(world, x, z)
+          expect(map.tiles[id]!.terrain).toBe(terrain)
+          expect(height).toBeLessThan(tileSurface(world, map.tiles[id]!, true) * world.size)
+          expect(groundHeight(world, known, world.originX + (x + 0.5) * world.size,
+            world.originZ + (z + 0.5) * world.size)).toBe(height)
+          sand.add(z * world.columnsX + x)
+        }
+      }
+      const widths = Array.from({ length: world.columnsZ }, () => 0)
+      for (const index of sand) widths[Math.floor(index / world.columnsX)]!++
+      expect([...heights].sort((a, b) => a - b)).toEqual([0.375, 0.5])
+      expect(sand.size * world.size ** 2, 'Sand occupies areas, not just a painted one-voxel rim').toBeGreaterThan(1)
+      expect(Math.max(...widths)).toBeGreaterThan(world.scale / 3)
+      expect(new Set(widths).size, 'The coast alternates between wide pockets and intact cliffs').toBeGreaterThan(5)
+      expect(shows(meshes, terrain === 'hills' ? VOXEL.cliff : VOXEL.dirt)).toBe(true)
+      expect(map).toEqual(original)
+    }
+  })
+
+  it('never forms sandbanks from unseen water and keeps settled coast tiles level', () => {
+    const map = flatMap(12, 12, Object.fromEntries(Array.from({ length: 144 }, (_, id) =>
+      [id, id % 12 < 5 ? { terrain: 'water' as const, elevation: 0 } : {}])))
+    const world = createVoxelWorld(map)
+    const known = Uint8Array.from(map.tiles, tile => tile.terrain === 'water' ? 0 : 1)
+    expect(shows(meshAll(world, known), VOXEL.sand)).toBe(false)
+    known.fill(1)
+    expect(shows(meshAll(world, known), VOXEL.sand)).toBe(true)
+    for (const tile of map.tiles) if (tile.terrain !== 'water') world.sites[tile.id] = siteCode({ houses: 1, storehouse: false, banner: 0 })
+    expect(shows(meshAll(world, known), VOXEL.sand)).toBe(false)
+    for (const tile of map.tiles) {
+      expect(groundHeight(world, known, ...hexCenter(tile.x, tile.z))).toBe(tileSurface(world, tile, true) * world.size)
+    }
+  })
+
+  it('keeps coastal tree roots supported by grass rather than suspended above a lowered bank', () => {
+    const map = flatMap(12, 12, Object.fromEntries(Array.from({ length: 144 }, (_, id) => [id, id % 12 < 5
+      ? { terrain: 'water' as const, elevation: 0 } : { trees: id % 12 < 8 && id >= 24 && id < 120 ? 3 : 0 }])))
+    const world = createVoxelWorld(map)
+    const known = allKnown(map)
+    const plateau = tileSurface(world, map.tiles[5]!, true) * world.size
+    let roots = 0
+    for (const mesh of meshAll(world, known)) for (let v = 0; v < mesh.faceFlags.length; v += 4) {
+      if (kindAt(mesh, v) !== VOXEL.trunk) continue
+      const ys = [0, 1, 2, 3].map(k => mesh.positions[(v + k) * 3 + 1]!)
+      expect(Math.min(...ys)).toBeGreaterThanOrEqual(plateau)
+      if (Math.min(...ys) !== plateau) continue
+      const [x, z] = [0, 2].map(axis => [0, 1, 2, 3].reduce((sum, k) => sum + mesh.positions[(v + k) * 3 + axis]!, 0) / 4
+        - mesh.normals[v * 3 + axis]! * world.size / 2)
+      expect(groundHeight(world, known, x!, z!), 'Root must have ground directly underneath').toBe(plateau)
+      roots++
+    }
+    expect(roots).toBeGreaterThan(10)
   })
 
   it('layers charted coasts from shallow water through shoal and shelf to deep water', () => {
@@ -550,32 +640,36 @@ describe('hex voxel terrain', () => {
     const map = flatMap(6, 6, { 21: { terrain: 'hills', elevation: 4 }, 0: { terrain: 'water', elevation: 0 } })
     const world = createVoxelWorld(map)
     const known = allKnown(map)
-    const heights = new Float32Array(map.tiles.map(tile => tileSurface(world, tile, known[tile.id] === 1) * world.size))
     const ray = (x: number, z: number) => {
       const [cx, cz] = hexCenter(x, z)
-      const y = heights[z * 6 + x]!
-      return pickTile(world, heights, [cx + VIEW[0] * 30, y + VIEW[1] * 30, cz + VIEW[2] * 30], DOWN_VIEW)
+      const y = groundHeight(world, known, cx, cz)!
+      return pickTile(world, known, [cx + VIEW[0] * 30, y + VIEW[1] * 30, cz + VIEW[2] * 30], DOWN_VIEW)
     }
     for (const tile of map.tiles) {
       const [cx, cz] = hexCenter(tile.x, tile.z)
-      expect(pickTile(world, heights, [cx + 0.05, 20, cz + 0.05], [0, -1, 0])).toBe(tile.id)
+      expect(pickTile(world, known, [cx + 0.05, 20, cz + 0.05], [0, -1, 0])).toBe(tile.id)
     }
-    // At the lower reference angle the foreground grass hides this water tile's centre.
+    // The lowered sandbank exposes water that the former full-height cliff incorrectly intercepted.
+    expect(ray(0, 0)).toBe(0)
+    world.sites[6] = siteCode({ houses: 1, storehouse: false, banner: 0 })
     expect(ray(0, 0)).toBe(6)
+    world.sites[6] = 0
     expect(ray(5, 5)).toBe(35)
     expect(ray(3, 3)).toBe(21)
     // The hill at (3, 3) hides its north-west neighbour along the oblique view.
     expect(ray(3, 2)).toBe(21)
     expect(ray(1, 4)).toBe(25)
-    expect(pickTile(world, heights, [-5, 20, -5], [0, -1, 0])).toBeUndefined()
-    expect(pickTile(world, heights, [3, 20, 3], [1, 0.2, 1])).toBeUndefined()
+    expect(pickTile(world, known, [-5, 20, -5], [0, -1, 0])).toBeUndefined()
+    expect(pickTile(world, known, [3, 20, 3], [1, 0.2, 1])).toBeUndefined()
   })
 
   it('matches a brute-force column intersection for arbitrary oblique rays', () => {
     const map = generateMap({ seed: 'pick', width: 12, height: 9 })
     const world = createVoxelWorld(map)
-    const heights = new Float32Array(map.tiles.map(tile => tileSurface(world, tile, true) * world.size))
+    const known = allKnown(map)
     const { columnsX, columnsZ, columnTile, originX, originZ, size } = world
+    const heights = Float32Array.from(columnTile, (_, index) => groundHeight(world, known,
+      originX + (index % columnsX + 0.5) * size, originZ + (Math.floor(index / columnsX) + 0.5) * size) ?? 0)
     let state = 7
     const random = () => (state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 4294967296
     for (let sample = 0; sample < 600; sample++) {
@@ -597,13 +691,13 @@ describe('hex voxel terrain', () => {
             enter = Math.max(enter, Math.min(a, b))
             leave = Math.min(leave, Math.max(a, b))
           }
-          if (leave - enter > 1e-7 && origin[1] - leave <= heights[id]! && enter < first) {
+          if (leave - enter > 1e-7 && origin[1] - leave <= heights[gz * columnsX + gx]! && enter < first) {
             first = enter
             expected = id
           }
         }
       }
-      expect(pickTile(world, heights, origin, direction), `sample ${sample}`).toBe(expected)
+      expect(pickTile(world, known, origin, direction), `sample ${sample}`).toBe(expected)
     }
   }, 60_000)
 

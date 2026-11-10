@@ -10,7 +10,7 @@ import type { Visibility } from '../game/expedition'
 import { figureMesh, type FigureKind } from './figures'
 import { CAMERA_PITCH as PITCH, CAMERA_YAW as YAW, SCREEN_DOWN as DOWN, SCREEN_RIGHT as RIGHT } from './view'
 import {
-  PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, siteCode, territoryCode, tileSurface,
+  PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, siteCode, territoryCode,
   waterLevel,
   type ChunkMesh, type Settlement, type VoxelWorld,
 } from './voxels'
@@ -320,7 +320,7 @@ export class WorldRenderer {
   private chunks: Chunk[] = []
   private world?: VoxelWorld
   private known = new Uint8Array(0)
-  private heights = new Float32Array(0)
+  private selectedTile?: Tile
   private tileStateData = new Uint8Array(0)
   private columnStateData = new Uint8Array(0)
   private tileState?: RawTexture
@@ -496,7 +496,6 @@ export class WorldRenderer {
     const world = createVoxelWorld(map)
     this.world = world
     this.known = new Uint8Array(map.tiles.length).fill(1)
-    this.heights = Float32Array.from(map.tiles, tile => tileSurface(world, tile, true) * world.size)
     this.tileStateData = new Uint8Array(map.tiles.length * 4)
     for (let id = 0; id < map.tiles.length; id++) this.tileStateData[id * 4 + 3] = 255
     this.tileState = this.dataTexture('voxel-tile-state', this.tileStateData, map.width, map.height)
@@ -579,7 +578,6 @@ export class WorldRenderer {
       const known = visibility === 'unseen' ? 0 : 1
       if (this.known[id] !== known) {
         this.known[id] = known
-        this.heights[id] = tileSurface(world, map.tiles[id]!, known === 1) * world.size
         charted.push(id)
       }
       this.tileStateData[id * 4] = visibility === 'explored' ? 255 : 0
@@ -617,7 +615,8 @@ export class WorldRenderer {
     this.shadowsStale = true
     this.invalidate()
     this.showHover()
-    if (!previous || !view) this.showSelection()
+    if (!previous || !view || (this.selectedTile && !this.known[this.selectedTile.id])) this.showSelection()
+    else this.placeMarker(this.selection, this.selectedTile)
   }
 
   private buildFigures(view?: ExplorationView): void {
@@ -638,8 +637,8 @@ export class WorldRenderer {
       const shift = (slot - (stacks.get(unit.tileId)! - 1) / 2) * 0.3
       const x = cx + RIGHT[0] * shift
       const z = cz + RIGHT[1] * shift
-      // Figures stand on the visible voxel under their feet, which may be a hill terrace.
-      const ground = groundHeight(world, this.known, x, z) ?? this.heights[unit.tileId]!
+      // Figures stand on the visible voxel under their feet, including hills and lowered sandbanks.
+      const ground = groundHeight(world, this.known, x, z) ?? this.tileHeight(tile)
       const figure = new Mesh(`figure-${unit.kind}-${index}`, this.scene)
       applyMesh(figure, figureMesh(unit.kind, unit.banner))
       figure.material = this.figureMaterial
@@ -653,7 +652,7 @@ export class WorldRenderer {
       if (unit.rival) {
         const ring = hexRing(`rival-${index}`, 0.9, 0.97, true, this.scene)
         ring.material = this.rivalMaterial
-        ring.position.set(cx, this.heights[unit.tileId]! + 0.03, cz)
+        ring.position.set(cx, this.tileHeight(tile) + 0.03, cz)
         ring.isPickable = false
         ring.renderingGroupId = 1
         this.figures.push(ring)
@@ -702,7 +701,7 @@ export class WorldRenderer {
     for (const { element, tileId } of this.plates) {
       const tile = map.tiles[tileId]!
       const [x, z] = hexCenter(tile.x, tile.z)
-      const point = Vector3.Project(new Vector3(x, this.heights[tileId]! + PLATE_HEIGHT, z), Matrix.Identity(), transform, viewport)
+      const point = Vector3.Project(new Vector3(x, this.tileHeight(tile) + PLATE_HEIGHT, z), Matrix.Identity(), transform, viewport)
       const visible = point.x >= 0 && point.y >= 0 && point.x <= width && point.y <= height
       element.hidden = !visible
       element.style.left = `${this.canvas.offsetLeft + point.x}px`
@@ -866,7 +865,7 @@ export class WorldRenderer {
     const x = (clientX - rect.left) * this.engine.getRenderWidth() / rect.width
     const y = (clientY - rect.top) * this.engine.getRenderHeight() / rect.height
     const ray = this.scene.createPickingRay(x, y, Matrix.Identity(), this.camera, false)
-    const id = pickTile(this.world, this.heights, [ray.origin.x, ray.origin.y, ray.origin.z],
+    const id = pickTile(this.world, this.known, [ray.origin.x, ray.origin.y, ray.origin.z],
       [ray.direction.x, ray.direction.y, ray.direction.z])
     return id === undefined || (this.exploration && !this.exploration.fog[id]) ? undefined : this.map.tiles[id]
   }
@@ -876,11 +875,21 @@ export class WorldRenderer {
     marker.setEnabled(!!tile)
     if (!tile) return
     const [x, z] = hexCenter(tile.x, tile.z)
-    marker.position.set(x, this.heights[tile.id]! + 0.03, z)
+    marker.position.set(x, this.tileHeight(tile) + 0.03, z)
+  }
+
+  private tileHeight(tile: Tile): number {
+    const height = groundHeight(this.world!, this.known, ...hexCenter(tile.x, tile.z))
+    if (height === undefined) throw new Error(`Missing terrain height at tile ${tile.id}`)
+    return height
   }
 
   private showHover(tile?: Tile): void { this.placeMarker(this.hover, tile); this.onHover(tile) }
-  private showSelection(tile?: Tile): void { this.placeMarker(this.selection, tile); this.onSelect(tile) }
+  private showSelection(tile?: Tile): void {
+    this.selectedTile = tile
+    this.placeMarker(this.selection, tile)
+    this.onSelect(tile)
+  }
 
   stats(): RenderStats {
     return {
@@ -905,7 +914,7 @@ export class WorldRenderer {
     const [x, z] = hexCenter(tile.x, tile.z)
     // Camera matrices are current immediately, unlike the scene transform, which only updates when a frame renders.
     const transform = this.camera.getViewMatrix().multiply(this.camera.getProjectionMatrix())
-    const projected = Vector3.Project(new Vector3(x, this.heights[id]!, z), Matrix.Identity(), transform,
+    const projected = Vector3.Project(new Vector3(x, this.tileHeight(tile), z), Matrix.Identity(), transform,
       new Viewport(0, 0, this.engine.getRenderWidth(), this.engine.getRenderHeight()))
     const rect = this.canvas.getBoundingClientRect()
     return { x: rect.left + projected.x * rect.width / this.engine.getRenderWidth(),
