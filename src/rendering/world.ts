@@ -8,6 +8,7 @@ import { HEX_RADIUS, HEX_ROW, hexCenter } from '../game/hex'
 import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
 import { figureMesh, type FigureKind } from './figures'
+import { chunkKey, detailWindow } from './detail'
 import { RESOURCES, type ResourceKind } from './resources'
 import { CAMERA_PITCH as PITCH, CAMERA_YAW as YAW, SCREEN_DOWN as DOWN, SCREEN_RIGHT as RIGHT } from './view'
 import {
@@ -55,6 +56,8 @@ export interface RenderStats {
   vertexBufferBytes: number
   disposedChunks: number
   remeshedChunks: number
+  streamedChunks: number
+  residentColumns: number
   settlements: number
   resourceMarkers: number
   drawCalls: number
@@ -90,6 +93,8 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   originZ = 0
   columnsX = 1
   columnsZ = 1
+  offsetX = 0
+  offsetZ = 0
   waterTop = 0
   readonly fogColor = new Color3(PALETTE[VOXEL.fog * 3], PALETTE[VOXEL.fog * 3 + 1], PALETTE[VOXEL.fog * 3 + 2])
 
@@ -111,8 +116,8 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
   override getUniforms() {
     return {
       ubo: [{ name: 'polarisVoxel', size: 4, type: 'vec4' }, { name: 'polarisGrid', size: 4, type: 'vec4' },
-        { name: 'polarisFog', size: 3, type: 'vec3' }],
-      fragment: 'uniform vec4 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;',
+        { name: 'polarisFog', size: 3, type: 'vec3' }, { name: 'polarisOffset', size: 2, type: 'vec2' }],
+      fragment: 'uniform vec4 polarisVoxel;\nuniform vec4 polarisGrid;\nuniform vec3 polarisFog;\nuniform vec2 polarisOffset;',
     }
   }
 
@@ -120,6 +125,7 @@ class VoxelMaterialPlugin extends MaterialPluginBase {
     uniformBuffer.updateFloat4('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight, this.waterTop)
     uniformBuffer.updateFloat4('polarisGrid', this.originX, this.originZ, this.columnsX, this.columnsZ)
     uniformBuffer.updateColor3('polarisFog', this.fogColor)
+    uniformBuffer.updateFloat2('polarisOffset', this.offsetX, this.offsetZ)
     if (this.tileState) uniformBuffer.setTexture('polarisTileState', this.tileState)
     if (this.columns) uniformBuffer.setTexture('polarisColumns', this.columns)
   }
@@ -168,7 +174,8 @@ vec3 polarisEdgeDy = dFdy(vPositionW.x) * vec3(1.0, 0.5, -0.5) + dFdy(vPositionW
 vec3 polarisEdgePixel = max(sqrt(polarisEdgeDx * polarisEdgeDx + polarisEdgeDy * polarisEdgeDy), vec3(1e-4));
 vec3 polarisInside = vPositionW - normalW * 0.5 * polarisVoxel.x;
 ivec2 polarisColumn = ivec2(floor((polarisInside.xz - polarisGrid.xy) / polarisVoxel.x));
-ivec3 polarisCell = ivec3(polarisColumn.x, int(floor(polarisInside.y / polarisVoxel.x)), polarisColumn.y);
+ivec3 polarisCell = ivec3(polarisColumn.x + int(polarisOffset.x), int(floor(polarisInside.y / polarisVoxel.x)),
+  polarisColumn.y + int(polarisOffset.y));
 float polarisNoise = polarisGrain(polarisCell);
 float polarisWater = step(1.25, vPolarisFlag);
 float polarisSurface = step(1.75, vPolarisFlag);
@@ -178,7 +185,7 @@ if (polarisSurface < 0.5) baseColor.rgb *= 0.96 + 0.08 * polarisNoise;
 // Constant tones within world-space voxel cells form material patches, not painted depth or moving waves.
 if (normalW.y > 0.5 && polarisLand + polarisSurface > 0.5) {
   float polarisCellSize = mix(1.0, 2.0, polarisSurface);
-  ivec2 polarisMaterialCell = ivec2(floor(vec2(polarisColumn) / polarisCellSize));
+  ivec2 polarisMaterialCell = ivec2(floor((vec2(polarisColumn) + polarisOffset) / polarisCellSize));
   vec2 polarisSample = vec2(polarisMaterialCell) + 0.5;
   float polarisMaterialGrain = polarisGrain(ivec3(polarisMaterialCell.x, polarisCell.y, polarisMaterialCell.y));
   float polarisTone = clamp(0.5 + 0.85 * (polarisPatch(polarisSample / 3.0) - 0.5)
@@ -337,6 +344,7 @@ export class WorldRenderer {
   private maxHalfHeight = 100
   private disposedChunks = 0
   private remeshedChunks = 0
+  private streamedChunks = 0
   private shadowsStale = true
   private dirty = true
   private pointer?: { id: number; x: number; y: number; lastX: number; lastY: number; dragged: boolean }
@@ -510,6 +518,7 @@ export class WorldRenderer {
     for (const plugin of [this.voxels, this.waterVoxels]) Object.assign(plugin, {
       tileState: this.tileState, columns: this.columns, voxelSize: world.size, mapWidth: map.width, mapHeight: map.height,
       originX: world.originX, originZ: world.originZ, columnsX: world.columnsX, columnsZ: world.columnsZ,
+      offsetX: world.offsetX, offsetZ: world.offsetZ,
       waterTop: waterLevel(world.scale) * world.size,
     })
     for (let index = 0; index < world.chunksX * world.chunksZ; index++) this.buildChunk(index)
@@ -518,6 +527,42 @@ export class WorldRenderer {
     this.shadowsStale = true
     this.invalidate()
     this.reset()
+  }
+
+  private updateDetail(aspect: number): void {
+    const previous = this.world
+    if (!previous || !this.map) return
+    const window = detailWindow(this.map, this.target.x, this.target.z, this.halfHeight, aspect, previous)
+    if (window.scale === previous.scale && window.offsetX === previous.offsetX && window.offsetZ === previous.offsetZ
+      && window.columnsX === previous.columnsX && window.columnsZ === previous.columnsZ) return
+    const retained = new Map(this.chunks.map((chunk, index) => [chunkKey(previous, index), chunk]))
+    const world = createVoxelWorld(this.map, undefined, window)
+    world.sites.set(previous.sites)
+    this.world = world
+    this.chunks = []
+    this.columns?.dispose()
+    this.columnStateData = new Uint8Array(world.columnTile.length * 4)
+    this.copyColumnState()
+    this.columns = this.dataTexture('voxel-columns', this.columnStateData, world.columnsX, world.columnsZ)
+    for (const plugin of [this.voxels, this.waterVoxels]) Object.assign(plugin, {
+      columns: this.columns, voxelSize: world.size, originX: world.originX, originZ: world.originZ,
+      columnsX: world.columnsX, columnsZ: world.columnsZ, offsetX: world.offsetX, offsetZ: world.offsetZ,
+      waterTop: waterLevel(world.scale) * world.size,
+    })
+    for (let index = 0; index < world.chunksX * world.chunksZ; index++) {
+      const key = chunkKey(world, index), chunk = retained.get(key)
+      if (chunk) { this.chunks[index] = chunk; retained.delete(key) }
+      else { this.buildChunk(index); this.streamedChunks++ }
+    }
+    for (const chunk of retained.values()) {
+      this.shadows.removeShadowCaster(chunk.mesh, false)
+      chunk.mesh.dispose()
+      this.disposedChunks++
+    }
+    this.buildFigures(this.exploration)
+    this.placeMarker(this.selection, this.selectedTile)
+    this.showHover()
+    this.shadowsStale = true
   }
 
   /** Copies every tile's state texel to the voxel columns it owns; columns outside the map stay zero. */
@@ -852,6 +897,7 @@ export class WorldRenderer {
     this.camera.orthoRight = this.halfHeight * aspect
     this.camera.getViewMatrix(true)
     this.camera.getProjectionMatrix(true)
+    this.updateDetail(aspect)
     this.placePlates()
     this.invalidate()
   }
@@ -964,6 +1010,7 @@ export class WorldRenderer {
       waterSurfaceQuads: this.chunks.reduce((sum, chunk) => sum + chunk.waterQuads, 0),
       vertexBufferBytes: this.chunks.reduce((sum, chunk) => sum + chunk.bytes, 0),
       disposedChunks: this.disposedChunks, remeshedChunks: this.remeshedChunks,
+      streamedChunks: this.streamedChunks, residentColumns: this.world?.columnTile.length ?? 0,
       settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code ? 1 : 0), 0) : 0,
       resourceMarkers: this.resourceMarkers.size,
       drawCalls: this.engine._drawCalls.current,
