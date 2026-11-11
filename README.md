@@ -8,11 +8,9 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 
 ## Plan and visual direction
 
-- [Complete target game concept (Deutsch)](docs/spielkonzept.md) — world, four tribes, economy, tactics, cities and victory; planned, not implemented.
-- [Dependency-ordered implementation plan (Deutsch)](docs/umsetzungsplan.md) — all six open development PRs included as the intended baseline, milestones, acceptance gates and provisional decisions.
-- [Implemented game rules and target-design summary](docs/game-design.md)
+- [Complete game design](docs/game-design.md) — implemented rules plus the full planned world, four tribes, catalogs, economy, tactics, research, cities, victory and decision register.
 - [Architecture decisions, determinism, and performance targets](docs/architecture.md)
-- [Dependency-ordered follow-up briefs](docs/roadmap.md)
+- [Detailed dependency-ordered delivery plan](docs/roadmap.md#detailed-target-delivery-plan) — all six intended baseline PRs, milestones, complete packages, acceptance gates, test strategy and historical briefs.
 - [Approved hex voxel concept](docs/concept-hex-voxel.jpg) — authoritative for the look of the board.
 - [Initial original visual mockup](docs/visual-mockup.svg) — a direction-setting concept, not a rendered screenshot.
 - [Copilot instructions](.github/copilot-instructions.md) — binding rules for every agent and contributor: working order through GitHub *blocked by* relationships, keeping docs and guidance in sync, visual references and graphics rules.

@@ -13,19 +13,43 @@ Browser-first **strict TypeScript + Vite + Babylon.js WebGL2**, in a single pack
 
 Dependencies point toward `src/game`. A small composition entry point wires adapters together. Rendering and UI consume domain snapshots/events and submit intents; neither determines authoritative outcomes.
 
-## Planned target expansion (not implemented)
+## Planned target domain and compatibility
 
-The [complete target concept](spielkonzept.md) and [dependency plan](umsetzungsplan.md) use the whole intended open-PR stack (#20, #21, #22, #24, #29, #31) as their baseline. They preserve this browser/hex-voxel/messenger architecture. Existing ADRs below describe the current development contracts, not completed target gameplay.
+The [complete design](game-design.md#target-status-and-baseline) and [delivery plan](roadmap.md#detailed-target-delivery-plan) preserve the whole intended #20 → #21 → #22 → #24 → #29 → #31 baseline, including browser, hex voxels and messenger. The ADRs below describe current development contracts, not completed target gameplay. This section owns technical contracts only; rules, catalogs and balance status belong in game design.
 
-Planned authoritative additions are typed common classes and tribe definitions, health/action/counter budgets, public beacon ownership/streaks, fortifications/occupation, six resource balances, finite ruin inventories, local food, population assignments, project reservations and provisionally accepted military food debt. Player identity must be separate from tribe choice: mirror matches have independent ownership, commands and research. No target city-count cap is allowed; legality depends on spacing and territory, while expansion costs are paid via expensive founders including reserved local food and carried provisions. The scenario's first founder is an explicit exception. All costs and effects require validated versioned definitions; no additional backend, relay or WebRTC is authorized.
+### Authoritative state and commands
 
-Confirmed target PvP starts at war. Explicit adjacent attacks can remove civilian units; no implicit movement kill or retreat/prisoner subsystem. Unit removal, permitted city advance and ownership transfer must be one atomic command before defeat evaluation. Old implemented limits and movement/economy rules remain valid only under their recorded version.
+Keep all outcomes in pure `src/game`, with integer economy, explicit IDs, stable neighbour/job orders and serializable state machines. Costs, yields, abilities and prices use validated versioned definitions, never UI-local state or render-derived heights. Separate player identity from tribe definitions so mirror choices retain independent ownership, commands, budgets and research.
 
-The chosen research model has four common two-step branches, one active project per player, a fixed faction baseline plus staffed knowledge buildings, and saved partial progress per technology. Switching cannot transfer points between technologies; conquest cannot transfer research. Hashes/schema must cover local founder-food reservations/provisions and per-player research progress as well as military debt. Basic extraction and three common classes remain initially available; housing unlocks precede population-dependent territory unlocks, not vice versa. The first tribal slice implements only one characteristic ability per tribe, not the whole expansion catalog.
+Planned state covers typed classes/tribes, health/movement/action/counter budgets, public objectives/streaks, fortifications/occupation/original city owner, six resource balances, finite ruin inventories, local food/hunger, assignments/pins, project reservations and paid-cost receipts, carried founder provisions, military debt, research project/per-technology progress and ability charges/expiry.
 
-The [target turn-resolution order](spielkonzept.md#6-versorgung-und-deterministischer-zugabschluss) is an explicit proposal for deterministic snapshots, consumption, one-pass food transfers, hunger/growth, construction and outcomes. Public objectives must not reveal hidden neighboring units or terrain. Domain preview and command resolution must share arithmetic and visibility policy.
+Version serializable commands for attack (including explicit civilian attack), entrench, rest, ability, beacon activation, improvement/dismantling, assignment, project cancellation, territorial claim/transfer and supply orders. Occupation and completion transitions are explicit logged domain outcomes. UI-local selection/animations are never authoritative.
 
-Changes to outcomes require rules/content compatibility boundaries; canonical resource or objective placement may also require generator/scenario changes. Extend transport/schema only when shape changes, and include all new authoritative fields in replay checksums. Preserve readable incompatible saves unchanged and listed, clearing only their own auto-resume pointer. Do not assign future version numbers or migrate existing factions/materials without a separately tested decision. See the [versioning plan](umsetzungsplan.md#6-versions--und-persistenzplan).
+Removal, permitted capture advance and ownership transfer resolve atomically before defeat checks; no observable intermediate entity/owner gap. A rejected command changes neither state, sequence, log nor RNG.
+
+The [complete target ending sequence](game-design.md#complete-proposed-own-ending-sequence) owns gameplay order. Implement it with one stable snapshot, deterministic reservations/one-pass transfers and stable completion ordering. Preview and resolution share the same arithmetic and information policy, not independent simplified simulations. Public objective events must not expose adjacent hidden terrain/units. Visibility-safe contact stops and line-of-fire use canonical domain coordinates, never Babylon rays.
+
+### Target version and persistence boundaries
+
+| Change | Rules | Generator / scenario | Content | Schema / transport |
+| --- | --- | --- | --- | --- |
+| Documentation | No | No | No | No |
+| Inherited hex/messenger foundation | Retain predecessor version | Retain existing v4 | Existing definitions | Existing format |
+| Combat/victory/occupation | Yes | Only if canonical placement changes | Classes/objectives/fortifications | Review new commands/state |
+| Canonical resources | Yes | Yes for generated distribution | Six resources/improvements | Stocks, inventory/reservations |
+| Work/hunger/supply | Yes | Normally no | Yields/costs | Pins, debt, hunger/routes |
+| Four tribes/research | Yes for effects | No without placement change | Yes | Mirror player separation, charges, project/per-technology progress |
+| Pure presentation asset | No if truly domain-neutral | No | Presentation version as needed | No |
+
+Assign exact numbers against the then-integrated baseline; do not promise a blanket “v5.” Not every increment needs an independent new format: existing envelopes with explicit content versions may suffice. Every change to legal commands/replay hashes needs a traceable compatibility decision. Canonical resource/start/beacon placement changes require generator or scenario compatibility even if the picture looks similar.
+
+Map and complete-state checksums must include health, all budgets, food debt, paid project reservations including local founder food, carried provisions, research project and per-tech progress, active abilities, occupation counters, beacon ownership/streaks and all other authoritative state. Transport/schema changes only when shape changes; UI state is excluded.
+
+Export only complete legal turn boundaries. Reject duplicate, old, foreign, corrupt or incomplete packages with clear reasons; completed-result reimport remains idempotent. Validate IDs, references, numeric ranges, inventory nonnegativity, command order and log limits before acceptance. Test independent replay and map/state checksums at every rules milestone; the roadmap owns the acceptance matrix.
+
+Keep readable incompatible saves byte-for-byte unchanged and listed; clear only that record's auto-resume pointer and explain the mismatch. Never reinterpret Meridian as Amazons, generic materials as six resources or a result-free match as a beacon race. Continuing requires the compatible application version until an explicitly specified/tested migration exists. No name-replacement migration.
+
+No backend, relay, WebRTC or engine change is authorized by this target. Azure Container Apps, release-only GitHub deployment and existing setup/validation scripts stay unchanged.
 
 ## ADR-001: browser stack
 
