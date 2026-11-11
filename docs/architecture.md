@@ -13,6 +13,44 @@ Browser-first **strict TypeScript + Vite + Babylon.js WebGL2**, in a single pack
 
 Dependencies point toward `src/game`. A small composition entry point wires adapters together. Rendering and UI consume domain snapshots/events and submit intents; neither determines authoritative outcomes.
 
+## Planned target domain and compatibility
+
+The [complete design](game-design.md#target-status-and-baseline) and [delivery plan](roadmap.md#detailed-target-delivery-plan) preserve the whole intended #20 → #21 → #22 → #24 → #29 → #31 baseline, including browser, hex voxels and messenger. The ADRs below describe current development contracts, not completed target gameplay. This section owns technical contracts only; rules, catalogs and balance status belong in game design.
+
+### Authoritative state and commands
+
+Keep all outcomes in pure `src/game`, with integer economy, explicit IDs, stable neighbour/job orders and serializable state machines. Costs, yields, abilities and prices use validated versioned definitions, never UI-local state or render-derived heights. Separate player identity from tribe definitions so mirror choices retain independent ownership, commands, budgets and research.
+
+Planned state covers typed classes/tribes, health/movement/action/counter budgets, public objectives/streaks, fortifications/occupation/original city owner, six resource balances, finite ruin inventories, local food/hunger, assignments/pins, project reservations and paid-cost receipts, carried founder provisions, military debt, research project/per-technology progress and ability charges/expiry.
+
+Version serializable commands for attack (including explicit civilian attack), entrench, rest, ability, beacon activation, improvement/dismantling, assignment, project cancellation, territorial claim/transfer and supply orders. Occupation and completion transitions are explicit logged domain outcomes. UI-local selection/animations are never authoritative.
+
+Removal, permitted capture advance and ownership transfer resolve atomically before defeat checks; no observable intermediate entity/owner gap. A rejected command changes neither state, sequence, log nor RNG.
+
+The [complete target ending sequence](game-design.md#complete-proposed-own-ending-sequence) owns gameplay order. Implement it with one stable snapshot, deterministic reservations/one-pass transfers and stable completion ordering. Preview and resolution share the same arithmetic and information policy, not independent simplified simulations. Public objective events must not expose adjacent hidden terrain/units. Visibility-safe contact stops and line-of-fire use canonical domain coordinates, never Babylon rays.
+
+### Target version and persistence boundaries
+
+| Change | Rules | Generator / scenario | Content | Schema / transport |
+| --- | --- | --- | --- | --- |
+| Documentation | No | No | No | No |
+| Inherited hex/messenger foundation | Retain predecessor version | Retain existing v4 | Existing definitions | Existing format |
+| Combat/victory/occupation | Yes | Only if canonical placement changes | Classes/objectives/fortifications | Review new commands/state |
+| Canonical resources | Yes | Yes for generated distribution | Six resources/improvements | Stocks, inventory/reservations |
+| Work/hunger/supply | Yes | Normally no | Yields/costs | Pins, debt, hunger/routes |
+| Four tribes/research | Yes for effects | No without placement change | Yes | Mirror player separation, charges, project/per-technology progress |
+| Pure presentation asset | No if truly domain-neutral | No | Presentation version as needed | No |
+
+Assign exact numbers against the then-integrated baseline; do not promise a blanket “v5.” Not every increment needs an independent new format: existing envelopes with explicit content versions may suffice. Every change to legal commands/replay hashes needs a traceable compatibility decision. Canonical resource/start/beacon placement changes require generator or scenario compatibility even if the picture looks similar.
+
+Map and complete-state checksums must include health, all budgets, food debt, paid project reservations including local founder food, carried provisions, research project and per-tech progress, active abilities, occupation counters, beacon ownership/streaks and all other authoritative state. Transport/schema changes only when shape changes; UI state is excluded.
+
+Export only complete legal turn boundaries. Reject duplicate, old, foreign, corrupt or incomplete packages with clear reasons; completed-result reimport remains idempotent. Validate IDs, references, numeric ranges, inventory nonnegativity, command order and log limits before acceptance. Test independent replay and map/state checksums at every rules milestone; the roadmap owns the acceptance matrix.
+
+Keep readable incompatible saves byte-for-byte unchanged and listed; clear only that record's auto-resume pointer and explain the mismatch. Never reinterpret Meridian as Amazons, generic materials as six resources or a result-free match as a beacon race. Continuing requires the compatible application version until an explicitly specified/tested migration exists. No name-replacement migration.
+
+No backend, relay, WebRTC or engine change is authorized by this target. Azure Container Apps, release-only GitHub deployment and existing setup/validation scripts stay unchanged.
+
 ## ADR-001: browser stack
 
 **Decision:** strict TypeScript, Vite, Babylon.js, WebGL2, one package.
