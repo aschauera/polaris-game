@@ -58,6 +58,9 @@ export class WorldRenderer {
   private disposedBatches = 0
   private bufferBytes = 0
   private pointer?: { id: number; x: number; y: number; lastX: number; lastY: number; dragged: boolean }
+  private readonly touches = new Map<number, { x: number; y: number }>()
+  private pinchDistance?: number
+  private pinched = false
   private readonly resizeObserver: ResizeObserver
   private readonly removeListeners: (() => void)[] = []
   private disposed = false
@@ -108,8 +111,8 @@ export class WorldRenderer {
     this.listen('pointerdown', e => this.pointerDown(e as PointerEvent))
     this.listen('pointermove', e => this.pointerMove(e as PointerEvent))
     this.listen('pointerup', e => this.pointerUp(e as PointerEvent))
-    this.listen('pointercancel', () => { this.pointer = undefined })
-    this.listen('lostpointercapture', () => { this.pointer = undefined })
+    this.listen('pointercancel', e => this.cancelPointer(e as PointerEvent))
+    this.listen('lostpointercapture', e => this.cancelPointer(e as PointerEvent))
     this.listen('pointerleave', () => { if (!this.pointer) this.showHover() })
     this.listen('wheel', e => {
       const event = e as WheelEvent
@@ -157,6 +160,9 @@ export class WorldRenderer {
     this.scout?.dispose(false, true)
     this.scout = undefined
     this.pointer = undefined
+    this.touches.clear()
+    this.pinched = false
+    this.pinchDistance = undefined
     this.showHover()
     this.showSelection()
     for (const batch of this.batches) {
@@ -378,11 +384,29 @@ export class WorldRenderer {
     if (event.button !== 0) return
     this.canvas.focus()
     this.canvas.setPointerCapture(event.pointerId)
+    if (event.pointerType === 'touch') {
+      this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (this.touches.size >= 2 || this.pinched) {
+        this.pinched = true
+        this.pointer = undefined
+        this.pinchDistance = this.touchDistance()
+        return
+      }
+    }
     this.pointer = { id: event.pointerId, x: event.clientX, y: event.clientY,
       lastX: event.clientX, lastY: event.clientY, dragged: false }
   }
 
   private pointerMove(event: PointerEvent): void {
+    if (this.touches.has(event.pointerId)) {
+      this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (this.pinched) {
+        const distance = this.touchDistance()
+        if (distance && this.pinchDistance) this.zoom(this.pinchDistance / distance)
+        this.pinchDistance = distance
+        return
+      }
+    }
     const pointer = this.pointer
     if (pointer && pointer.id === event.pointerId) {
       pointer.dragged ||= Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5
@@ -393,12 +417,31 @@ export class WorldRenderer {
   }
 
   private pointerUp(event: PointerEvent): void {
+    this.touches.delete(event.pointerId)
+    // A finger lifted from a pinch must neither select a tile nor start a pan with the remaining finger.
+    if (this.pinched) {
+      this.cancelPointer(event)
+      if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId)
+      return
+    }
     const pointer = this.pointer
     if (!pointer || pointer.id !== event.pointerId) return
     const moved = Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5
     if (!pointer.dragged && !moved) this.showSelection(this.pick(event.clientX, event.clientY))
     this.pointer = undefined
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId)
+  }
+
+  private touchDistance(): number | undefined {
+    const [a, b] = [...this.touches.values()]
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : undefined
+  }
+
+  private cancelPointer(event: PointerEvent): void {
+    this.touches.delete(event.pointerId)
+    if (this.pointer?.id === event.pointerId) this.pointer = undefined
+    this.pinchDistance = this.touchDistance()
+    if (!this.touches.size) this.pinched = false
   }
 
   private pick(clientX: number, clientY: number): Tile | undefined {

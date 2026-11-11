@@ -1,5 +1,5 @@
 import type { RenderStats } from './rendering/world'
-import type { City, Founder, ProducedUnit, Visibility } from './game/expedition'
+import type { City, FactionId, Founder, ProducedUnit, Visibility } from './game/expedition'
 
 declare global {
   interface Window {
@@ -15,6 +15,7 @@ declare global {
         fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
         reachable: readonly number[]
       } | undefined
+      match(): { id: string; faction: FactionId; name: string; active: FactionId; commandCount: number; stateHash: string } | undefined
     }
   }
 }

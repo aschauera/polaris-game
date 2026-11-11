@@ -4,7 +4,7 @@
 
 An original, browser-first, turn-based 4X game about rival societies rebuilding a fractured world. Explore readable voxel landscapes, grow cities, and choose between cooperation and conquest. Art Deco geometry gives the world civic grandeur without copying an existing game's art, names, factions, or rules.
 
-**Implemented scope:** seeded terrain, an interactive camera, tile inspection, scout movement and faction fog, plus the first city founding/economy/production slice (roadmap briefs 6–7). Combat, workers, research, diplomacy, AI and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
+**Implemented scope:** seeded terrain, an interactive camera, tile inspection, scout movement and faction fog, plus the first city founding/economy/production slice (roadmap briefs 6–7) and two-player matches played by exchanging turn messages. Combat, workers, research, diplomacy, AI and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
 
 ## Map contract
 
@@ -56,6 +56,12 @@ Each faction starts with one scout and one stationary founder on adjacent land. 
 Claimed grassland yields 2 food and 1 material per turn; hills yield 1 food and 2 materials; water cannot be claimed. At each active faction's end turn, its cities resolve in founding order: add yields, consume 2 food per population, grow by at most one population if the remaining food reaches `8 + 4 × current population`, then apply materials to the single production queue. If available food cannot cover consumption, the stockpile becomes zero and population does not grow or decline. These initial values are explicit rules-versioned definitions, not balance claims.
 
 The queue choices are **Guard (8 materials)**, **Worker (10)**, and **Storehouse (12)**. A completed Guard or Worker appears on the first free adjacent land tile in N/E/S/W order. If all adjacent land is occupied, the completed item remains at full progress and retries on a later turn; unspent materials remain in the city's stockpile. A Storehouse adds 1 material per turn after completion. Guard combat and Worker actions are not implemented. The HUD exposes city population, food/material stockpiles and yields, claim size, queue choice/cost, progress, and explicit order rejection or completion messages.
+
+### Implemented: play by messenger
+
+Two people can play **Meridian Union** (host, moves first) and **Lantern Compact** (guest) on the same seeded world without a server. On their own turn a player gives any number of orders, then ends the turn. The finished turn travels as a link, a code or a file through any chat, and the opponent's device replays it and takes over. Turns strictly alternate; the round counter increases after both factions have played. Nothing resolves simultaneously, and an opponent's message can never contain orders for the receiving player's side. A player can run several matches with different people at once; each received turn opens its own match, and a list shows where it is their turn.
+
+Fog stays per faction: each player sees only their own explored and visible tiles, and the HUD lists only their own cities. Both devices hold the whole match, so this is a courtesy rule rather than a secret, and the mode suits friends rather than ranked play. The map does not yet draw cities, founders or the opponent's units, and a match has no victory or defeat condition, so the rivals cannot interact beyond racing each other. Drawing the other side is the natural next step before combat or diplomacy. The technical design is [ADR-005](architecture.md#adr-005-serverless-play-by-messenger).
 
 ## First playable: two representative factions
 

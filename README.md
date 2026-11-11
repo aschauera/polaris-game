@@ -1,6 +1,6 @@
 # Polaris · World Atlas & Expeditions
 
-An original voxel-isometric strategy **foundation**, not a complete 4X game. The deterministic atlas now includes a playable scout expedition and a first city-economy slice: founding, yields, growth and production, with chunked WebGL 2 rendering and an Art Deco HUD.
+An original voxel-isometric strategy **foundation**, not a complete 4X game. The deterministic atlas now includes a playable scout expedition and a first city-economy slice: founding, yields, growth and production, with chunked WebGL 2 rendering and an Art Deco HUD. Two players can also play a match **by messenger**, with no server: each finished turn is a link, code or file that you send through any chat.
 
 ![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
 
@@ -11,12 +11,13 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 - [Dependency-ordered follow-up briefs](docs/roadmap.md)
 - [Initial original visual mockup](docs/visual-mockup.svg) — a direction-setting concept, not a rendered screenshot.
 
-**Implemented:** roadmap briefs 6–7 / issues #7–#8, deterministic commands/turns, movement, exploration, founding, city yields, population growth, and production. Combat, worker actions, research, policies, diplomacy, and opponent AI are deliberately deferred.
+**Implemented:** roadmap briefs 6–7 / issues #7–#8, deterministic commands/turns, movement, exploration, founding, city yields, population growth, and production, plus two-player matches played by exchanging turn messages ([Play by messenger](#play-by-messenger)). Combat, worker actions, research, policies, diplomacy, and opponent AI are deliberately deferred.
 
 ## Requirements and setup
 
 - **Node.js 24 LTS**, npm 11 (Node 24's bundled npm); other Node majors are not supported by this foundation.
 - Desktop-class current Chromium or Microsoft Edge with **WebGL 2** enabled. Windows is the initial target; this PR's automated evidence is Linux Chromium, not a claim of Windows hardware validation.
+- Phone browsers are an early target: portrait/landscape layout and touch gestures are checked in emulated Chromium only. Real Android/iOS devices are not validated.
 - No editor, account, backend, GPU-equipped workstation, runtime CDN, or asset-authoring tool is required.
 
 On Windows, install Node 24, open PowerShell in this checkout, then:
@@ -36,6 +37,33 @@ npm run preview
 The production deployment uses Azure Container Apps with GitHub continuous
 deployment, as described below. Local previews run through an HTTP server, not
 by opening `index.html` from disk.
+
+### Trying the phone layout in a desktop browser
+
+Run `npm run dev` (or `npm run preview` after a build), open the URL in Chrome or
+Edge, press **F12**, toggle the device toolbar (**Ctrl+Shift+M**) and pick a phone
+such as *iPhone 14* or *Pixel 7*. Reload after switching devices so touch emulation
+is active.
+
+- **Tap** selects a tile, **one finger** pans and **two fingers** pinch-zoom. The
+  **+ / − / Reset view** buttons also work.
+- Below 600 px width the map sits above the controls. Expedition buttons use larger
+  touch targets; the controls panel scrolls independently.
+- Emulation checks layout and input only. It cannot measure real mobile GPU speed,
+  iOS Safari behaviour or battery use.
+
+To try a real phone on the same Wi-Fi, run `npm run dev -- --host` and open the
+printed *Network* URL on the phone.
+
+Mobile captures from [validation run 42527914483](https://github.com/aschauera/polaris-game/actions/runs/42527914483), application commit `d9b6a3d`, seed `polaris`, Linux Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
+
+![Phone portrait atlas: map above the independently scrolling controls](docs/mobile-phone-portrait-atlas.png)
+
+![Phone portrait messenger match after End turn, with the turn ready to share](docs/mobile-phone-portrait-messenger.png)
+
+![Phone landscape atlas using the desktop-style side-by-side layout](docs/mobile-phone-landscape-atlas.png)
+
+These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **91 unit tests** and **21 browser tests**, plus type-check, lint and production build.
 
 ### Docker and Azure Container Apps
 
@@ -262,7 +290,7 @@ Browser runs upload a `browser-evidence` artifact (14-day retention), including 
 
 Sight reaches two cardinal steps. Uncharted tiles have identical opaque flat surfaces, with terrain/trees hidden and no inspector/pick information. Dim tiles are remembered terrain; bright tiles are currently visible. Pale land is reachable using the current movement budget. Only charted, unoccupied terrain can be used for a route; no hidden-terrain pathfinding. A multi-step move remembers the sight area along its entire route and keeps only the final sight area visible. Static terrain is unchanged between turns.
 
-Regenerating during an expedition starts a fresh expedition on the new world. Invalid configuration preserves the current expedition. **Return to atlas (discard expedition)** removes fog and returns to free inspection; it does not save progress. The browser UI currently runs one Meridian scout without AI, faction bonuses, cities or victory conditions. The domain supports separate faction fog and deterministic turn rotation for subsequent milestones.
+Regenerating during an expedition starts a fresh expedition on the new world. Invalid configuration preserves the current expedition. **Return to atlas (discard expedition)** removes fog and returns to free inspection; it does not save progress. The solo expedition runs one Meridian faction without AI, faction bonuses or victory conditions; for two players see [Play by messenger](#play-by-messenger).
 
 ### Visual overview
 
@@ -274,6 +302,47 @@ Fresh production-app captures from [validation run 42239574200](https://github.c
 
 These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **39 unit tests**, **10 browser tests**, type-check, lint and production build in that run.
 
+## Play by messenger
+
+Two people can play one match **without a server, an account or a live connection**. Every finished turn becomes a short text that you send through any chat, e-mail or shared folder. Both devices replay the same ordered orders on the same seeded world, so nothing has to be hosted. This is a first multiplayer step; a relay or live connection can be added later without changing the rules.
+
+1. **Host:** choose a world, then **Start messenger match** in the *Play by messenger* panel. You play **Meridian Union** and move first.
+2. Give your orders (move, found a city, queue production), then choose **End turn**. The panel offers the finished turn as a **link**, a **code** and a **file**: **Share** (where the browser offers it), **Copy link**, **Copy code** or **Save file**. Send one of them to your opponent.
+3. **Guest:** open the link, or paste the link, the code or the whole chat message under **Open a received turn**, or choose **Open file…**. The match opens as **Lantern Compact** and it is your turn. Reply the same way, and so on.
+
+To try it alone, use two browser profiles or a private window for the second player: matches are stored per browser profile.
+
+How it behaves:
+
+- A message carries the **whole match so far**: seed, size, game versions, every order and two checksums. A late or lost message cannot desync you; open the newest one and the match catches up. A repeated or older message is recognised and leaves the match unchanged.
+- Orders are validated by replaying them under the normal rules. A turn is refused if it is damaged or truncated, unfinished (it must end with **End turn**), from another game or rules version, does not continue your saved copy of that match, contains orders for your own side, or replays to different checksums. The reason is shown, and what you pasted stays in the box.
+- While your opponent is on turn you can still inspect the map, but orders and **End turn** are disabled. While a match runs, the world inputs and presets are locked and **Return to atlas** is hidden.
+- **Several matches at once.** Every message names its match, so a received turn always lands in the right one: it opens that match even while another is on screen, which stays saved. **All matches** returns to the atlas and lists *Your matches*, newest first; matches where it is your turn are marked in gold, and **Continue** opens one. An optional **match name** (for example your opponent's name) is kept on this device only; without one, both players see the same short title such as *Match 38A5*.
+- Matches are stored in this browser (`localStorage`, one key per match under `polaris.matches.v1.`) and the last one played reopens after a reload. **Leave match** asks for confirmation and forgets that match on this device only; your opponent keeps theirs. Without storage (some private modes), only the match on screen exists: a turn of another match is refused until you choose **All matches**, and opening your opponent's latest message restores a match. A match saved by an earlier version is moved into the list automatically.
+- Links keep the turn in the `#turn=…` fragment, which is never sent to a web server. Short matches fit into one chat message; long ones produce long links, so use **Save file** for chats that cut messages (Telegram: about 4,096 characters). A link created on `localhost` only opens on that machine.
+
+### Limits of a serverless match
+
+- **No anti-cheat.** Both devices know the entire match, so fog of war is a presentation rule here, not a secret, and the checksums detect accidents and desyncs, not a determined opponent. Games that need secrets, simultaneous turns or push notifications need a server.
+- Both players must use the same Polaris version. A different rules or generator version is reported instead of silently diverging.
+- The map does not yet draw cities, founders or the opponent's units; the HUD lists your own cities and the opponent's orders are applied and checked.
+- Two tabs of one browser profile share the stored matches; playing the same match in both overwrites one with the other. Matches live on one device only and are not synchronised between your own devices.
+- Only desktop Chromium is automated (two isolated browser contexts acting as two devices). Phone browsers and messenger apps are not validated.
+
+### Visual overview
+
+Fresh production-app captures from [validation run 42527914483](https://github.com/aschauera/polaris-game/actions/runs/42527914483), application commit `d9b6a3d`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader. The idle panel and the match list are 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
+
+![The atlas with the Play by messenger panel before a match: start a match or open a received turn](docs/messenger-idle.png)
+
+![The host after End turn: the finished turn offered as link, code and file while the match waits for Lantern Compact](docs/messenger-host-outbox.png)
+
+![The guest after opening the link: the match opens as Lantern Compact, and it is their turn](docs/messenger-guest-joined.png)
+
+![Your matches on one device: the match named Andreas is marked in gold because it is your turn, the other waits for Lantern Compact](docs/messenger-match-list.png)
+
+These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **91 unit tests**, **21 browser tests**, type-check, lint and production build in that run.
+
 ## Map inputs and controls
 
 - Seed: **1–64 ASCII letters, digits, `_`, or `-`**; case-sensitive.
@@ -281,7 +350,7 @@ These are functional UI captures, not concept art or evidence of native-GPU perf
 - **Regenerate atlas** repeats exactly the same map for the same inputs and resets camera/selection.
 - **256² fixture** loads 65,536 tiles using the current seed; **32² showcase** returns to the small fixture.
 - Deep link: `/?seed=polaris&width=256&height=256` (append to the local server URL).
-- Click a visible tile to select; hover to inspect. Coordinates are zero-based `(x, z)`; canonical ID is `z * width + x`.
+- Click or tap a visible tile to select; hover to inspect. On touch screens one finger pans and two fingers pinch-zoom. Coordinates are zero-based `(x, z)`; canonical ID is `z * width + x`.
 - Left-drag to pan; movement over 5 CSS pixels is a drag, not a selection. Scroll to zoom. Buttons provide zoom/reset.
 - With the canvas focused: arrows pan, `+`/`-` zoom, `R` resets. Orientation is fixed; there is no rotation.
 - HUD inputs/buttons do not send camera events. Pan target is bounded to map tile centers; zoom is bounded between inspection and whole-map fit. Resize preserves relative zoom.
@@ -290,7 +359,7 @@ Generator 2 builds broad, irregular landforms before adding local coast variatio
 
 ## Validation and benchmark evidence
 
-The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Expedition coverage adds stable A*/Dijkstra paths, occupancy/costs, rejected commands, faction isolation, fog, actual UI movement/end-turn, hidden-terrain framebuffer/picking checks, mode-transition cleanup, city founding, economy inspection and production completion. Structural browser checks retain **16 meshes / 7 materials / 16 geometries** for the atlas at 32² and **339 / 7 / 339** for the `polaris` 256² fixture (335 populated chunk/terrain batches): two map-wide tree meshes and two markers, not one object per tile. Expedition mode adds one scout mesh/material/geometry.
+The automated suite checks complete-map deterministic fingerprints for four seeds, continent separation and stepped elevation, dimensions/bounds and invalid inputs, real rendering/picking after pan/zoom/resize, HUD isolation, regeneration, and unavailable WebGL 2. Expedition coverage adds stable A*/Dijkstra paths, occupancy/costs, rejected commands, faction isolation, fog, actual UI movement/end-turn, hidden-terrain framebuffer/picking checks, mode-transition cleanup, city founding, economy inspection and production completion. Messenger coverage adds unit tests for replay, checksums and rejection of damaged, unfinished, tampered, foreign and repeated turns, plus the turn-code and storage adapters (several matches, migration, damaged entries), and browser tests in which two isolated browser contexts (separate storage, like two phones) exchange turns by link, pasted code and file, resume after a reload and leave a match, and one device keeps two matches and routes each received turn to its own match. Structural browser checks retain **16 meshes / 7 materials / 16 geometries** for the atlas at 32² and **339 / 7 / 339** for the `polaris` 256² fixture (335 populated chunk/terrain batches): two map-wide tree meshes and two markers, not one object per tile. Expedition mode adds one scout mesh/material/geometry.
 
 Three successive regenerations of **each** size retain those counts. The disposal counter confirms 36 showcase or 1,005 stress source meshes disposed, respectively. `instanceBufferBytes` reports **terrain matrix buffers only** (64 KiB / 4 MiB); it does not include tree matrices, new per-instance RGBA colors (16 bytes per terrain/tree instance), or CPU mirrors. Materials persist across regenerations; full teardown disposes scene/engine, buffers, instrumentation, and listeners. Stable resource counts demonstrate bounded scene resources, **not** a proof of absence of every browser/driver memory leak.
 
@@ -337,9 +406,9 @@ For CI-equivalent software measurements, use the Chromium flags documented above
 
 ## Known limitations
 
-- Only a scout exploration loop is playable. No cities, resources, economy, combat, research, policies, diplomacy, AI, save/load, multiplayer, physics, or external services.
-- The expedition uses one faction in the UI. Domain tests exercise multiple factions, but hot-seat UI, hidden enemy units and mutable last-known terrain belong to later milestones. Closing/reloading the page loses progress.
-- Only Chromium is automated. Windows Edge hardware, Firefox/Safari, long-duration profiling, touch/mobile UX, assistive-technology map navigation, and WebGPU are unvalidated/deferred.
+- Only exploration, city founding and a production queue are playable. No combat, worker actions, research, policies, diplomacy, AI, general save/load, live multiplayer, physics, or external services.
+- A solo expedition uses one faction and is lost when the page closes; only messenger matches are stored, in `localStorage` (see [Limits of a serverless match](#limits-of-a-serverless-match)). Drawing cities and the opponent's units, hidden enemy units and mutable last-known terrain belong to later milestones.
+- Only Chromium is automated; phone viewports and touch input run as Chromium emulation. Windows Edge hardware, Firefox/Safari, real Android/iOS devices and mobile GPUs, long-duration profiling, assistive-technology map navigation, and WebGPU are unvalidated/deferred.
 - Continents and tree clusters are seeded procedural shapes, not a climate or hydrology simulation; rivers, bridges and settlements are not yet represented. At full stress-map zoom tiles are intentionally tiny; zoom in to inspect them.
 - Thin-instance picking and scene upload remain synchronous; large-map interactions must be profiled before promising larger maps. The 256² fixture is not a finished-game performance promise.
 - The recorded SwiftShader 256² frame intervals are seconds, not a smooth-play claim; native GPU validation and focused rendering profiling remain open.

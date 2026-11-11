@@ -32,6 +32,8 @@ Parent issue #5 has child issues #7–#15 for briefs 6–14 below. Retain their 
 | **13. Add two faction features and AI** | 8, 10, 11, 12 | Meridian civic improvement/unrest benefit; Lantern scout movement bonus; bounded heuristic AI/search; browser workers only after profiling | Both features observable and tested; deterministic decisions, no fog cheating or deadlock; search counts and future turn budget measured on fixed fixtures | L |
 | **14. Close the first playable loop** | 13 | One territorial victory, defeat/draw; no additional factions | Two factions can complete a match; win/tie ordering documented and tested; tutorial explains representative features; recorded balance/playtest feedback | L |
 
+**Outside the numbered briefs: play by messenger (implemented).** A serverless two-player mode ([ADR-005](architecture.md#adr-005-serverless-play-by-messenger)) lets two people alternate turns by exchanging links, codes or files. It replays the deterministic command log, so every later rules change must stay deterministic and bump `RULES_VERSION`. Suggested follow-ups, not yet scheduled or filed as issues: draw cities, founders and the opponent's units on the map (needed before briefs 9 and 12 can be played between people); delta packages once logs get long; verify the exchange on real iOS and Android browsers and decide whether the generator's trigonometry must become integer- or table-based; add a relay server or WebRTC only if hidden information, notifications or more than two players are required.
+
 ## Reliability and later depth
 
 | Brief / objective | Depends on | Boundaries | Acceptance | Size |

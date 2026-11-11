@@ -1,12 +1,12 @@
 :root { font-family: "Segoe UI", system-ui, sans-serif; color: #ecede0; background: #101f2b; font-synthesis: none; color-scheme: dark; }
 * { box-sizing: border-box; }
 body { margin: 0; }
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button { cursor: pointer; border: 1px solid #58736e; background: #203741; color: #e8ebdf; padding: 10px 12px; }
 button:hover { border-color: #e7c583; background: #2d4953; }
 button:disabled { cursor: not-allowed; opacity: .5; }
 [hidden] { display: none !important; }
-button:focus-visible, input:focus-visible, canvas:focus-visible { outline: 2px solid #f0c873; outline-offset: -2px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, canvas:focus-visible { outline: 2px solid #f0c873; outline-offset: -2px; }
 .masthead { height: 86px; display: flex; align-items: center; justify-content: space-between; padding: 0 34px; border-bottom: 1px solid #b69a60; gap: 20px; }
 .brand { display: flex; align-items: center; gap: 18px; }
 .star { font-size: 36px; color: #e2bf79; }
@@ -20,7 +20,7 @@ main { display: grid; grid-template-columns: 302px 1fr; height: calc(100dvh - 13
 h2 { font-family: Georgia, serif; font-size: 29px; font-weight: 400; line-height: 1.12; margin: 16px 0; }
 .intro { color: #afc0ba; font-size: 12px; line-height: 1.7; margin-bottom: 24px; }
 label { display: block; font-size: 11px; color: #c0cdc6; margin: 12px 0 6px; }
-input { width: 100%; padding: 10px; color: #f4f1dc; background: #0f232e; border: 1px solid #506862; border-radius: 0; }
+input, textarea { width: 100%; padding: 10px; color: #f4f1dc; background: #0f232e; border: 1px solid #506862; border-radius: 0; }
 .dimensions { display: grid; grid-template-columns: 1fr 14px 1fr; gap: 10px; align-items: end; }
 .dimensions > span { padding-bottom: 12px; color: #c2b58f; }
 .primary { width: 100%; background: #d8bb7d; color: #172b32; margin-top: 16px; border-color: #d8bb7d; text-align: left; font-weight: 600; font-size: 12px; }
@@ -50,6 +50,26 @@ input { width: 100%; padding: 10px; color: #f4f1dc; background: #0f232e; border:
 #order-status { color: #d7deb7; min-height: 54px; }
 #order-status.rejected { color: #ffd0bd; border-left: 2px solid #f19e87; padding-left: 10px; }
 .expedition .help { color: #afc0ba; font-size: 11px; }
+.messenger { margin-top: 18px; padding-top: 16px; border-top: 1px solid #61756a; }
+.messenger p { font-size: 12px; line-height: 1.5; color: #afc0ba; margin: 10px 0; }
+.messenger .messenger-status { color: #d7deb7; }
+.messenger #messenger-intro > button { width: 100%; font-size: 12px; }
+.messenger .messenger-subhead { font-size: 11px; color: #c0cdc6; margin: 16px 0 6px; }
+.saved-matches { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.saved-match { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 8px 8px 10px; background: #10252f; border: 1px solid #3b5550; }
+.saved-match.your-turn { border-color: #d8bb7d; }
+.saved-match strong { display: block; font-size: 12px; font-weight: 600; color: #ecede0; overflow-wrap: anywhere; }
+.saved-match span { display: block; font-size: 11px; line-height: 1.4; color: #afc0ba; margin-top: 2px; }
+.saved-match button { font-size: 12px; padding: 8px 10px; }
+.messenger-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.messenger-actions button { font-size: 12px; padding: 9px 6px; }
+.messenger textarea { font-size: 11px; line-height: 1.4; resize: vertical; overflow-wrap: anywhere; }
+.messenger summary { cursor: pointer; font-size: 12px; color: #c0cdc6; margin: 12px 0 6px; }
+.messenger .messenger-hint { color: #d8bb7d; }
+.messenger .messenger-notice { color: #d7deb7; overflow-wrap: anywhere; }
+.messenger .messenger-notice.rejected { color: #ffd0bd; border-left: 2px solid #f19e87; padding-left: 10px; }
+#messenger-leave-group { margin-top: 14px; }
+.lock-note { font-size: 11px; color: #92a9a2; margin: 8px 0 0; }
 .exploring .intro, .exploring h2 { display: none; }
 .atlas { position: relative; min-width: 0; min-height: 0; background: #122733; }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
@@ -65,4 +85,32 @@ footer { height: 46px; display: flex; justify-content: space-between; align-item
   .panel { padding: 20px 16px; } h2 { font-size: 24px; }
   .map-caption span:last-child, footer span:last-child { display: none; }
   .atlas-heading { left: 14px; right: 14px; }
+}
+@media (max-width: 600px), (pointer: coarse) {
+  button { min-height: 44px; }
+}
+@media (max-width: 600px) {
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .masthead { height: 56px; } .star { font-size: 28px; } h1 { font-size: 20px; }
+  main { height: calc(100dvh - 56px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); min-height: 480px;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(240px, 52%) minmax(0, 1fr); }
+  .atlas { grid-row: 1; }
+  .panel { grid-row: 2; border-right: 0; border-top: 1px solid #61756a; padding: 16px; overscroll-behavior: contain; }
+  .panel > .section-label, .panel > h2, .panel > .intro, footer { display: none; }
+  input { font-size: 16px; min-height: 44px; }
+  .atlas-heading { top: 14px; letter-spacing: .04em; }
+  .map-caption { bottom: 12px; left: 14px; right: 14px; letter-spacing: 0; }
+  .camera-tools { right: 14px; bottom: 36px; }
+  .camera-tools button { min-width: 44px; }
+  .expedition { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .expedition > * { grid-column: 1 / -1; }
+  .expedition > .section-label { display: none; }
+  .expedition > #turn-info, .expedition > #scout-info, .expedition > #select-scout, .expedition > #move-scout { grid-column: auto; }
+  .expedition > p, .expedition > button, .expedition > .direction-tools { margin: 0; }
+  #order-status { min-height: 36px; }
+}
+@media (max-height: 500px) and (min-width: 601px) and (pointer: coarse) {
+  .masthead { height: 50px; } .edition, .prototype, footer { display: none; }
+  main { height: calc(100dvh - 50px); min-height: 0; grid-template-columns: 240px minmax(0, 1fr); }
+  input { font-size: 16px; }
 }

@@ -2,13 +2,14 @@
 
 ## Scope and boundaries
 
-Browser-first **strict TypeScript + Vite + Babylon.js WebGL2**, in a single package. The atlas and first scout-exploration slice are implemented, not the full first-playable match. Pure `src/game` owns generation, commands, pathfinding and faction fog. Use **Vitest in Node** for domain tests and **Playwright** for browser behavior.
+Browser-first **strict TypeScript + Vite + Babylon.js WebGL2**, in a single package. The atlas, the first scout-exploration slice and a serverless two-player turn exchange (ADR-005) are implemented, not the full first-playable match. Pure `src/game` owns generation, commands, pathfinding, faction fog and the match package (replay plus checksums). Use **Vitest in Node** for domain tests and **Playwright** for browser behavior.
 
 | Directory | Responsibility | Must not contain |
 | --- | --- | --- |
-| `src/game` | Definitions, seeded generation, immutable expedition state, commands, movement/fog; later saves/AI | DOM, Babylon objects, wall-clock time, renderer state |
+| `src/game` | Definitions, seeded generation, immutable expedition state, commands, movement/fog, match packages (replay log and checksums); later saves/AI | DOM, Babylon objects, wall-clock time, renderer state |
+| `src/exchange` | Turn codes (compress, encode, decode links/files) and the browser-storage adapter for a running match | Game rules, Babylon objects; storage is injected, never reached through globals |
 | `src/rendering` | Babylon scene, chunk batches, camera, visual picking adapters | Authoritative gameplay rules or independent tile state |
-| `src/ui` | Inputs, validation feedback, inspector, future HUD | Simulation logic or direct mutation of domain state |
+| `src/ui` | Inputs, validation feedback, inspector, HUD, messenger panel | Simulation logic or direct mutation of domain state |
 
 Dependencies point toward `src/game`. A small composition entry point wires adapters together. Rendering and UI consume domain snapshots/events and submit intents; neither determines authoritative outcomes.
 
@@ -42,7 +43,7 @@ Revisit Godot if native desktop/mobile becomes the primary distribution target, 
 
 Terrain/resource definitions are typed, data-driven records with stable symbolic IDs. City yields, founding constraints and production items follow the same approach; their effects live in `src/game`, separate from HUD presentation. Future research, policy, and faction definitions should follow this pattern. Validate references and constraints on loading; keep presentation metadata separate from authoritative effects.
 
-**Future saves/replays—not prototype features:** use an envelope carrying schema, generator, rules, content, and RNG algorithm versions, map dimensions/seed, canonical entity IDs, explicit RNG state, turn/phase, and command-log version. Saves contain authoritative state; replay starts from the recorded initial state and ordered commands. Validate shape, bounds, unique IDs, references, versions, and size limits before accepting either. Reject unsupported versions clearly; migrations must be explicit and tested. Do not serialize Babylon meshes or assume a seed alone reconstructs a progressed game. Verify state hashes at checkpoints to detect replay divergence.
+**Future saves/replays—not prototype features:** use an envelope carrying schema, generator, rules, content, and RNG algorithm versions, map dimensions/seed, canonical entity IDs, explicit RNG state, turn/phase, and command-log version. Saves contain authoritative state; replay starts from the recorded initial state and ordered commands. Validate shape, bounds, unique IDs, references, versions, and size limits before accepting either. Reject unsupported versions clearly; migrations must be explicit and tested. Do not serialize Babylon meshes or assume a seed alone reconstructs a progressed game. Verify state hashes at checkpoints to detect replay divergence. The **match package** of ADR-005 is the first, deliberately narrow use of this idea: a versioned, validated command log replayed from a seed with two checksums. It does not carry content or RNG-algorithm versions yet, because no command consumes randomness.
 
 ## ADR-004: map and rendering
 
@@ -62,6 +63,35 @@ Implemented fog is a faction-owned sparse immutable record of explored/visible t
 Renderer matrices and RGBA colors are dynamic thin-instance buffers. Unknown terrain receives a uniform height/color and hidden trees, with no terrain-dependent silhouette or picking result. Explored terrain/trees are dimmed. Commands update only dirty visibility and old/new movement-range instances via partial GPU buffer writes; affected terrain-chunk bounds and Babylon CPU picking matrices are synchronized. Trees retain conservative original world bounds rather than rescanning the entire forest after every move. Full mode transitions/regeneration initialize all tiles. A separate non-pickable scout indicator renders above decorative trees and is disposed on leaving the expedition or regeneration. No per-tile meshes or per-frame visibility computations are added.
 
 Pathfinding should start with deterministic A* for a single destination and Dijkstra for movement ranges. On a four-cardinal grid, edges scale with tile count; heap-based searches can approach O(V log V) and O(V) memory. Repeating a full search for every unit/candidate can dominate AI turns. Bound AI candidate sets and search counts, reuse valid results with explicit terrain/occupancy invalidation, and measure expanded nodes and per-turn work. Defer Web Workers until profiling shows main-thread stalls justify serialization and coordination costs. If introduced, use immutable inputs, explicit RNG state and ordered results; worker scheduling must not alter outcomes. This refers to browser threads, not gameplay worker units.
+
+## ADR-005: serverless play by messenger
+
+**Decision:** two players exchange finished turns as text through any messenger, e-mail or file. A turn message is a **match package**: the complete ordered command log of the match so far plus what is needed to rebuild the world, never a snapshot of state.
+
+```text
+MatchPackage { format, matchId, rules, generator, seed, width, height, factions, commands[], mapHash, stateHash }
+```
+
+- **Replay, not state.** The receiver regenerates the map from seed and generator version and replays every command through `applyCommand`. This relies on ADR-002: integer arithmetic, explicit tie-breaks, no wall time and no randomness in commands. `mapHash` (hash of the generated tiles) proves both devices built the same world; `stateHash` (canonical hash of the replayed state, fog included) proves they reached the same position. A mismatch is refused with a reason and never half-applied.
+- **Turn discipline.** `MATCH_FACTIONS` fixes the order: the host plays Meridian and moves first, the guest plays Lantern. A received package must end with `end-turn`, extend the local log of the same `matchId` (the shared prefix must be identical) and contain no orders for the receiver's own faction. Equal or shorter logs are reported as already known. Duplicates, reordering and lost messages are therefore harmless: the newest package supersedes everything before it, and an opponent's message can also start a match on a device that has never seen it.
+- **Several matches.** The receiver reads the `matchId` before replaying and checks the package against that match's saved log, whichever match is on screen; an unknown `matchId` starts a new match. So any number of matches run side by side without the player sorting messages. The list of saved matches reads only the package shape and counts `end-turn` orders for round and active side (`matchProgress`); the full replay happens when a match is opened.
+- **Untrusted input.** Packages are pasted text: caps on text (1.5 M characters) and decompressed JSON (1 MB), at most 10,000 orders, strict shape and identifier checks before the world is allocated, and the usual seed/dimension contract. Compact orders are re-validated by the normal rules during replay.
+- **Encoding.** `polaris1z.<base64url(deflate-raw(JSON))>` with `CompressionStream`, falling back to `polaris1j.<base64url(JSON)>`. The decoder also accepts a link (`#turn=` fragment), a chat message around a code, or the JSON of a saved file. The prefix and `format` leave room for later versions. The fragment never reaches a web server.
+- **Persistence.** Each match is stored as a package with the player's faction and an optional local name under its own `localStorage` key `polaris.matches.v1.<matchId>`; `polaris.current-match.v1` names the match that reopens after a reload. A match is replayed and verified when it is opened and discarded with a visible reason if it no longer verifies. The single match of earlier versions (`polaris.match.v1`) is migrated on start. The outbox is derived from state and faction instead of stored, so a reload offers the identical link.
+- **Presentation.** `main.ts` remains the composition root. The viewer faction decides what is rendered (own fog, own scout, own reachable tiles) and whether orders are accepted; `src/game` knows nothing about devices or messengers.
+
+| Alternative | Why not now |
+| --- | --- |
+| Hot-seat on one device | Two people cannot play remotely; rejected by the project owner |
+| WebRTC or Bluetooth | Needs a live peer and a signalling exchange that is itself a copy-and-paste step; NAT and browser support add complexity |
+| Relay or lobby server | Adds hosting, accounts, abuse handling and cost before the rules justify it; remains the path for secrets, simultaneous turns and notifications |
+
+**Consequences and risks**
+
+- No anti-cheat: both devices know everything, fog is presentation, checksums only detect accidents. Both players need the same game, rules and generator version; a mismatch is reported.
+- The generator uses `Math.sin`, `Math.cos`, `Math.hypot` and `Math.sqrt`, whose last bits are not guaranteed identical across JavaScript engines (for example Chromium and Safari). Tile classification would only flip on a near-tie, and `mapHash` turns any such divergence into an explicit refusal at join time instead of a silent desync. Cross-engine play should still be tested on real devices; a table- or integer-based replacement needs a generator version bump and new fixtures.
+- Links grow with the log. A file export is the fallback for chats that cut messages; delta packages (only the new orders plus a checksum of the shared prefix) are the next optimization if logs get long.
+- Revisit with a server when hidden information, more than two players, asynchronous notifications or ranked play become requirements. The command log and checksums carry over unchanged.
 
 ## Benchmark protocol
 
