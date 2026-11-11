@@ -1,3 +1,4 @@
+import { PRODUCTION_ITEMS } from '../game/expedition'
 import { TERRAIN, type MapConfig, type Tile, type WorldMap } from '../game/map'
 
 export interface ExpeditionSummary {
@@ -10,6 +11,24 @@ export interface ExpeditionSummary {
   scoutSelected: boolean
   canOrder: boolean
 }
+
+export interface CitySummary {
+  id: string
+  x: number
+  z: number
+  population: number
+  food: number
+  foodYield: number
+  foodConsumption: number
+  materials: number
+  materialYield: number
+  production?: { name: string; progress: number; cost: number }
+  storehouse: boolean
+  claimCount: number
+  units: readonly string[]
+}
+
+export interface FounderSummary { x: number; z: number }
 
 export function createHud() {
   document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
@@ -30,6 +49,14 @@ export function createHud() {
           <p id="exploration-info"></p>
           <button id="select-scout" aria-pressed="false">Select scout</button>
           <button id="move-scout" disabled>Move scout here</button>
+          <button id="found-city" disabled>Found city</button>
+          <section id="city-controls" aria-label="City economy" hidden>
+            <label for="city-choice">City</label><select id="city-choice"></select>
+            <p id="city-info" aria-live="polite"></p>
+            <label for="production-choice">Production</label>
+            <select id="production-choice"></select>
+            <button id="queue-production">Queue production</button>
+          </section>
           <div class="direction-tools" aria-label="Cardinal scout movement">
             <button id="move-north" aria-label="Move scout north">N</button>
             <button id="move-east" aria-label="Move scout east">E</button>
@@ -65,7 +92,7 @@ export function createHud() {
           <div><i class="water"></i> Water <small>blue shelf</small></div>
           <div><i class="hills"></i> Hills <small>raised block</small></div>
         </section>
-        <p class="scope">PROCEDURAL PLACEHOLDERS<br>Scout exploration is playable. Cities, combat &amp; AI are still planned.</p>
+        <p class="scope">PROCEDURAL PLACEHOLDERS<br>Scout exploration and the first city economy are playable. Combat &amp; AI remain planned.</p>
       </aside>
       <section class="atlas" aria-label="Isometric world map">
         <div class="atlas-heading"><span id="world-info">Preparing atlas…</span><span class="north">N ↖</span></div>
@@ -80,6 +107,13 @@ export function createHud() {
   `
   const get = <T extends HTMLElement>(id: string) => document.getElementById(id)! as T
   const inputs = { seed: get<HTMLInputElement>('seed'), width: get<HTMLInputElement>('width'), height: get<HTMLInputElement>('height') }
+  const productionChoice = get<HTMLSelectElement>('production-choice')
+  productionChoice.replaceChildren(...Object.entries(PRODUCTION_ITEMS).map(([id, item]) => {
+    const option = document.createElement('option')
+    option.value = id
+    option.textContent = `${item.name} · ${item.cost} materials`
+    return option
+  }))
   const directions = {
     north: get<HTMLButtonElement>('move-north'), east: get<HTMLButtonElement>('move-east'),
     south: get<HTMLButtonElement>('move-south'), west: get<HTMLButtonElement>('move-west'),
@@ -98,12 +132,49 @@ export function createHud() {
     showcase: get<HTMLButtonElement>('showcase'),
     startExpedition: get<HTMLButtonElement>('start-expedition'), leaveExpedition: get<HTMLButtonElement>('leave-expedition'),
     selectScout: get<HTMLButtonElement>('select-scout'), moveScout: get<HTMLButtonElement>('move-scout'),
-    endTurn: get<HTMLButtonElement>('end-turn'),
+    endTurn: get<HTMLButtonElement>('end-turn'), foundCity: get<HTMLButtonElement>('found-city'),
+    cityChoice: get<HTMLSelectElement>('city-choice'), productionChoice,
+    queueProduction: get<HTMLButtonElement>('queue-production'),
+    selectedCityId: () => get<HTMLSelectElement>('city-choice').value,
+    cities: (cities: readonly CitySummary[], founder?: FounderSummary) => {
+      const founderButton = get<HTMLButtonElement>('found-city')
+      founderButton.disabled = !founder
+      founderButton.textContent = founder ? `Found city at (${founder.x}, ${founder.z})` : 'Found city'
+      const controls = get('city-controls')
+      controls.hidden = !cities.length
+      const cityChoice = get<HTMLSelectElement>('city-choice')
+      const previous = cityChoice.value
+      cityChoice.replaceChildren(...cities.map(city => {
+        const option = document.createElement('option')
+        option.value = city.id
+        option.textContent = `City at (${city.x}, ${city.z})`
+        return option
+      }))
+      if (cities.some(city => city.id === previous)) cityChoice.value = previous
+      const city = cities.find(item => item.id === cityChoice.value)
+      const info = get('city-info')
+      if (!city) { info.textContent = ''; return }
+      const foodStatus = city.food + city.foodYield >= city.foodConsumption ? 'fed' : 'not fully fed'
+      const production = city.production
+        ? `Queue: ${city.production.name} · ${city.production.progress}/${city.production.cost} materials`
+        : 'No production queued'
+      info.textContent = `Population ${city.population} · Food ${city.food} (+${city.foodYield}/turn; ${city.foodConsumption} consumed, ${foodStatus}) · ` +
+        `Materials ${city.materials} (+${city.materialYield}/turn) · ${city.claimCount} claimed tiles · ` +
+        `${city.storehouse ? 'Storehouse built' : 'No storehouse'} · ${production} · ` +
+        `Units: ${city.units.length ? city.units.join(', ') : 'none'}`
+      const choice = get<HTMLSelectElement>('production-choice')
+      const duplicateStorehouse = choice.value === 'storehouse' && city.storehouse
+      get<HTMLButtonElement>('queue-production').disabled = !!city.production || duplicateStorehouse
+    },
     expedition: (summary?: ExpeditionSummary) => {
       document.body.classList.toggle('exploring', !!summary)
       get('expedition').hidden = !summary
       get('start-expedition').hidden = !!summary
-      if (!summary) return
+      if (!summary) {
+        get('city-controls').hidden = true
+        get<HTMLButtonElement>('found-city').disabled = true
+        return
+      }
       get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}`
       get('scout-info').textContent = `Scout · ${summary.movement}/${summary.maxMovement} movement`
       get('exploration-info').textContent = `${summary.discovered}/${summary.total} tiles charted`

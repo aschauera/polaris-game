@@ -1,6 +1,6 @@
 # Polaris: implementation roadmap
 
-Dependency-ordered implementation briefs. The atlas foundation and brief 6 scout exploration are implemented; briefs 7–14 have follow-up issues #8–#15. The renderer retains 16×16 chunk/type box instances. Briefs below retain acceptance gates rather than implying every later gate is verified.
+Dependency-ordered implementation briefs. The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented; briefs 8–14 have follow-up issues #9–#15. The renderer retains 16×16 chunk/type box instances. Briefs below retain acceptance gates rather than implying every later gate is verified.
 
 Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 days, **L** 6–10 days. Split an L brief before execution if acceptance cannot be reviewed together. Dependencies refer to brief numbers.
 
@@ -14,16 +14,16 @@ Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 day
 | **4. Make map inspectable**: fixed orthographic camera, bounded pan/zoom, picking and inputs | 3 | No rotation; no movement; future HUD controls not presented as functional | Resize/touch/mouse work; corner picks resolve canonical IDs; reset and regeneration clear stale selection; validation errors visible; keyboard-accessible inputs | M |
 | **5. Verify prototype**: browser regression and measured benchmark report | 4 | No gameplay expansion or speculative optimization; initial shorter software-rendered runner evidence is not the full future device protocol | Domain/browser checks pass; sample duration/environment and limitations published; measured results separate from provisional budgets; regeneration and WebGL2 fallback covered; unperformed full-protocol checks explicitly pending | M |
 
-Briefs 1–5 describe the map foundation; the README records actual verification and outstanding device-validation limitations. **Brief 6 is implemented:** opt-in one-scout exploration, deterministic commands, four-cardinal A*/Dijkstra, movement budgets, faction fog and tests. **Recommended next task: brief 7 / #8**, split into reviewable city/economy increments. Named-device performance and accessibility verification remain separate release gates, not claims implied by the software-rendered sample.
+Briefs 1–5 describe the map foundation; the README records actual verification and outstanding device-validation limitations. **Briefs 6–7 are implemented:** scout exploration, deterministic commands, four-cardinal A*/Dijkstra, movement budgets, faction fog, city founding, yields, growth and a one-item production queue. **Recommended next task: brief 8 / #9**, workers and roads. Named-device performance and accessibility verification remain separate release gates, not claims implied by the software-rendered sample.
 
 ## First playable: two factions, one feature each
 
-Parent issue #5 has child issues #7–#15 for briefs 6–14 below. Retain their boundaries and acceptance criteria, and do not treat later-depth briefs 15–23 as part of the first-playable milestone. Completion of brief 6 is not completion of the full two-faction match.
+Parent issue #5 has child issues #7–#15 for briefs 6–14 below. Retain their boundaries and acceptance criteria, and do not treat later-depth briefs 15–23 as part of the first-playable milestone. Completion of briefs 6–7 is not completion of the full two-faction match.
 
 | Brief / objective | Depends on | Boundaries | Acceptance | Size |
 | --- | --- | --- | --- | --- |
 | **6. Add turn commands, movement and exploration** | 5 | Four-cardinal deterministic A*/movement range, integer costs, occupancy, one scout and per-faction unseen/explored/visible terrain; no combat/cities; diagonals deferred | Invalid commands do not mutate state/RNG; stable resolution and path ties tested; move/end-turn reveals only affected tiles; UI/picks hide unseen terrain; UI explains rejected orders | M |
-| **7. Add founding, yields and production** | 6 | Small claim radius, food/material economy, one city queue | Valid founding/spacing, population food consumption, growth and queue completion tested; costs and progress visible | L |
+| **7. Add founding, yields and production** (implemented; issue #8) | 6 | Manhattan claim radius 1, minimum city spacing 5, max two cities/faction; food/material economy; one queue per city | Founding consumes a founder; claims cannot overlap; food resolves before growth; starvation and growth are deterministic; Guard/Worker/Storehouse costs and progress are visible; blocked unit placement remains queued and cannot complete twice | L |
 | **8. Add workers and roads** | 7 | Turn-consuming improvements on owned deposits; road movement discount | Illegal work rejected; completion updates yields; connected road movement correct; no double completion | M |
 | **9. Add tactical combat** | 6 | Adjacent on-map attacks, health and terrain defense; no separate battle scene | Preview matches resolution; death/occupancy handled; attacks and turn limits tested; visible damage explanation | M |
 | **10. Add research, policies and unrest** | 7, 8 | Short prerequisite graph, one policy choice, explicit unrest thresholds | Unlocks/effects driven by validated definitions; thresholds and warning UI tested; no silent stacking | L |

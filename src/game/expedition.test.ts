@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { generateMap, type Terrain, type WorldMap } from './map'
 import {
-  applyCommand, createExpedition, findPath, knownTile, movementRange, neighbors, SCOUT, visibilityAt,
+  applyCommand, cityYields, createExpedition, findPath, knownTile, movementRange, neighbors, SCOUT, visibilityAt,
   type Command, type Expedition,
 } from './expedition'
 
@@ -19,8 +19,13 @@ function fixture(terrain: Record<number, Terrain> = {}, movement = SCOUT.movemen
   const fog = Object.freeze(Object.fromEntries(state.map.tiles.map(tile => [tile.id, 'visible' as const])))
   return Object.freeze({ ...state,
     scouts: Object.freeze([Object.freeze({ ...state.scouts[0]!, tileId: 27, movement })]),
+    founders: Object.freeze([]), units: Object.freeze([]), cities: Object.freeze([]),
     factions: Object.freeze([Object.freeze({ ...state.factions[0]!, fog })]),
   })
+}
+
+function found(state: Expedition, founderId = 'founder-meridian'): Command {
+  return { type: 'found-city', founderId, factionId: state.activeFaction, sequence: state.commands.length + 1 }
 }
 
 function move(state: Expedition, to: number): Command {
@@ -155,7 +160,7 @@ describe('expedition movement and commands', () => {
   it('rotates factions stably and resets only the incoming faction', () => {
     let state = createExpedition(plainMap(), ['meridian', 'lantern'])
     const lanternFog = state.factions[1]!.fog
-    const to = neighbors(state.map, state.scouts[0]!.tileId)[0]!
+    const to = [...movementRange(state, state.scouts[0]!.id).keys()].find(id => id !== state.scouts[0]!.tileId)!
     state = accepted(state, move(state, to))
     expect(state.factions[1]!.fog).toBe(lanternFog)
     expect(movementRange(state, state.scouts[1]!.id).size).toBe(0)
@@ -167,6 +172,169 @@ describe('expedition movement and commands', () => {
     state = accepted(state, { type: 'end-turn', factionId: 'lantern', sequence: 3 })
     expect(state.round).toBe(2)
     expect(state.scouts[0]!.movement).toBe(4)
+  })
+})
+
+describe('city founding, economy and production', () => {
+  function foundingFixture(terrain: Record<number, Terrain> = {}): Expedition {
+    const initial = fixture(terrain)
+    return Object.freeze({ ...initial,
+      founders: Object.freeze([Object.freeze({ id: 'founder-meridian', factionId: 'meridian' as const, tileId: 28 })]),
+    })
+  }
+
+  it('founds a city, consumes its founder and claims only nearby land with typed yields', () => {
+    const state = foundingFixture()
+    const result = applyCommand(state, found(state))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const city = result.state.cities[0]!
+    expect(city).toMatchObject({
+      id: 'city-meridian-1', factionId: 'meridian', tileId: 28, population: 1,
+      food: 0, materials: 0, production: undefined, storehouse: false,
+      claimTileIds: [20, 27, 28, 29, 36],
+    })
+    expect(cityYields(result.state, city)).toEqual({ food: 10, materials: 5 })
+    expect(result.state.founders).toEqual([])
+    expect(result.state.nextCityId).toBe(2)
+    expect(result.state.rngState).toBe(state.rngState)
+    expect(Object.isFrozen(city.claimTileIds)).toBe(true)
+    expect(applyCommand(result.state, found(result.state)).ok).toBe(false)
+
+    const uncharted = Object.freeze({ ...state,
+      factions: Object.freeze([Object.freeze({ ...state.factions[0]!, fog: Object.freeze({ 27: 'visible' as const }) })]),
+    })
+    expect(applyCommand(uncharted, found(uncharted)))
+      .toMatchObject({ ok: false, reason: 'The founder cannot settle uncharted territory.' })
+  })
+
+  it('rejects water, too-close, claimed, foreign and over-limit city sites without mutation', () => {
+    const state = foundingFixture({ 28: 'water' })
+    expect(applyCommand(state, found(state))).toMatchObject({ ok: false, reason: 'Cities can only be founded on land.' })
+
+    const firstState = foundingFixture()
+    const first = applyCommand(firstState, found(firstState))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    const nearby = Object.freeze({ ...first.state,
+      founders: Object.freeze([Object.freeze({ id: 'founder-next', factionId: 'meridian' as const, tileId: 31 })]),
+    })
+    const tooClose = applyCommand(nearby, found(nearby, 'founder-next'))
+    expect(tooClose).toMatchObject({ ok: false, reason: expect.stringMatching(/at least 5 tiles apart/) })
+    expect(tooClose.state).toBe(nearby)
+
+    const claimed = Object.freeze({ ...first.state,
+      cities: Object.freeze([Object.freeze({ ...first.state.cities[0]!, claimTileIds: Object.freeze([76]) })]),
+      founders: Object.freeze([Object.freeze({ id: 'founder-claimed', factionId: 'meridian' as const, tileId: 76 })]),
+    })
+    expect(applyCommand(claimed, found(claimed, 'founder-claimed')))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/claim territory/) })
+
+    const foreign = Object.freeze({ ...foundingFixture(),
+      founders: Object.freeze([Object.freeze({ id: 'founder-lantern', factionId: 'lantern' as const, tileId: 28 })]),
+    })
+    expect(applyCommand(foreign, found(foreign, 'founder-lantern')))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/belonging to the active faction/) })
+
+    const overLimit = Object.freeze({ ...first.state,
+      cities: Object.freeze([...first.state.cities, Object.freeze({ ...first.state.cities[0]!, id: 'city-meridian-2', tileId: 40 })]),
+      founders: Object.freeze([Object.freeze({ id: 'founder-next', factionId: 'meridian' as const, tileId: 52 })]),
+    })
+    expect(applyCommand(overLimit, found(overLimit, 'founder-next')))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/at most 2 cities/) })
+  })
+
+  it('resolves food before growth and leaves population unchanged when food is insufficient', () => {
+    const initial = foundingFixture()
+    const founded = applyCommand(initial, found(initial))
+    expect(founded.ok).toBe(true)
+    if (!founded.ok) return
+    const city = founded.state.cities[0]!
+    const ready = Object.freeze({ ...founded.state,
+      cities: Object.freeze([Object.freeze({ ...city, food: 12 })]),
+    })
+    const result = applyCommand(ready, { type: 'end-turn', factionId: 'meridian', sequence: 2 })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.cities[0]).toMatchObject({ population: 2, food: 8, materials: 5 })
+
+    const starving = Object.freeze({ ...founded.state,
+      cities: Object.freeze([Object.freeze({ ...city, population: 6, food: 0, claimTileIds: [28] })]),
+    })
+    const noFood = applyCommand(starving, { type: 'end-turn', factionId: 'meridian', sequence: 2 })
+    expect(noFood.ok).toBe(true)
+    if (noFood.ok) expect(noFood.state.cities[0]).toMatchObject({ population: 6, food: 0 })
+  })
+
+  it('queues one item, completes it once on a legal tile and preserves typed IDs', () => {
+    const initial = foundingFixture()
+    const founded = applyCommand(initial, found(initial))
+    expect(founded.ok).toBe(true)
+    if (!founded.ok) return
+    const city = founded.state.cities[0]!
+    const queued = applyCommand(founded.state, { type: 'queue-production', cityId: city.id,
+      itemId: 'guard', factionId: 'meridian', sequence: 2 })
+    expect(queued.ok).toBe(true)
+    if (!queued.ok) return
+    expect(applyCommand(queued.state, { type: 'queue-production', cityId: city.id,
+      itemId: 'worker', factionId: 'meridian', sequence: 3 }))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/already has an item/) })
+
+    let state = queued.state
+    state = accepted(state, { type: 'end-turn', factionId: 'meridian', sequence: 3 })
+    expect(state.cities[0]!.production).toEqual({ itemId: 'guard', progress: 5 })
+    expect(state.units).toEqual([])
+    state = accepted(state, { type: 'end-turn', factionId: 'meridian', sequence: 4 })
+    expect(state.cities[0]!.production).toBeUndefined()
+    expect(state.units).toEqual([{
+      id: 'unit-meridian-1', factionId: 'meridian', type: 'guard', tileId: 20,
+    }])
+    expect(neighbors(state.map, state.cities[0]!.tileId)).toContain(state.units[0]!.tileId)
+    expect(state.map.tiles[state.units[0]!.tileId]!.terrain).not.toBe('water')
+    expect(state.units[0]!.tileId).not.toBe(state.scouts[0]!.tileId)
+    expect(state.nextUnitId).toBe(2)
+    state = accepted(state, { type: 'end-turn', factionId: 'meridian', sequence: 5 })
+    expect(state.units).toHaveLength(1)
+  })
+
+  it('keeps a completed unit queued when every legal spawn tile is occupied', () => {
+    const initial = foundingFixture()
+    const founded = applyCommand(initial, found(initial))
+    expect(founded.ok).toBe(true)
+    if (!founded.ok) return
+    const city = founded.state.cities[0]!
+    const blocked = Object.freeze({ ...founded.state,
+      cities: Object.freeze([Object.freeze({ ...city, production: Object.freeze({ itemId: 'guard' as const, progress: 8 }) })]),
+      units: Object.freeze([20, 29, 36].map((tileId, index) => Object.freeze({
+        id: `blocker-${index}`, factionId: 'meridian' as const, type: 'worker' as const, tileId,
+      }))),
+    })
+    const result = applyCommand(blocked, { type: 'end-turn', factionId: 'meridian', sequence: 2 })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.state.units).toHaveLength(3)
+      expect(result.state.nextUnitId).toBe(1)
+      expect(result.state.cities[0]!.production).toEqual({ itemId: 'guard', progress: 8 })
+    }
+  })
+
+  it('completes a storehouse once and applies its material bonus on following turns', () => {
+    const initial = foundingFixture()
+    const founded = applyCommand(initial, found(initial))
+    expect(founded.ok).toBe(true)
+    if (!founded.ok) return
+    let state = accepted(founded.state, { type: 'queue-production', cityId: founded.state.cities[0]!.id,
+      itemId: 'storehouse', factionId: 'meridian', sequence: 2 })
+    for (let sequence = 3; sequence <= 5; sequence++) {
+      state = accepted(state, { type: 'end-turn', factionId: 'meridian', sequence })
+    }
+    expect(state.cities[0]).toMatchObject({ storehouse: true, production: undefined })
+    expect(cityYields(state, state.cities[0]!)).toEqual({ food: 10, materials: 6 })
+    expect(applyCommand(state, { type: 'queue-production', cityId: state.cities[0]!.id,
+      itemId: 'storehouse', factionId: 'meridian', sequence: 6 }))
+      .toMatchObject({ ok: false, state, reason: 'This city already has a storehouse.' })
+    state = accepted(state, { type: 'end-turn', factionId: 'meridian', sequence: 6 })
+    expect(state.cities[0]!.materials).toBe(9)
   })
 })
 
@@ -194,7 +362,7 @@ describe('faction exploration', () => {
   it('hides unknown tiles and reveals only the traveled sight regions', () => {
     const state = createExpedition(plainMap())
     const start = state.scouts[0]!.tileId
-    const to = start - 16
+    const to = start + 1
     expect(knownTile(state, 'meridian', 0)).toBeUndefined()
     const result = applyCommand(state, move(state, to))
     expect(result.ok).toBe(true)

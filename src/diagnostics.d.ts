@@ -1,5 +1,5 @@
 import type { RenderStats } from './rendering/world'
-import type { Visibility } from './game/expedition'
+import type { City, Founder, ProducedUnit, Visibility } from './game/expedition'
 
 declare global {
   interface Window {
@@ -11,6 +11,7 @@ declare global {
       camera(): { mode: number; x: number; z: number; halfHeight: number } | undefined
       expedition(): {
         round: number; movement: number; scoutTileId: number; commandCount: number
+        founders: readonly Founder[]; cities: readonly City[]; units: readonly ProducedUnit[]
         fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
         reachable: readonly number[]
       } | undefined

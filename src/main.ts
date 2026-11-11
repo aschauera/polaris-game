@@ -1,8 +1,8 @@
 import './style.css'
 import { generateMap, tileAt, type Tile, type WorldMap } from './game/map'
 import {
-  applyCommand, createExpedition, FACTIONS, findPath, movementRange, SCOUT, visibilityAt,
-  type Command, type Expedition,
+  applyCommand, CITY_RULES, cityYields, createExpedition, FACTIONS, findPath, movementRange, PRODUCTION_ITEMS,
+  SCOUT, visibilityAt, type Command, type Expedition, type ProductionItemId,
 } from './game/expedition'
 import { WorldRenderer } from './rendering/world'
 import { createHud } from './ui/hud'
@@ -16,15 +16,40 @@ let expedition: Expedition | undefined
 let selectedTile: Tile | undefined
 let scoutSelected = false
 
+function isProductionItemId(value: string): value is ProductionItemId {
+  return Object.hasOwn(PRODUCTION_ITEMS, value)
+}
+
 function updateExpeditionHud(): void {
-  if (!expedition) { hud.expedition(); return }
-  const scout = expedition.scouts[0]!
-  const faction = expedition.factions[0]!
+  const state = expedition
+  if (!state) { hud.expedition(); return }
+  const factionId = state.activeFaction
+  const scout = state.scouts.find(unit => unit.factionId === factionId)!
+  const faction = state.factions.find(item => item.id === factionId)!
   hud.expedition({
-    faction: FACTIONS[faction.id], round: expedition.round, movement: scout.movement, maxMovement: SCOUT.movement,
-    discovered: Object.keys(faction.fog).length, total: expedition.map.tiles.length,
+    faction: FACTIONS[faction.id], round: state.round, movement: scout.movement, maxMovement: SCOUT.movement,
+    discovered: Object.keys(faction.fog).length, total: state.map.tiles.length,
     scoutSelected, canOrder: scoutSelected && !!selectedTile && selectedTile.id !== scout.tileId,
   })
+  const cities = state.cities.filter(city => city.factionId === factionId).map(city => {
+    const yields = cityYields(state, city)
+    const production = city.production
+      ? { name: PRODUCTION_ITEMS[city.production.itemId].name, progress: city.production.progress,
+        cost: PRODUCTION_ITEMS[city.production.itemId].cost }
+      : undefined
+    return { id: city.id, x: state.map.tiles[city.tileId]!.x, z: state.map.tiles[city.tileId]!.z,
+      population: city.population, food: city.food, foodYield: yields.food,
+      foodConsumption: city.population * CITY_RULES.foodPerPopulation,
+      materials: city.materials, materialYield: yields.materials,
+      production, storehouse: city.storehouse, claimCount: city.claimTileIds.length,
+      units: state.units.filter(unit => unit.factionId === factionId && city.claimTileIds.includes(unit.tileId))
+        .map(unit => {
+          const tile = state.map.tiles[unit.tileId]!
+          return `${PRODUCTION_ITEMS[unit.type].name} at (${tile.x}, ${tile.z})`
+        }) }
+  })
+  const founder = state.founders.find(unit => unit.factionId === factionId)
+  hud.cities(cities, founder ? { x: state.map.tiles[founder.tileId]!.x, z: state.map.tiles[founder.tileId]!.z } : undefined)
 }
 
 function select(tile?: Tile): void {
@@ -124,6 +149,26 @@ hud.moveScout.addEventListener('click', () => { if (selectedTile) move(selectedT
 hud.endTurn.addEventListener('click', () => {
   if (expedition) order({ type: 'end-turn', factionId: expedition.activeFaction, sequence: expedition.commands.length + 1 })
 })
+hud.foundCity.addEventListener('click', () => {
+  const state = expedition
+  if (!state) return
+  const founder = state.founders.find(unit => unit.factionId === state.activeFaction)
+  if (founder) order({ type: 'found-city', factionId: state.activeFaction,
+    sequence: state.commands.length + 1, founderId: founder.id })
+})
+hud.queueProduction.addEventListener('click', () => {
+  if (!expedition) return
+  const cityId = hud.selectedCityId()
+  const itemId = hud.productionChoice.value
+  if (!isProductionItemId(itemId)) {
+    hud.order('Choose a supported production item.', true)
+    return
+  }
+  order({ type: 'queue-production', factionId: expedition.activeFaction,
+    sequence: expedition.commands.length + 1, cityId, itemId })
+})
+hud.cityChoice.addEventListener('change', updateExpeditionHud)
+hud.productionChoice.addEventListener('change', updateExpeditionHud)
 const offsets = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] } as const
 for (const direction of Object.keys(offsets) as (keyof typeof offsets)[]) {
   hud.directions[direction].addEventListener('click', () => {
@@ -150,6 +195,7 @@ if (params.get('diagnostics') === '1') {
     expedition: () => expedition ? {
       round: expedition.round, movement: expedition.scouts[0]!.movement, scoutTileId: expedition.scouts[0]!.tileId,
       commandCount: expedition.commands.length,
+      founders: expedition.founders, cities: expedition.cities, units: expedition.units,
       fog: { ...expedition.factions[0]!.fog },
       reachable: [...movementRange(expedition, expedition.scouts[0]!.id).keys()],
     } : undefined,
