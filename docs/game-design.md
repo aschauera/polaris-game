@@ -6,6 +6,8 @@ An original, browser-first, turn-based 4X game about rival societies rebuilding 
 
 **Implemented scope:** seeded terrain, an interactive camera, tile inspection, scout movement and faction fog, plus the first city founding/economy/production slice (roadmap briefs 6–7) and two-player matches played by exchanging turn messages. Combat, workers, research, diplomacy, AI and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
 
+**Target design, documented 11 November 2026:** the complete [German game concept](spielkonzept.md) and [implementation plan](umsetzungsplan.md) supersede earlier future-playable proposals, not the implemented rules below. They include the complete intended development stack (#20, #21, #22, #24, #29, #31): hex voxel world, cities, messenger and graphics polish are the baseline. New rules remain planned; test values and recommended unresolved decisions are explicitly labeled.
+
 ## Map contract
 
 - Pointy-top **hex tiles** in odd-r offset rows (odd rows shift half a tile east); world axes are **x east, z south, y up**.
@@ -19,27 +21,16 @@ An original, browser-first, turn-based 4X game about rival societies rebuilding 
 
 ## Planned core loop
 
-Observe → issue valid orders → commit the turn → resolve in a documented stable order → inspect outcomes. Exploration opens settlement choices; settlements fund units, infrastructure, and research; policy and diplomacy shape whether expansion remains sustainable.
+**Explore → settle and supply → position and fight → hold the beacons → win.** Two human players use the existing serverless messenger mode; AI, diplomacy and research are not prerequisites for the first complete match.
 
-The full loop is **explore → develop → negotiate or fight → progress → win**. Keep tactical orders simple (move, work, attack, end turn) and damage previews explicit, while putting strategic depth in scarce production, settlement location, research priorities, and policy tradeoffs. Add representative systems only when they produce a distinct decision; do not reproduce an exhaustive historical simulation.
-
-| Future system | Initial playable rule | Later depth |
+| Target layer | Planned scope | Delivery boundary |
 | --- | --- | --- |
-| Terrain and resources | Terrain movement costs; food/material deposits; water and mountains impassable to initial land units | Biomes, strategic resources, extraction limits, environmental events |
-| Movement | Six-direction hex paths; movement points; occupancy and enemy blocking; deterministic path ties | Embarkation, supply, zone of control |
-| Tactical combat | On-map attacks between adjacent units; health, terrain defense, explicit deterministic damage; preview before command | Ranged attacks, promotions, combined arms, sieges; no separate battle scene initially |
-| Cities | Found on valid land with minimum spacing; claim a small explicit territory; population consumes food | Growth specializations, districts, border disputes |
-| Production | One queue per city; visible costs and progress for units and buildings | Queue management, projects, tradeoffs between local and shared industry |
-| Workers and roads | Worker actions consume turns; improve owned deposits; roads reduce movement cost | Maintenance, networks, bridges, logistics |
-| Research | Small prerequisite graph; science per turn; unlock one unit and one improvement | Branching technologies and specialization |
-| Policies | Choose one policy from a small mutually exclusive set; clearly listed effects | Slots, reform costs, ideological combinations |
-| Unrest | Expansion and policy choices alter city unrest; thresholds reduce yields; warning before penalty | Revolts, legitimacy, occupation, recovery decisions |
-| Diplomacy | Peace/war state, explicit proposals, and bilateral agreements | Trade, treaties, reputations, coalitions |
-| AI | Same legal commands as humans; stable heuristic priorities; bounded decisions | Strategic personalities, threat assessment, difficulty without hidden cheating |
-| Fog | Unseen, explored, visible states per faction; explored tiles retain last-known information | Intelligence sharing, scouting tools, stale enemy reports |
-| Victory | One documented territorial objective with defeat and draw handling | Research, diplomatic, and civic victories; configurable scoring |
+| Complete core match | Small fair hex map, three common counter-classes, deterministic combat and city capture, three beacons, defeat and draw | First; may retain the existing generic-material economy as an explicitly versioned intermediate slice |
+| Economy and cities | Six resources, improved fields operated by assigned population, paid construction, housing, explicit territorial expansion, hunger and military food obligations | After the core match; no implicit conversion of existing saves |
+| Four tribes | Amazonen, Waschbären, Ingenieure and Zauberinnen; two unit tiers, distinct buildings and bounded paid abilities | Full catalogs and provisional effects in the German concept |
+| Later depth | Small common research tree, optional diplomacy/policies and bounded fog-respecting AI | Not blockers of human-versus-human victory |
 
-Costs, ranges, yields, and thresholds belong in versioned definitions, not UI code. Each new rule needs an observable explanation and domain tests before added complexity.
+Costs, ranges, yields and thresholds belong in versioned definitions, not UI code. The detailed target [decision register](spielkonzept.md#14-entscheidungsregister) separates chosen direction from proposals and unvalidated test values.
 
 ### Implemented exploration slice (rules version 1)
 
@@ -69,16 +60,13 @@ Two people can play **Meridian Union** (host, moves first) and **Lantern Compact
 
 Fog stays per faction: each player sees only their own explored and visible tiles, and the HUD lists only their own cities. Both devices hold the whole match, so this is a courtesy rule rather than a secret, and the mode suits friends rather than ranked play. The map draws every unit as a small voxel figure with its faction colour and each city with a name plate and a coloured territory border; the opponent's cities and units appear only while they are in sight. A match has no victory or defeat condition, so the rivals cannot interact beyond racing each other; combat or diplomacy is the natural next step. The technical design is [ADR-005](architecture.md#adr-005-serverless-play-by-messenger).
 
-## First playable: two representative factions
+## Target first playable: two players, four eventual tribes
 
-- **Meridian Union:** one civic feature—its first food improvement also reduces local unrest. Demonstrates the economy/policy/unrest connection.
-- **Lantern Compact:** one exploration feature—its scout receives one additional movement point. Demonstrates movement/fog differentiation.
+The existing **Meridian Union** and **Lantern Compact** remain the implemented identities. In the new design, players choose from **Bund der Morgenröte (Amazonen), Bund der Fundstücke (Waschbären), Verbund der Werker (Ingenieure), Zirkel des Nachglanzes (Zauberinnen)**. They are replacements in future versioned content, not already implemented factions. Shared counter-classes are **Bollwerk > Sturm > Brecher > Bollwerk**, with scouts, founders and workers as civilian roles.
 
-Use the same basic units, buildings, and research for both. First playable includes one small map, founding and growth, production, worker improvements and roads, a short research graph, one policy choice, unrest, peace/war diplomacy, heuristic AI, fog, and one victory condition. Balance these two features before adding factions or unique systems.
+The first complete core may use common class profiles before all tribal abilities are added. Recommended starting state is **war**, explicitly replacing the earlier peace/pledge proposal. Research, policies, diplomacy and AI follow rather than delaying victory.
 
-**Concrete planned match:** a fixed 24 × 24 map, one human and one AI faction, each starting with a founder and scout. Found up to two cities and choose between producing a guard, a worker, or a storehouse. Explore to reveal three neutral beacon sites. Hills cost two movement points versus grassland's one and grant a visible defensive bonus: occupy a slower hill or take the exposed short route. Choose **Surveying** (cheaper road construction) or **Terracing** (improved hill food yields) as the first research. Choose the council policy **Common Granaries** (+food, reduced production) or **Civic Workshops** (+production, increased unrest). This is the first minimal government decision, not a separate government simulation. Happiness is initially represented by inverse unrest, with a warning and yield penalty above one explicit threshold.
-
-Begin at peace; offer a ten-turn nonaggression pledge or declare war to contest the beacons. **Victory:** hold two of the three beacon sites at the end of three consecutive own turns. Defeat follows loss of all cities and founders; turn 40 is a draw if no faction has won. Resolve defeat before beacon victory, then the turn cap; the active faction resolves its condition at its end-turn boundary. Test these exact boundaries. These values are an initial testable design, subject to recorded playtest revision—not implemented in this PR.
+**Target victory:** activate and hold at least two of three public beacons through three consecutive own end-turn boundaries. Losing ownership below two resets the streak immediately, including during the opponent's turn; a different pair is allowed if ownership never falls below two. Any combat class may activate on the site using its attack action, unlike the restricted melee-only city capture. Defeat is no cities **and** no founders. Proposed draw limit is 40 complete two-player rounds. Defeat precedes beacon victory, then the round cap. All boundary and capture exceptions are specified in the [full rules](spielkonzept.md#11-sieg-niederlage-und-unentschieden), not implemented by this documentation change.
 
 ## Visual and interaction direction
 

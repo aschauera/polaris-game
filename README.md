@@ -8,7 +8,9 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 
 ## Plan and visual direction
 
-- [Game design and planned first playable](docs/game-design.md)
+- [Complete target game concept (Deutsch)](docs/spielkonzept.md) — world, four tribes, economy, tactics, cities and victory; planned, not implemented.
+- [Dependency-ordered implementation plan (Deutsch)](docs/umsetzungsplan.md) — all six open development PRs included as the intended baseline, milestones, acceptance gates and provisional decisions.
+- [Implemented game rules and target-design summary](docs/game-design.md)
 - [Architecture decisions, determinism, and performance targets](docs/architecture.md)
 - [Dependency-ordered follow-up briefs](docs/roadmap.md)
 - [Approved hex voxel concept](docs/concept-hex-voxel.jpg) — authoritative for the look of the board.
@@ -16,6 +18,8 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 - [Copilot instructions](.github/copilot-instructions.md) — binding rules for every agent and contributor: working order through GitHub *blocked by* relationships, keeping docs and guidance in sync, visual references and graphics rules.
 
 **Implemented:** roadmap briefs 6–7 / issues #7–#8, deterministic commands/turns, movement, exploration, founding, city yields, population growth, and production, plus two-player matches played by exchanging turn messages ([Play by messenger](#play-by-messenger)). Combat, worker actions, research, policies, diplomacy, and opponent AI are deliberately deferred.
+
+**Planning baseline:** this documentation builds on the complete cumulative development stack (#20, #21, #22, #24, #29 and draft #31), as requested; their integration into `main` remains a separate action. The next target is a complete **two-human, three-class, three-beacon match**, then the six-resource economy and four distinct tribes. Exact new costs and balance values remain provisional; the current Meridian/Lantern rules and saves are not silently replaced.
 
 ## Requirements and setup
 

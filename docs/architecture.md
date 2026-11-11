@@ -13,6 +13,16 @@ Browser-first **strict TypeScript + Vite + Babylon.js WebGL2**, in a single pack
 
 Dependencies point toward `src/game`. A small composition entry point wires adapters together. Rendering and UI consume domain snapshots/events and submit intents; neither determines authoritative outcomes.
 
+## Planned target expansion (not implemented)
+
+The [complete target concept](spielkonzept.md) and [dependency plan](umsetzungsplan.md) use the whole intended open-PR stack (#20, #21, #22, #24, #29, #31) as their baseline. They preserve this browser/hex-voxel/messenger architecture. Existing ADRs below describe the current development contracts, not completed target gameplay.
+
+Planned authoritative additions are typed common classes and tribe definitions, health/action/counter budgets, public beacon ownership/streaks, fortifications/occupation, six resource balances, finite ruin inventories, local food, population assignments, project reservations and military food debt. Player identity must be separate from tribe choice. All costs and effects require validated versioned definitions; no additional backend, relay or WebRTC is authorized.
+
+The [target turn-resolution order](spielkonzept.md#6-versorgung-und-deterministischer-zugabschluss) is an explicit proposal for deterministic snapshots, consumption, one-pass food transfers, hunger/growth, construction and outcomes. Public objectives must not reveal hidden neighboring units or terrain. Domain preview and command resolution must share arithmetic and visibility policy.
+
+Changes to outcomes require rules/content compatibility boundaries; canonical resource or objective placement may also require generator/scenario changes. Extend transport/schema only when shape changes, and include all new authoritative fields in replay checksums. Preserve readable incompatible saves unchanged and listed, clearing only their own auto-resume pointer. Do not assign future version numbers or migrate existing factions/materials without a separately tested decision. See the [versioning plan](umsetzungsplan.md#6-versions--und-persistenzplan).
+
 ## ADR-001: browser stack
 
 **Decision:** strict TypeScript, Vite, Babylon.js, WebGL2, one package.
