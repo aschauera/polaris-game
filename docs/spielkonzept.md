@@ -1,6 +1,6 @@
 # Polaris: vollständiges Spielkonzept
 
-**Stand: 11. November 2026. Dokumentationsentwurf, keine Gameplay-Implementierung.**
+**Stand: 11. November 2026, nach bestätigten Nutzerentscheidungen. Zieldesign mit vorläufigem Testregelsatz, keine Gameplay-Implementierung.**
 
 Dieses Dokument hält das gemeinsam entwickelte Zielspiel fest. Es ist zusammen mit dem [abhängigkeitsgeordneten Umsetzungsplan](umsetzungsplan.md) lesbar, ohne den vorausgegangenen Chat zu kennen. Der [englische Regelstand](game-design.md) beschreibt die vorhandene Entwicklungsbasis. **Auf ausdrückliche Präzisierung des Nutzers werden alle offenen PRs als vorgesehene Gesamtbasis berücksichtigt: Sie sollen alle freigegeben werden.** Das neue Zielspiel baut darauf auf; bestehende Spielstände werden dadurch nicht umgedeutet.
 
@@ -28,13 +28,15 @@ Dieses Dokument hält das gemeinsam entwickelte Zielspiel fest. Es ist zusammen 
 | Kennzeichnung | Bedeutung |
 | --- | --- |
 | **Zielrichtung** | Im Gespräch gewählte Richtung; noch keine Behauptung über implementiertes Verhalten |
+| **Bestätigt** | Vom Nutzer gewählte Zielregel; nicht erneut als offene Produktentscheidung behandeln |
+| **Testregelsatz** | Zusammenhängende vorgeschlagene Präzisierung für die erste Umsetzung; keine getestete Balance |
 | **Vorschlag** | Empfohlene Präzisierung einer offenen Regel oder eines Randfalls; vor Implementierung bestätigen |
 | **Testwert** | Vorläufige Zahl für reproduzierbare Tests und Spieltests, keine bestätigte Balance |
 | **Bestand main** | Im dokumentierten Ausgangscommit vorhanden |
 | **Entwicklungsstand** | In einer offenen PR-Kette vorhanden, noch nicht in main integriert |
 | **Später** | Nicht Voraussetzung des ersten vollständigen Zweispieler-Spiels |
 
-Alle Zahlen in den Zielregeln sind **Testwerte**, sofern sie nicht ausdrücklich als vorhandene Regeln bezeichnet sind. Namen der Stämme, Einheiten und Gebäude sind Arbeitsnamen. Präzisierungen in diesem Dokument sind Vorschläge, keine nachträglich behauptete Zustimmung des Nutzers.
+Alle Zahlen in den Zielregeln sind **Testwerte**, sofern sie nicht ausdrücklich als vorhandene Regeln bezeichnet sind. Namen der Stämme, Einheiten und Gebäude sind Arbeitsnamen. Krieg ab Start, unbegrenzte Stadtzahl mit teuren Gründern, vorläufig akzeptierte Armeeschuld, freie Stammeswahl einschließlich Spiegelpartien, ausdrücklich angegriffene statt automatisch entfernte Zivilisten und der gemeinsame Forschungsentwurf sind gewählt. Zahlen und taktische Randfälle bilden den dokumentierten vorläufigen Testregelsatz; ihre Bestätigung als Richtung ist kein Nachweis funktionierender Balance.
 
 ### Geprüfte Basis und bewusste Branch-Wahl
 
@@ -86,11 +88,11 @@ Auch die Herkunft der aufrecht gehenden Waschbären bleibt offen. Beschädigte A
 
 **Zielrichtung:** genau zwei gegnerische Spielerplätze. Jeder wählt einen der vier Stämme; vier Stämme bedeuten nicht vier Teilnehmer.
 
-**Vorschlag:** Im ersten Inhaltsvergleich wählen die Spieler unterschiedliche Stämme. Gleichstamm-Partien bleiben spätere Spiegeltests. Der ausrichtende Spieler erstellt die Partie mit Seed, Kartenversion, Regel-/Inhaltsversion, Startspieler und beiden Stämmen; der Gast bestätigt dasselbe Paket. Host und erster Zug dürfen nicht dauerhaft mit einem bestimmten Stamm verknüpft sein.
+**Bestätigt:** Beide Spieler wählen unabhängig frei aus den vier Stämmen; derselbe Stamm auf beiden Seiten ist von Beginn an erlaubt. Einheiten, Städte und Eigentum gehören unterschiedlichen Spieler-IDs, nicht einer gemeinsam benutzten Stammes-ID. Der ausrichtende Spieler erstellt die Partie mit Seed, Kartenversion, Regel-/Inhaltsversion, Startspieler und beiden Stämmen; der Gast bestätigt dasselbe Paket. Host und erster Zug dürfen nicht dauerhaft mit einem bestimmten Stamm verknüpft sein.
 
 Die erste vollständige Partie verwendet eine kleine kuratierte oder deterministisch erzeugte, validierte Karte. **24 × 24 Hex-Felder** ist ein Ausgangstest, keine Pflichtgröße für jede Partie. Keine größeren Karten erzwingen, bevor Wege, Partiezeit und mobile Lesbarkeit gemessen sind.
 
-**Startvorschlag:** je ein Gründer und Späher, gleiche offengelegte Rohstoffausstattung; erste Stadt und ein Produktionsweg zu allen drei Basisklassen müssen ohne Kristalle und Bergungsgut möglich sein. Ein sofortiger Starttrupp je Klasse ist eine separate Testfixture, nicht heimlich die normale Startaufstellung. Startpaket und genaue Rohstoffmengen werden im ersten Wirtschaftstest festgelegt.
+**Gewählter Startentwurf:** je ein Gründer und ein Späher, gleiche offengelegte Rohstoffausstattung, keine fertige Armee. Erste Stadt und Produktionsweg zu allen drei Basisklassen funktionieren ohne Forschung, Kristalle oder Bergungsgut. Der erste Gründer ist ausdrücklich eine kostenlose Szenarioausstattung; weitere Gründer sind teuer. Sofortige Truppen je Klasse sind nur eine separate Kampftestfixture. Konkrete Anfangsmengen stehen als Testwerte im Kostenrahmen.
 
 ### Geografie und Fairness
 
@@ -145,7 +147,7 @@ Nach Fertigstellung steht die Verbesserung auf dem Feld. Der Arbeiter kann weite
 | Bergungsstelle | Ruine mit Restvorrat | Klein: Holz, Arbeit | Endliche Bergung; öffentlich für den Besitzer bilanzierter Rest |
 | Straße | Eigenes legales Land | Klein je Abschnitt: Stein/Holz, Arbeit | Transportverbindung; Bewegungseffekt separat versioniert |
 
-Ertragszahlen und Bauzeiten werden als gemeinsame Datentabelle im Wirtschaftspaket festgelegt. Eine anfängliche Testfixture kann beispielsweise einen bewirtschafteten Nahrungsplatz mit 4 Nahrung ansetzen; das ist keine globale Behauptung über heutige Gelände-Erträge.
+Der [vorläufige Kosten- und Ertragssatz](#vorläufige-gemeinsame-testdaten) stellt gemeinsame Zahlen für die erste Wirtschaftsfixture bereit. Er ist keine Behauptung über heutige Gelände-Erträge oder bereits gemessene Balance.
 
 ### Anschluss, Besetzung und Abbau
 
@@ -161,7 +163,7 @@ Bewusstes Demontieren ist ein eigener, protokollierter Arbeitsauftrag. **Vorschl
 
 **Besitz** erlaubt Nutzung und schützt vor fremder Gründung. **Bewirtschaftung** setzt eine zugewiesene Arbeitskraft voraus. **Anschluss** erlaubt Transport. Ein gekauftes, unverbessertes oder nicht angeschlossenes Feld liefert nicht automatisch Ertrag.
 
-### Gründung, Reichweite und Stadtlimit
+### Gründung, Reichweite und teure Expansion
 
 Eine Gründung verbraucht einen eigenen Gründer auf freiem legalem Land. Der Standort ist erkundet, nicht besetzt, kein Leuchtfeuer und außerhalb fremden Besitzes. Beansprucht werden das Zentrum und bis zu sechs unbesessene Nachbarfelder. **Zieländerung:** Angrenzendes Küstenwasser kann dazugehören; das erlaubt Fischereien, aber keine Bewegung von Landeinheiten über Wasser. Bereits zugeordnete Nachbarn werden nicht überschrieben; die Gründungsvorschau zeigt den tatsächlichen Anspruch.
 
@@ -173,15 +175,17 @@ Eine Gründung verbraucht einen eigenen Gründer auf freiem legalem Land. Der St
 
 Erweiterungen müssen innerhalb der freigeschalteten Hex-Distanz liegen und an das Gebiet dieser Stadt angrenzen. **Vorschlag:** ein aktuell sichtbares unbesessenes Feld je Projekt, Kostenprofil klein bis mittel, wachsend mit Entfernung. Feindliche Besetzung blockiert Start und Abschluss; die Prüfung darf nicht heimlich ein Feld außerhalb aktueller Sicht abfragen. Jedes Feld gehört genau einer Stadt. Keine passive Kulturübernahme; ein umstrittenes Feld bleibt beim ersten rechtmäßigen Besitzer. Eigene Städte dürfen ein angrenzendes Feld ausdrücklich übertragen, wenn danach beide Gebiete verbunden bleiben und Radiusregeln gelten. Verbesserung und deren bezahlter Kostenbeleg wechseln mit; Arbeitskraftzuweisungen werden neu geprüft. Das Stadtzentrum ist nicht übertragbar.
 
-**Abstandsvorschlag:** Stadtzentren mindestens 4 Hex-Schritte auseinander. Dadurch dürfen sich spätere Radius-3-Einzugsgebiete geometrisch überschneiden, Besitz aber nicht. Überlappung schafft Entscheidungen statt Vollringanspruch. Dieser Testwert ersetzt nicht stillschweigend den bestehenden Mindestabstand 5; beide Varianten sind auf kleinen Karten zu prüfen.
+**Gewählter Testwert:** Stadtzentren mindestens 4 Hex-Schritte auseinander. Dadurch dürfen sich spätere Radius-3-Einzugsgebiete geometrisch überschneiden, Besitz aber nicht. Überlappung schafft Entscheidungen statt Vollringanspruch. Der vorhandene Mindestabstand 5 bleibt nur in älteren Regelversionen gültig; der neue Testregelsatz verwendet einheitlich 4.
 
-**Limitvorschlag:** Gründung nur bei weniger als zwei aktuell eigenen Städten, wie die vorhandene Größenordnung. Eroberte Städte dürfen den Gesamtbestand darüber erhöhen; sie zählen bei der nächsten Gründungsprüfung mit. Das ist kein lebenslanger Zähler bereits gegründeter Orte: Nach Stadtverlust kann wieder bis zum aktuellen Limit gegründet werden. Keine unbegrenzte Kolonisierung und kein Zurückweisen einer sonst legalen Eroberung am Limit. Ein Gründer kann ohne mögliche Neugründung weiter überleben; er verhindert dennoch die Niederlage. Limit und Eroberungsausnahme werden gemeinsam getestet.
+**Bestätigt: keine Obergrenze für Städte**, weder für Gründung noch Eroberung oder lebenslang gegründete Orte. Legaler Standort, Mindestabstand, Rohstoffe, Versorgung und die Opportunitätskosten des Gründers begrenzen Expansion. Das alte Zwei-Städte-Limit ist ausschließlich Implementierungsbestand, kein Zielvertrag.
+
+Nachproduzierte Gründer kosten im Testentwurf ungefähr die Bauarbeit von **drei Basiskampfeinheiten**, zusätzlich Holz, Stein und ein Nahrungspaket aus der Herkunftsstadt. Keine stillschweigende Bevölkerungsausgabe. Das lokale Nahrungspaket wird bei Produktionsstart reserviert und beim fertigen Gründer als Reisevorrat geführt; beim Gründen geht es in die neue Stadt, nicht nochmals aus dem Nichts hervor. Stirbt der Gründer, verfällt sein Reisevorrat ohne Beute. Ein blockierter Ausgang produziert weder einen zweiten Gründer noch zusätzliche Nahrung. Die transparente Ausnahme für den kostenlosen Anfangsgründer gilt nicht für jede weitere Stadt.
 
 ### Arbeitskräfte, Gebäudeplätze und Wohnen
 
 Eine Bevölkerungsgruppe ergibt genau einen Arbeitskraftplatz. Ein Platz betreibt entweder ein verbessertes Feld oder ein personalpflichtiges Gebäude. Bevölkerung wird bei normaler Einheitenproduktion nicht verbraucht; Gründerproduktion ist anfangs ebenfalls ein Material-/Arbeitsprojekt ohne verdeckten Bevölkerungsabzug.
 
-**Vorschlag für einen deadlockfreien Anfang:** Das Zentrum liefert ohne Belegschaft 3 Nahrung und 2 Bauarbeit pro eigenem Zug; beim Gründen entstehen ein bewirtschaftbares Anfangsfeld und ein kleiner, offen ausgewiesener Rohstoffvorrat. Ob der Anfangsacker gratis fertig ist oder bereits über die Anfangsausstattung bezahlt wird, muss die Startfixture explizit festlegen. Grundbauten und alle Basistruppen dürfen ohne Metall betreibbar sein; Metall verbessert die zweite Stufe.
+**Testregelsatz für einen deadlockfreien Anfang:** Das Zentrum liefert ohne Belegschaft 3 Nahrung und 2 Bauarbeit pro eigenem Zug. Jede Stadt beginnt mit Bevölkerung 1 und einem fertigen Anfangsfeld auf dem ersten geeigneten eigenen Nachbarland in Hex-Reihenfolge; fehlt ein solches Feld, ist der Gründungsort in der ersten Testkarte unzulässig. Dieses Feld ist Teil des Gründungspakets, beim Anfangsgründer eine offengelegte Szenarioausnahme; sein Demontage-Kostenbeleg ist null. Neue Städte erzeugen keine kostenlosen gemeinsamen Rohstoffe. Nur der Szenariostart vergibt die Anfangsausstattung. Grundbauten und alle Basistruppen sind ohne Metall betreibbar; Metall verbessert die zweite Stufe.
 
 Automatische Zuweisung hat die Profile Wachstum, Produktion und ausgewogen. Manuelle Pins gehen vor, solange legal; danach werden verbleibende Plätze nach priorisiertem Ertrag und bei Gleichstand nach Feld-/Gebäude-ID belegt. Bei Bevölkerungsverlust werden zuerst unfixierte, dann zuletzt gesetzte Pins gelöst; gleiche Zeitpunkte nach ID. Die UI nennt unbesetzte, abgeschnittene und besetzte Arbeitsplätze getrennt.
 
@@ -192,10 +196,12 @@ Automatische Zuweisung hat die Profile Wachstum, Produktion und ausgewogen. Manu
 | Wohnstufe | Bevölkerungslimit | Voraussetzung / Kostenprofil |
 | --- | --- | --- |
 | Gründung | 3 | Zentrum vorhanden |
-| Wohnanlage | 6 | Holz, Stein, mittlere Bauarbeit |
-| Ausgebautes Wohnquartier | 9 | Vorstufe, höhere Verwaltung, Stein/Metall, hohe Bauarbeit |
+| Wohnanlage | 6 | Anbauverfahren, Holz, Stein, mittlere Bauarbeit; **keine** Bevölkerung-4- oder Ratshauspflicht |
+| Ausgebautes Wohnquartier | 9 | Wohnanlage und Stadtplanung, Stein/Metall, hohe Bauarbeit; **keine** Bevölkerung-7-Pflicht |
 
 Wohnraum ist unabhängig von Gebietsreichweite. Eine Hungerphase entfernt kein bereits freigeschaltetes Verwaltungsgebäude; **Vorschlag:** einmal erreichte Reichweiten bleiben freigeschaltet, vorhandene Felder werden bei Bevölkerungsverlust nicht entzogen.
+
+**Keine tote Fortschrittsschleife:** Vorratshaltung → Anbauverfahren lässt bei Bevölkerung 3 die Wohnanlage bauen. Erst dadurch kann die Stadt auf 4 wachsen; Wegebau → Stadtplanung plus Ratshaus schaltet dann Radius 2 frei. Stadtplanung und Wohnanlage erlauben außerdem Wohnraum 9, bevor Bevölkerung 7 und höhere Verwaltung Radius 3 ermöglichen. Forschung, Grundversorgung und Wohnbau brauchen selbst keinen Außenring.
 
 ### Nahrung, Wachstum und Hunger
 
@@ -211,13 +217,43 @@ Das ist eine **bewusste spätere Regeländerung**: Der vorhandene Stadtprototyp 
 
 Jede Stadt hat eine aktive Warteschlange. Gebäude, Truppen, Forschungsvorbereitungen und Stadtprojekte brauchen einen Rohstoffvektor und lokale Bauarbeit. Rohstoffe werden beim Start aus dem gemeinsamen Bestand reserviert und vom frei verfügbaren Bestand abgezogen. Arbeit entsteht nur lokal und wird nicht gespeichert, wenn kein Projekt läuft.
 
-**Vorschlag für Kostenprofile:** klein = frühes Holz plus wenig Stein und 1–2 produktive Abschlüsse; mittel = Holz/Stein, gegebenenfalls Metall und 2–4 Abschlüsse; groß = mehrere Grundstoffe, Metall, optional Kristalle und 4–6 Abschlüsse. Diese Zeitfenster beziehen sich auf eine offengelegte Teststadt, nicht auf garantierte globale Bauzeiten. Vor Code erhält jedes Produkt ganzzahlige konkrete Kosten; noch fehlende Zahlen dürfen nicht als null interpretiert werden.
+Kostenprofile beschreiben die Zusammensetzung: klein = frühes Holz plus wenig Stein; mittel = Holz/Stein, gegebenenfalls Metall; groß = mehrere Grundstoffe, Metall und gegebenenfalls Kristalle. Konkrete Testdaten folgen unten. Die Dauer ergibt sich aus der tatsächlichen lokalen Bauarbeit, nicht aus einer unabhängig versprochenen Rundenzahl; noch fehlende Spezialpreise dürfen vor Implementierung nicht als null interpretiert werden.
 
 Ein Upgrade braucht seine Vorstufe, die zugehörige Freischaltung und freien Zugang zur Stadt. Es ersetzt die Vorstufe, stapelt nicht deren vollen Ertrag zusätzlich. Alltägliche Gebäude benötigen vor allem Arbeitskräfte, nicht pauschal jede Runde neue Rohstoffe. Nur ausdrücklich gewählte Umwandlung, Maschinenbetrieb oder Fähigkeiten haben laufende Materialkosten.
 
 **Stornierungsvorschlag:** Bei bezahlten Kosten `C`, Sollarbeit `W` und Fortschritt `p` wird je Rohstoff `floor(C * (W - min(p,W)) / W)` zurückgegeben. Bereits eingebaute Materialien werden nicht nochmals durch eine Gebäudedemontage erstattet. Eine voll bearbeitete, aber blockierte Truppe hat keinen unverbrauchten Materialrest. Der Dialog zeigt vor Bestätigung Kostenbeleg, Rückgabe und endgültigen Verlust.
 
+Ein Gründer-Nahrungspaket gehört zum bezahlten Kostenvektor, bleibt aber lokal: Ein unverbrauchter Rückgabeteil geht ausschließlich an die ursprüngliche eigene Herkunftsstadt, höchstens bis zu ihrer freien Speicherkapazität. Überlauf verfällt sichtbar; nach fremder Eroberung gibt es keine Auszahlung an den neuen Besitzer oder einen gemeinsamen Nahrungsbestand.
+
 Fertige Einheiten erscheinen erst auf einem freien legalen Nachbarfeld in fester Hex-Reihenfolge. Kein Überschreiben, Stapeln oder doppelter Abschluss: Bei Blockade wartet das Projekt mit voller Arbeit. **Vorschlag:** Frisch produzierte oder aufgewertete Einheiten sind bis zum nächsten eigenen Zug erschöpft; Aufwertung erhält den prozentualen Gesundheitsschaden, setzt weder Konterbudget noch Unterhalt zurück.
+
+### Vorläufige gemeinsame Testdaten
+
+Diese Tabelle ist ein **zusammenhängender Startpunkt für Implementierungs- und Spieltests**, keine empirisch bestätigte Balance. Sie ersetzt nicht die alten Regeln v4. Ohne Spezialisierung erzeugt das Zentrum 2 Arbeit pro eigenem Abschluss; ein Grundsoldat mit 12 Arbeit braucht dort 6, ein Gründer mit 36 Arbeit 18 Abschlüsse. Wer schneller expandieren will, muss Arbeit statt Nahrung oder Rohstoffen priorisieren.
+
+| Testdefinition | Ganzzahliger Wert |
+| --- | --- |
+| Szenarioausstattung je Spieler | 20 Holz, 12 Stein, 0 Metall/Kristalle/Bergungsgut; Anfangsgründer trägt 12 Nahrung; Späher und keine Armee |
+| Bevölkerung / Zentrum | Anfangsbevölkerung 1; Zentrum 3 Nahrung + 2 Arbeit, keine Gratisforschung je Stadt |
+| Feld / Obstgarten / Fischerei | Je 4 Nahrung bei einem zugewiesenen Arbeitsplatz |
+| Verbessertes Feld nach Anbauverfahren | 5 statt 4 Nahrung; bezahltes Upgrade 4 Holz + 2 Arbeiterabschlüsse, keine automatische globale Ertragserhöhung |
+| Forst / Steinbruch / einfache Mine | Je Arbeitsplatz 3 Holz / 2 Stein / 2 Metall |
+| Kristallsammler / Bergungsstelle | Je Arbeitsplatz 1 Kristall / höchstens 2 Bergungsgut bis Vorrat null |
+| Ruinen-Testvorrat | 12 Bergungsgut je kanonischer Test-Ruine; keine Endlos-Erneuerung |
+| Bauarbeitsplatz im gemeinsamen Werkhof | 3 zusätzliche Arbeit, eine Arbeitskraft |
+| Basis-Bollwerk | 6 Holz + 4 Stein + 12 Arbeit |
+| Basis-Sturm | 8 Holz + 2 Stein + 12 Arbeit |
+| Basis-Brecher | 10 Holz + 4 Stein + 12 Arbeit |
+| Späher / Arbeiter | 4 Holz + 8 Arbeit / 6 Holz + 2 Stein + 10 Arbeit |
+| Weiterer Gründer | 12 Holz + 8 Stein + 12 lokale Nahrung + 36 Arbeit; keine Bevölkerungskosten |
+| Feld, Obstgarten, Forst, Steinbruch, Fischerei | 4 Holz + 2 Arbeiterabschlüsse |
+| Einfache Mine / Kristallsammler | 4 Holz + 4 Stein + 3 Arbeiterabschlüsse / zusätzlich 2 Metall, 4 Arbeiterabschlüsse |
+| Bergungsstelle / Straßenabschnitt | 2 Holz + 2 Arbeiterabschlüsse / 1 Holz + 1 Stein + 1 Arbeiterabschluss |
+| Kleine / mittlere / hohe Gebäudestufe | Ausgangsprofil 8 Holz + 4 Stein + 12 Arbeit / 12 Holz + 8 Stein + 4 Metall + 20 Arbeit / 16 Holz + 12 Stein + 8 Metall + 28 Arbeit |
+| Wohnanlage / Wohnquartier | 8 Holz + 4 Stein + 12 Arbeit / 12 Stein + 4 Metall + 20 Arbeit |
+| Zusätzlicher Gebietsanspruch | Radius 1: 2 Holz + 2 Stein + 4 Arbeit; Radius 2: 4 Holz + 4 Stein + 8 Arbeit; Radius 3: 6 Holz + 6 Stein + 12 Arbeit |
+
+Ein Arbeiterabschluss bedeutet eine volle Arbeitsaktion der beteiligten Arbeiterfigur; kein Bevölkerungs-Arbeitsplatz ist dafür zusätzlich nötig. Der Bauarbeitsplatz im Zentrum-Werkhof ist ein gewöhnlicher Spezialplatzbau, anfangs ohne Forschung und ohne Metall möglich. Generische Lager und Verwaltung verwenden dieselben Stufenprofile; Stammesbesonderheiten werden als ausgewiesene Abweichung bezahlt. Für die spätere Inhaltsstufe sind konkrete zweite Einheitenpreise und alle zusätzlichen Spezialeffekte vor Code einzeln zu vervollständigen. Sie sind bewusst nicht im ersten Ein-Fähigkeit-pro-Stamm-Inkrement enthalten.
 
 ## 6. Versorgung und deterministischer Zugabschluss
 
@@ -225,11 +261,11 @@ Fertige Einheiten erscheinen erst auf einem freien legalen Nachbarfeld in fester
 
 Jede Kampfeinheit kostet 1 Nahrung je eigenem Abschluss; keine zusätzliche taktische Hungerstrafe im ersten Regelsatz. Zivilisten haben zunächst keinen separaten Unterhalt. Jede Kampfeinheit hat eine angezeigte Versorgungsstadt. Straßenunterbrechung erlaubt kein Abschalten dieser Verpflichtung.
 
-**Vorschlag zur Buchführung:** Die Versorgungsstadt ist ein Abrechnungsort, keine Reichweitenbedingung für den Armeezoll. Sie zahlt auch für fern stehende Einheiten. Bei Verlust der Stadt wird eine andere eigene Stadt mit kleinster stabiler Stadt-ID zugewiesen. Ein Wechsel darf die bereits fällige Verpflichtung nicht reduzieren. Noch offene Nahrung kann aus anderen eigenen Stadtüberschüssen in stabiler Reihenfolge gedeckt werden; das ist eine ausdrücklich abstrakte Unterhaltsabrechnung, keine heimliche allgemeine Lebensmittel-Lieferroute.
+**Für die erste Fassung bestätigt:** Die Versorgungsstadt ist ein Abrechnungsort, keine Reichweitenbedingung für den Armeezoll. Sie zahlt auch für fern stehende Einheiten. Bei Verlust der Stadt wird eine andere eigene Stadt mit kleinster stabiler Stadt-ID zugewiesen. Ein Wechsel darf die bereits fällige Verpflichtung nicht reduzieren. Noch offene Nahrung kann aus anderen eigenen Stadtüberschüssen in stabiler Reihenfolge gedeckt werden; das ist eine ausdrücklich abstrakte Unterhaltsabrechnung, keine heimliche allgemeine Lebensmittel-Lieferroute.
 
 Kann der Spieler insgesamt nicht zahlen oder hat er keine Stadt mehr, bleibt die offene Armeenahrung als **fraktionsweite Nahrungsschuld** im Partiestand. Das ist kein handelbarer Rohstoff. Schuld überlebt Stadtverlust, Neuzuweisung, Entlassung der verursachenden Einheit und Import/Export. Künftige freie Stadtnahrung tilgt sie vor Export und Wachstum; bis zur Tilgung keine Kampfrekrutierung. Die lokale Bevölkerung erhält vor dem Armeezoll ihre verfügbare Grundration; ein fremder Stadtüberschuss wird ihr dagegen nur durch eine tatsächliche Lieferroute zugänglich. Bestehende Armeen bleiben taktisch unverändert. Ohne Städte läuft die Schuld weiter, solange ein Gründer die Niederlage verhindert. Der spätere Stadtaufbau beginnt nicht schuldenfrei.
 
-Diese vorgeschlagene Abstraktion verhindert das Löschen von Unterhalt durch Disconnection und Umbenennung. Sie erlaubt bewusst vorübergehend unbezahltes Kämpfen statt ungefragter Desertion oder Kampfmali. Ob dieser Aufschub in Stadtlosigkeit spielerisch missbraucht wird, ist ein eigener Freigabepunkt; dann ausdrücklich eine andere Regel beschließen, nicht stillschweigend kostenlosen Unterhalt gewähren.
+Diese vorläufig akzeptierte Abstraktion verhindert das Löschen von Unterhalt durch Disconnection und Umbenennung. Sie erlaubt bewusst vorübergehend unbezahltes Kämpfen statt Desertion oder Kampfmali. Stadtlose Armeen und die wachsende Schuld bleiben ein gezielter Spieltest, nicht eine erneut offene Grundentscheidung. Eine spätere Änderung braucht eine dokumentierte Regelrevision.
 
 ### Lieferungen zwischen Städten
 
@@ -280,7 +316,7 @@ Lokale Hunger- und Wachstumsberechnung verwendet die Bevölkerung aus dem Snapsh
 | Basis-Brecher | Holz/Stein, mittlere bis höhere Arbeit | Stadtzentrum; kein Ruinenzwang |
 | Zweite Einheitenstufe | Vorstufe plus Holz/Stein/Metall, hohe Arbeit; Kristalle nur für optionale Fähigkeit | Passende Militärgebäudestufe und Forschung oder ausdrücklich freigegebene Szenariostufe |
 | Späher | Holz, kleine Arbeit | Zentrum |
-| Gründer | Holz/Stein, hohe Arbeit; keine Bevölkerung als versteckte Währung | Zentrum, Stadtlimitprüfung spätestens beim Gründen |
+| Gründer | Holz/Stein, lokale Nahrung, Arbeit von ungefähr drei Basiseinheiten; keine Bevölkerungskosten | Zentrum; kein Stadtlimit, legaler Standort und Mindestabstand beim Gründen |
 | Arbeiter | Holz/Stein, mittlere Arbeit | Zentrum |
 
 Die zwölf Stammes-Kampfketten verwenden diese vergleichbaren Grundprofile. Amazonen verschieben Kosten zu Holz, Ingenieure vor allem im Ausbau zu Stein/Metall, Waschbären können einen begrenzten normalen Materialanteil durch Bergung ersetzen, Zauberinnen bezahlen nur Zusatzkräfte mit Kristallen. Keine Variante darf die Grundkonter-Verfügbarkeit aufheben. Konkrete ganzzahlige Preise werden vor dem zugehörigen Wirtschaftspaket festgelegt.
@@ -347,13 +383,13 @@ Bei null Befestigung wird eine vorhandene Garnison mit den normalen Kampfregeln 
 
 ### Erobern und Zivilisten
 
-Nur eine **nahkampffähige Bollwerk- oder Sturm-Einheit** kann eine unbefestigte Stadt ohne feindliche Garnison durch Betreten erobern. Brecher, reine Fernkämpfer und Zivilisten können Mauern zerstören beziehungsweise unterstützen, aber nicht übernehmen.
+Nur eine **nahkampffähige Bollwerk- oder Sturm-Einheit** kann eine unbefestigte Stadt ohne feindliche Einheit im Zentrum durch Betreten erobern. Ein feindlicher Zivilist muss vorher ausdrücklich angegriffen werden; er ist keine Kampfgarnison, blockiert aber den Platz. Brecher und reine Fernkämpfer können Mauern und Gegner bekämpfen, aber nicht übernehmen; eigene Zivilisten können ebenfalls keine Stadt erobern.
 
-Ausdrückliche Vorrückausnahme: Tötet ein benachbarter geeigneter Nahkämpfer die letzte Garnison, darf der Angriff unmittelbar in die Stadt vorrücken, obwohl er sonst Bewegung beendet. Dasselbe gilt, wenn er die letzten Mauerpunkte zerstört und **keine** Garnison vorhanden ist. Kein zusätzlicher Angriff, nur genau dieses eine Feld. Feindliche Kontrollzone verhindert diese Abschlussbewegung nicht, beendet sie aber dort. Eine reine Fernkampfzerstörung ermöglicht kein Vorrücken aus Distanz.
+Ausdrückliche Vorrückausnahme: Tötet ein benachbarter geeigneter Nahkämpfer bei Befestigung null die letzte feindliche Einheit im Zentrum, darf der Angriff unmittelbar in die Stadt vorrücken, obwohl er sonst Bewegung beendet. Das gilt auch nach einem ausdrücklich gewählten Angriff auf einen dortigen Zivilisten. Dasselbe gilt, wenn er die letzten Mauerpunkte zerstört und das Zentrum **frei von jeder feindlichen Einheit** ist. Kein zusätzlicher Angriff, nur genau dieses eine Feld. Feindliche Kontrollzone verhindert diese Abschlussbewegung nicht, beendet sie aber dort. Eine reine Fernkampfzerstörung ermöglicht kein Vorrücken aus Distanz. Entfernen der Einheit, Vorrücken und Besitzerwechsel sind zusammen ein atomarer Befehl; Niederlage erst danach prüfen.
 
-**Zivilistenregel als Vorschlag:** Feindliche Zivilisten sind keine Garnison und nicht durch einen normalen Marschbefehl löschbar. Ein benachbarter Kampfverband braucht einen ausdrücklichen Gefangennahmebefehl mit Angriffskosten. Der Zivilist flieht auf das erste freie eigene/ neutrale legale Landfeld in fester Hex-Reihenfolge, außerhalb feindlicher Kontrollzonen; falls keines existiert, wird er als gefangen aus der Karte entfernt. Keine neue Arbeitseinheit und kein Rohstoffgewinn für den Angreifer. Flucht verbraucht seine nächste eigene Bewegungsmöglichkeit. Ein im eroberten Stadtzentrum stehender Zivilist erhält dieselbe Fluchtprüfung als Teil des Eroberungsbefehls; die Vorschau nennt das Ergebnis. Kein stilles Überlagern und kein bloßes Löschen bei Ankunft.
+**Gewählter Zivilistenentwurf:** Ein benachbarter feindlicher Kampfverband darf eine aktuell sichtbare zivile Einheit mit einem **ausdrücklichen Angriff** töten. Der Angriff verbraucht die normale Angriffsaktion und beendet Bewegung; er entfernt die Figur deterministisch, ohne Konter. Keine automatische Tötung durch Betreten, keine Beute, Übernahme, Flucht oder Gefangenenverwaltung. Die Darstellung bleibt abstrakt und nichtgrafisch. Auch ein reiner Fernkampfverband darf diesen gesonderten benachbarten Angriff ausführen; das gibt ihm keinen normalen Nahkampf gegen Kampftruppen und keinen Fernangriff auf Zivilisten aus zwei Feldern.
 
-Eine Gefangennahme braucht keine Fernschusslinie, aber tatsächliche Nachbarschaft und Sicht; sie ist keine Fernkampfattacke aus zwei Feldern. Ein danach leeres neutrales Feld darf der Angreifer nicht zusätzlich gratis betreten; nur die ausdrückliche Stadteroberungsbewegung hat diese Ausnahme. Flucht benutzt das Wissen und die legalen Felder des fliehenden Spielers. Dem Gegner zeigt die Vorschau „Flucht oder Gefangennahme nach Kontakt“, wenn ein exaktes Ergebnis verborgene Belegung verraten würde; das tatsächliche Ereignis wird nur im Umfang seiner Sicht offenbart.
+Auf einem Stadtfeld schützt vorhandene Befestigung auch den Zivilisten: zuerst Mauerpunkte auf null bringen, ohne Überlaufschaden oder automatische Tötung. Danach den Zivilisten ausdrücklich angreifen. Tötet ein übernahmeberechtigter Nahkämpfer ihn, kann die atomare Vorrückausnahme greifen; ein Brecher leert nur das Feld, ein weiterer geeigneter Verband muss übernehmen. Außerhalb dieser Stadt-Ausnahme wird ein nach dem Angriff leeres Feld nicht gratis betreten. Die Vorschau zeigt Kosten, Tod der Figur und gegebenenfalls Übernahme eindeutig; es gibt keinen versteckten Fluchtausgang.
 
 ### Erhalten, gesperrt und generisch nutzbar
 
@@ -377,9 +413,11 @@ Befestigung regeneriert nicht selbst. Ein bezahltes Reparaturprojekt stellt sich
 
 Vier Zielstämme ersetzen **im neuen Design** Meridian Union und Lantern Compact. Im vorhandenen Code bleiben diese bis zu einer versionierten Umstellung gültig. Steinwacht und Gezeitenbund waren verworfene Namens-/Konzeptalternativen, keine fünfte und sechste Fraktion.
 
-Jeder Stamm hat drei Kampfketten mit zunächst zwei Stufen, drei zivile Rollen und vier besondere Gebäudeketten mit je drei Stufen. Alle beginnen mit den drei gemeinsamen Kontern. Basis-Militär ist am Zentrum rekrutierbar; Militärgebäude fördern Ausbau und Stufe 2, sperren nicht einen Grundkonter hinter seltenen Stoffen.
+Das vollständige Ausbauziel jedes Stamms hat drei zweistufige Kampfketten, drei zivile Rollen und vier dreistufige besondere Gebäudeketten. **Die erste Inhaltsumsetzung liefert nur eine charakteristische Fähigkeit je Stamm** zusammen mit den gemeinsamen Klassen und zivilen Rollen. Alle weiteren Katalogfähigkeiten und Gebäudestufen bleiben ausdrücklich Ausbauziel, nicht Voraussetzung dieses ersten Inhaltsinkrements. Welche Katalogfähigkeit zuerst repräsentativ umgesetzt wird und ihre konkreten Kosten werden im Paket P12 festgelegt.
 
-Für **jede** Gebäudekette gilt: Stufe 1 benötigt Gründung und einen freien Spezialplatz; Stufe 2 die Vorstufe, Bevölkerung 4 und passende gemeinsame Forschung; Stufe 3 die Vorstufe, Bevölkerung 7 und fortgeschrittene Forschung. Die Verwaltungskette selbst ist nicht zirkulär durch eine schon vorhandene höhere Verwaltung gesperrt. Ein Upgrade ersetzt den Platz. Passive Wohn-/Verwaltungs-/Lagerfreischaltung braucht kein Personal; produzierende oder aktive Funktionen benötigen vorgeschlagen einen Arbeitskraftplatz pro Kette, unabhängig von Stufe. Effekte gelten nur bei aktivem Betrieb, außer ausdrücklich passiven Kapazitäten.
+Alle beginnen mit den drei gemeinsamen Kontern. Basis-Militär ist am Zentrum rekrutierbar; Militärgebäude fördern Ausbau und Stufe 2, sperren nicht einen Grundkonter hinter seltenen Stoffen.
+
+Für die **Ausbauketten** gilt als Testregelsatz: Stufe 1 benötigt Gründung und einen freien Spezialplatz; Stufe 2 die Vorstufe und ihre gemeinsame Forschung, Stufe 3 die Vorstufe und fortgeschrittene Forschung. Die Verwaltungs-Reichweiten brauchen zusätzlich Bevölkerung 4 beziehungsweise 7, nicht pauschal jede Werkstatt. Die Verwaltungskette ist nicht zirkulär durch eine schon vorhandene höhere Verwaltung gesperrt; Lager- und Wohnzugang bleiben vor Bevölkerung 4 möglich. Ein Upgrade ersetzt den Platz. Passive Wohn-/Verwaltungs-/Lagerfreischaltung braucht kein Personal; produzierende oder aktive Funktionen benötigen vorgeschlagen einen Arbeitskraftplatz pro Kette, unabhängig von Stufe. Effekte gelten nur bei aktivem Betrieb, außer ausdrücklich passiven Kapazitäten.
 
 ### 9.1 Amazonen / Bund der Morgenröte
 
@@ -495,21 +533,24 @@ Keine Gedankensteuerung, kein ganzer verlorener Gegnerzug, keine unendlichen Bes
 
 ### Kleiner gemeinsamer Baum
 
-**Zielrichtung:** gemeinsame Forschung als überschaubare Voraussetzungskette, später stammesbezogene Upgrades. Forschung ist keine Eintrittsbedingung für das erste Kampf-/Sieg-Inkrement.
+**Gewählter Forschungsentwurf:** Alle vier Stämme teilen denselben kleinen Baum aus vier Zweigen mit jeweils zwei Technologien. Die Anwendungen sind stammesbezogen, nicht vier getrennte Technologiebäume. Forschung ist keine Eintrittsbedingung für das erste isolierte Kampf-/Sieg-Inkrement; der vollständige Wirtschafts- und Inhaltsmodus nutzt dagegen die folgenden Freischaltungen.
 
-**Vorschlag, noch nicht bestätigte Technologien oder Zahlen:** Das Zentrum erzeugt 1 Forschung pro eigenem Abschluss; betriebene Wissensgebäude können diesen Fortschritt erhöhen. Nur ein aktives Fraktionsprojekt, kein lagerbares Forschungsgut und keine Umschichtung bereits investierter Punkte ohne ausdrückliche Stornoregel.
-
-| Arbeitsname | Voraussetzung | Freischaltung / Grenze |
+| Zweig | Erste Technologie, ohne Forschungsvoraussetzung | Zweite Technologie, benötigt nur die erste im Zweig |
 | --- | --- | --- |
-| Versorgung | Keine | Gemeinsame Lagerverbesserung und lokale Nahrungsorganisation |
-| Wegehandwerk | Keine | Straßen-/Anschlussverbesserungen; Grundversorgung darf nicht bis dahin blockiert sein |
-| Gemeindeverwaltung | Versorgung | Mittlere Verwaltung und Wohnanlage |
-| Formationen | Keine | Zweite Militärgebäudestufe, keine Sperre einer Basisklasse |
-| Ausbauwesen | Gemeindeverwaltung + Wegehandwerk | Höhere Verwaltung und größere Bauprojekte |
-| Resonanzkunde | Versorgung + Formationen | Begrenzte Kristallprojekte aller Stämme |
-| Stammesmeisterschaft | Formationen + passende mittlere Infrastruktur | Zweite Einheitenstufen, danach gezielte Stammeszweige |
+| Versorgung | **Vorratshaltung:** größere Lager und stehende Nahrungslieferungen | **Anbauverfahren:** bessere Felder und Wohnraumausbau |
+| Bauwesen | **Wegebau:** Straßen und entfernte Förderanlagen | **Stadtplanung:** Verwaltung und größere Gebietsreichweite |
+| Handwerk | **Metallverarbeitung:** fortgeschrittene Werkstätten | **Ausrüstung:** zweite Stufe aller drei Kampfklassen |
+| Resonanzkunde | **Resonanzmessung:** Kristalle erschließen und nutzen | **Resonanztechnik:** fortgeschrittene Stammesfähigkeiten |
 
-Konkrete Forschungskosten, gegenseitige Ausschlüsse und die Frage, ob die letzte Freischaltung zentral oder je Stammeszweig erfolgt, bleiben Freigabepunkte. Ein kurzer Baum ist besser als vier parallele ungetestete Technologiebäume.
+Grundnahrung, Holz, Stein, einfache Metallförderung und alle drei Basiskampfklassen sind **ab Beginn** verfügbar, ebenso Beacon-Aktivierung. Keine Grundklasse oder grundlegende Heil-/Versorgungsmöglichkeit wird hinter Forschung, Kristallen oder Ruinen gesperrt. Lokale Erträge im ersten Ring brauchen keinen Wegebau; Außenanlagen und interstädtische Transporte benötigen ihre ausdrücklich genannten Freischaltungen.
+
+Ein aktives Forschungsprojekt gilt je **Spielerfraktion**, nicht je Stamm oder Stadt. Der feste geringe Fraktionsgrundertrag existiert genau einmal auch bei mehreren Städten; keine Gratisforschung für jede Neugründung. Betriebene Wissensgebäude liefern zusätzlichen Ertrag gegen belegte Bevölkerung und Gebäudeplätze. Beim Projektwechsel bleibt der erreichte Fortschritt **an der jeweiligen Technologie** gespeichert, er wird weder gelöscht noch auf ein anderes Projekt übertragen. Kein aktives Projekt bedeutet kein ungebunden lagerbares Forschungsguthaben.
+
+Eroberung überträgt weder Technologien noch Teilfortschritt oder fremde Forschungsprojekte. Ein erobertes Wissensgebäude kann nach den gemeinsamen Besetzungs-/Personalregeln künftig eigene Forschung liefern; es stiehlt kein Wissen rückwirkend. Spiegelpartien haben getrennte Forschungsstände. Ein Abschluss investiert ausschließlich in das beim Abschluss gewählte Projekt; Fertigstellung überschreibt keine vorherigen Punkte und hat keinen automatischen Überlauf ins nächste Projekt.
+
+**Forschungstestwerte:** 1 Punkt je Fraktion und eigenem Abschluss, zusätzlich 1 Punkt je besetztem Wissensgebäude-Arbeitsplatz; hier bedeutet „besetzt“ mit eigener Arbeitskraft betrieben, nicht militärisch okkupiert. Bei militärischer Besetzung zählt der Beitrag als Nichtnahrungs-Ertrag und wird entsprechend halbiert. Erste Technologien kosten 5, zweite 8 Punkte. Ohne Wissensgebäude braucht die erste Technologie damit 5 eigene Züge, innerhalb des Testziels **4–6**, nicht als verifizierte Balance. Kein Zwang, sämtliche Zweige innerhalb einer Partie freizuschalten.
+
+Das gemeinsame Wissenshaus ist ab Beginn mit dem kleinen Gebäudeprofil baubar, benötigt einen Spezialplatz und eine Arbeitskraft. Forschungsvoraussetzungen haben keine wechselseitigen Zyklen: Insbesondere Anbauverfahren erlaubt Wohnraum 6 ohne Bevölkerung-4-Hürde; Stadtplanung erlaubt den Verwaltungsbau, dessen Radius-2-Nutzung erst danach Bevölkerung 4 verlangt. Wohnraum 9 wird vor Bevölkerung 7 freigeschaltet. Die breite Dreistufen-Inhaltsplanung wird später diesen acht Technologien zugeordnet, ohne weitere unbeschlossene Pflichttechnologien einzuschieben.
 
 ### Stadtrollen statt zusätzlicher Teilspiele
 
@@ -519,7 +560,7 @@ Stabilität, Politik und Unruhe können später Entscheidungen ergänzen. Die er
 
 ### Krieg, Diplomatie und KI
 
-**Empfehlung für den Kernmodus:** Beide Spieler stehen ab Partiebeginn im Krieg. Beacon-Wettkampf, Unterbrechung und Stadteroberung brauchen dann kein vorgeschaltetes Diplomatieprojekt. Das ersetzt ausdrücklich den alten Zukunftsentwurf „Start im Frieden, Nichtangriffspakt, Kriegserklärung“.
+**Bestätigt für den PvP-Kernmodus:** Beide Spieler stehen ab Partiebeginn im Krieg. Beacon-Wettkampf, Unterbrechung und Stadteroberung brauchen kein vorgeschaltetes Diplomatieprojekt. Das ersetzt ausdrücklich den alten Zukunftsentwurf „Start im Frieden, Nichtangriffspakt, Kriegserklärung“.
 
 Spätere Diplomatie kann Frieden, Krieg und begrenzte Nichtangriffsabkommen ergänzen. Zuerst klären, wie ein friedlicher Gegner Beacons zurückerobern darf; nicht den Kernmodus mit einer widersprüchlichen Kriegssperre blockieren.
 
@@ -553,7 +594,7 @@ Erster-Zug-Vorteil ist keine gelöste Eigenschaft dieses Entwurfs. Jede Karten-/
 
 Vor einem Angriff: Klasse, Reichweite, Schusslinie, Rohschaden, Flanke, Verteidigung, Schutz, Konterbudget, Endgesundheit und möglicher Eroberungsschritt. Vor Zugende: Stadtnahrung, Armeeanteil, Schuld, Lieferung, Hunger, Wachstum, Arbeit und Fortschritt zum Beacon-Sieg.
 
-Stadtinspektion trennt Besitz, Bewirtschaftung, Verbindung, Besetzung und Wohnraum. Aufwertung, Abbruch, Demontage und Gefangennahme zeigen ihre Folgen vor Bestätigung. Illegale Befehle haben klare, sichtkonforme Gründe und verändern nichts.
+Stadtinspektion trennt Besitz, Bewirtschaftung, Verbindung, Besetzung und Wohnraum. Aufwertung, Abbruch, Demontage und ein ausdrücklich gewählter Angriff auf einen Zivilisten zeigen ihre Folgen vor Bestätigung. Illegale Befehle haben klare, sichtkonforme Gründe und verändern nichts.
 
 Einheiten sind über Rolle, Silhouette und Symbol unterscheidbar, nicht nur über Fraktionsfarbe oder Geschlecht. Tastatur und kleine Touchflächen sind Bestandteil des späteren Vollspiel-Gates. Keine dauernden Effekte, die Sichtzustände oder Auswahl überdecken.
 
@@ -573,11 +614,11 @@ Neue Befehle brauchen versionierte serialisierbare Formen: Angriff, Eingraben, R
 
 Neue Sieg-, Hunger-, Kampf-, Stammes- und Wirtschaftsregeln ändern Regel-/Inhaltsversionen. Kanonische Ressourcen- oder Start-/Beacon-Platzierung ändert die Generatorversion, auch wenn sie ähnlich aussieht. Transport-/Save-Schema wird nur bei Formänderung angehoben; Versionsnummern erst anhand des dann integrierten Basestands vergeben, nicht hier pauschal als „v5“ versprechen.
 
-Prüfsummen über Karte und vollständigen autoritativen Zustand umfassen Gesundheit, Budgets, Nahrungsschuld, Projektreservierungen, aktive Fähigkeiten, Besatzungszähler, Beacon-Besitz und Haltezähler. Spieleridentität und Stamm sind getrennt. Export ist nur an vollständigen erlaubten Zuggrenzen gültig; doppelte, alte, fremde, beschädigte und unvollständige Pakete müssen erklärt zurückgewiesen werden.
+Prüfsummen über Karte und vollständigen autoritativen Zustand umfassen Gesundheit, Budgets, Nahrungsschuld, Projektreservierungen einschließlich lokaler Gründer-Nahrung, Reisevorrat, Forschungsprojekt und Teilfortschritte je Technologie, aktive Fähigkeiten, Besatzungszähler, Beacon-Besitz und Haltezähler. Spieleridentität und Stamm sind getrennt; derselbe Stamm kann zwei unabhängige Spielerzustände haben. Export ist nur an vollständigen erlaubten Zuggrenzen gültig; doppelte, alte, fremde, beschädigte und unvollständige Pakete müssen erklärt zurückgewiesen werden.
 
 Lesbare inkompatible gespeicherte Partien bleiben unverändert und gelistet; nur ihr eigener automatischer Fortsetzungszeiger wird entfernt. Keine automatische Migration von Meridian zu Amazonen, Materialien zu sechs Rohstoffen oder alter Siegfreiheit zu Beacon-Rennen. Die bisherige Version bleibt zum Fortsetzen notwendig, bis eine ausdrücklich spezifizierte und geprüfte Migration existiert.
 
-Azure-Container-App-Deployment, release-only GitHub-Workflow und bestehende Aufbau-/Prüfskripte bleiben unverändert. Diese Planung autorisiert weder Deployment noch neue PRs, Issues, Releases oder Merge-Aktionen.
+Azure-Container-App-Deployment, release-only GitHub-Workflow und bestehende Aufbau-/Prüfskripte bleiben unverändert. Der gesonderte Nutzerauftrag erlaubt die Veröffentlichung dieser Dokumentation mit einem Dokumentations-Issue und PR, aber keine Gameplay-Implementierung, Implementierungs-Issue-Flut, Deployments, Releases oder Merge-Aktionen. Veröffentlichungsstatus und gegebenenfalls Berechtigungsblockaden gehören in die Übergabe, nicht in behauptete Gameplay-Fertigstellung.
 
 ## 13. Durchgerechnete Beispiele
 
@@ -619,23 +660,23 @@ A hält zwei Feuer und hat nach seinem zweiten qualifizierten Abschluss Zähler 
 
 ## 14. Entscheidungsregister
 
-Die Zielrichtung ist vollständig dokumentiert; die folgenden Punkte sind vor den jeweils betroffenen Implementierungspaketen zu bestätigen. Sie blockieren **nicht** die Dokumentation oder das erste begrenzte Kampfexperiment.
+Bestätigte Produktentscheidungen, vorläufiger Testregelsatz und echte Restentscheidungen sind getrennt. Bereits entschiedene Punkte werden nicht erneut als offen behandelt. Das Register blockiert weder die Dokumentation noch das erste begrenzte Kampfexperiment; Tests können begründete spätere Revisionen auslösen.
 
-| ID | Status / Entscheidung | Empfehlung und Grund | Gate |
+| ID | Status / Entscheidung | Festlegung und Grund | Prüfung / verbleibender Umfang |
 | --- | --- | --- | --- |
-| E1 | Vorschlag: Kernmodus beginnt im Krieg | Kein Diplomatie-Zwang vor Beacon-Wettkampf | Erstes vollständiges Kernspiel |
-| E2 | Testwerte für Kampf, Mauern und Heilung | Werte aus diesem Dokument als gemeinsame Fixture; keine Balancebehauptung | Kampf-/Belagerungspaket |
-| E3 | Stadtabstand 4 statt bisher 5; Limitregel | Überschneidbare Radien ohne Doppelbesitz; zwei Städte, Eroberungsausnahme | Gebietsausbau |
-| E4 | Exakte Erträge, Rohstoffkosten, Arbeitszeiten, Startpaket | Konkrete Daten für kleine Teststadt, alle Grundkonter erreichbar | Wirtschaftsumstellung |
-| E5 | Arbeitsplätze, Gebäudeplätze und Speicherwerte | Einfache knappe Belegschaft, vier Spezialplätze, abgestufter Speicher | Stadtwirtschaft |
-| E6 | Armeeschuld statt Desertion/Kampfmali | Abrechnungsloch schließen, Auswirkungen stadtloser Armeen gesondert testen | Armeeunterhalt |
-| E7 | Konter nur für Nahkämpfer, Zonen und Vorrückausnahmen | Lesbare deterministische Taktik; eindeutige Sichtregeln | Kampf |
-| E8 | Zivile Flucht/Gefangennahme, Besetzungsfortschritt/Befreiung | Keine stillen Löschungen, keine Zufallsrevolten | Eroberung |
-| E9 | Stammesfähigkeiten und Gebäudestaffeln | Kleine bezahlte Unterschiede; genaue Werte erst gegen gemeinsame Klassen prüfen | Stammespakete |
-| E10 | Forschungstabelle und Wissenschaftserzeugung | Kleiner gemeinsamer Baum, kein Hindernis für erstes PvP | Forschung |
-| E11 | Unterschiedliche Stämme zuerst; Spiegelpartien später | Sechs ungeordnete Paarungen überschaubar testen | Stammesauswahl |
-| E12 | Geschlecht, Arbeitsnamen und erwachsene kulturelle Kleidung | Identität wie beschrieben, keine Statboni; finale Namen/Assets separat abstimmen | Inhalts-/Art-Freigabe |
-| E13 | Sichtkonforme Bewegung/Schusslinie und Aufklärung | Keine versteckten Einheiten über Reichweiten oder Gründe verraten | Fog-Härtung |
-| E14 | Exakte Kartenplatzierung und Startspielervorteil | Gewichtete Wege und getauschte Starts messen, nicht Symmetrie behaupten | Szenario-/Balance-Gate |
+| E1 | **Bestätigt:** Krieg ab Beginn | Diplomatie allenfalls später, kein Friedensstart | Keine erneute Grundsatzfreigabe nötig |
+| E2 | **Testregelsatz:** Kampf, Mauern und Heilung | 10 Leben, 2 Bewegung, 4/6/3 Schaden, Mauer 8/12/16, Ruhe 2/3 | Mit Preview-/Domain-Tests und Spieltests prüfen, nicht als balanciert ausgeben |
+| E3 | **Bestätigt:** kein Stadtlimit; **Testwert:** Abstand 4 | Standort, Versorgung und teure Gründer begrenzen Expansion | Mehr als zwei Städte sowie Abstände 3/4 und Radiusüberlappung testen |
+| E4 | **Gewählter Entwurf mit Testdaten:** Start/Ökonomie | Ein Gründer, ein Späher, keine Armee; Gründer 36 Arbeit = drei Grundsoldaten plus Holz/Stein/lokale Nahrung | Gemeinsame Testtabelle prüfen; spätere Spezialpreise noch vervollständigen |
+| E5 | **Testregelsatz:** Bevölkerung und Gebäude | Ein Arbeitskraftplatz je Gruppe, vier Grund-Spezialplätze, Speicher 24/36/48/60 | Wirtschaft, Überlauf und zyklusfreie Wohn-/Verwaltungsprogression prüfen |
+| E6 | **Vorläufig bestätigt:** Armeeschuld | Kein Löschen durch Stadtverlust/Neuzuweisung, keine taktischen Hungermali | Stadtlose Armeen und Rekrutierungssperre gezielt testen |
+| E7 | **Testregelsatz:** Konter, Zonen, Vorrücken | Eindeutige taktische Reihenfolge wie beschrieben | Keine offene Produktgrundsatzfrage; Grenzfälle testen |
+| E8 | **Gewählter Entwurf:** Zivilisten können sterben | Nur ausdrücklicher benachbarter Angriff; kein Flucht-/Gefangenen-/Beutesystem | Vor Stadtübernahme entfernen; atomare Einnahme und Niederlage testen |
+| E9 | **Bestätigter Umfang:** zuerst eine Fähigkeit je Stamm | Vollkatalog bleibt Ausbauziel | **Offen für P12:** erste repräsentative Fähigkeit auswählen; weitere Preise/Effekte vor jeweiliger Umsetzung festlegen |
+| E10 | **Gewählter Entwurf:** gemeinsamer Acht-Technologien-Baum | Vier Zweierzweige; ein Projekt, fixer Fraktionssockel, erhaltene Teilfortschritte, kein Wissensdiebstahl | Testwerte 1/5/8 und Ziel 4–6 eigene Züge prüfen; keine Wohnraum-/Radius-Schleife |
+| E11 | **Bestätigt:** gleiche Stämme erlaubt | Freie unabhängige Auswahl ab Beginn | Sechs gemischte plus vier Spiegelpaarungen, getrennte Spieleridentitäten |
+| E12 | Zielidentitäten dokumentiert; Arbeitsnamen/Assets vorläufig | Keine geschlechtsabhängigen Werte; Kleidung wie beschrieben | **Offen:** finale Namen und tatsächlich umzusetzenes Art-Design |
+| E13 | **Testregelsatz:** sichtkonforme Aktionen | Kein verborgener Zustand über Vorschau/Ablehnungsgründe | Kontaktstopp, Schusslinie und begrenzte Aufklärung testen |
+| E14 | **Noch zu messen:** Szenario und erster Zug | Gewichtete Wege statt behaupteter Symmetrie; Sieg 2 von 3 über 3 eigene Abschlüsse, Rundengrenze 40 als Testwert | Konkrete Release-Karten und messbare Balance-Akzeptanzbereiche vor M5 festlegen |
 
-Umsetzung und Freigabe jedes Pakets aktualisieren dieses Register, den tatsächlichen englischen Regelstand und die Agent-Guidance gemeinsam. Ein Testwert wird erst nach begründeter Entscheidung zur verbindlichen Regel, nicht dadurch, dass er einmal in Code übernommen wurde.
+Umsetzung und Freigabe jedes Pakets aktualisieren dieses Register, den tatsächlichen englischen Regelstand und die Agent-Guidance gemeinsam. Ein verwendeter Testwert ist ein verbindlicher Replay-Vertrag **seiner Testregelversion**, aber keine Behauptung dauerhafter Balance. Änderungen daran erhalten eine nachvollziehbare neue Regel-/Inhaltsversion.
