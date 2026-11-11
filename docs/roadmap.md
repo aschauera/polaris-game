@@ -1,10 +1,303 @@
 # Polaris: implementation roadmap
 
-Dependency-ordered implementation briefs. The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented; briefs 8–14 have follow-up issues #9–#15. The board is a **hex grid** with rules and generator version 4; the renderer draws hex fields from cubic voxels in 66×66-column chunks (`src/rendering/voxels.ts`), with territory borders, city name plates and voxel unit figures. Briefs below retain acceptance gates rather than implying every later gate is verified.
+**Canonical delivery plan, updated 11 November 2026:** this document owns the full target packages, dependencies, acceptance and test strategy. [Game design](game-design.md#target-status-and-baseline) owns complete rules, lore, catalogs and decision status; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical version/save contracts. All intended PRs #20 → #21 → #22 → #24 → #29 → #31 form the baseline, not a claim of completed remote integration.
+
+**New delivery order:** existing hex/city/messenger/graphics foundation → complete two-human match with three common classes, three beacons, city capture and end conditions → six-resource/worker/city economy with the chosen small common research tree → first four-tribe slice with one characteristic ability each → six mixed plus four mirror pairings with swapped starts → further documented tribal catalogs. Diplomacy, policies and AI are optional later. Research is not required before the isolated first combat/victory slice, but its unlocks govern the complete economy. This supersedes the historical future sequencing below, not implemented regression contracts or real GitHub blockers.
+
+Confirmed directions and numeric caveats are recorded once in the [design decision register](game-design.md#target-decision-register). Acceptance below exercises those rules; it does not turn provisional values into measured balance.
+
+The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented in the cumulative development baseline; briefs 8–14 have existing follow-up issues #9–#15 that require later reconciliation with the new plan. The board is a **hex grid** with rules and generator version 4; the renderer draws hex fields from cubic voxels in 66×66-column chunks (`src/rendering/voxels.ts`), with territory borders, city name plates and voxel unit figures. No new gameplay is implemented by this planning update.
 
 Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 days, **L** 6–10 days. Split an L brief before execution if acceptance cannot be reviewed together. Dependencies refer to brief numbers; on GitHub the same order is recorded as *blocked by* relationships between the issues, which every agent checks before starting work ([working order](../.github/copilot-instructions.md#working-order-issues-blocked-by-and-stacked-prs)). Work outside the numbered briefs gets its own issue in that chain: play by messenger #25, the voxel diorama #26, the hex voxel world #27 and the aligned agent guidance #28 follow #8 in this order, and #9 and #10 are blocked by #28.
 
-## Map prototype
+## Detailed target delivery plan
+
+Planning only; this documentation revision implements no gameplay. Its publication concerns existing issue #32 and PR #33, not authorization for new implementation issues, merging, release or deployment.
+
+### Baseline and working order
+
+Use the cumulative `klaus/graphics-polish` commit `834ffc491fa4932e3c719191db837b3fea639445`: cities, messenger, hex rules/generator v4 and graphics polish. Historical main `6aa2dbe8d45ccea58def5054ff32a55295a22b04` lacks those contracts; planning from it would discard intended groundwork. The documentation branch was advanced to the cumulative commit, not a remote merge/retarget. Review the documentation delta against that parent rather than counting its inherited 57 changed files as new work.
+
+Before any package, reread current code/blockers, fix its test rules and acceptance cases, choose a narrow reviewable increment and appropriate versions, and synchronize affected docs/guidance. Do not reopen confirmed decisions or implement blocked predecessors incidentally. Estimates follow source inspection; package IDs below are planning labels, not GitHub issues or promised dates.
+
+### Existing dependencies and legacy issues
+
+These are the issue relationships read on the documentation date, not dependencies guessed from PR numbers:
+
+| Issue | Recorded blocker | Associated PR | Meaning at that snapshot |
+| --- | --- | --- | --- |
+| [#8](https://github.com/aschauera/polaris-game/issues/8), city economy | #7, closed | [#20](https://github.com/aschauera/polaris-game/pull/20) | First city economy; issue open |
+| [#25](https://github.com/aschauera/polaris-game/issues/25), messenger | #8, open | [#21](https://github.com/aschauera/polaris-game/pull/21) | Serverless two humans |
+| [#26](https://github.com/aschauera/polaris-game/issues/26), voxel engine | #25, open | [#22](https://github.com/aschauera/polaris-game/pull/22) | Renderer/settlements |
+| [#27](https://github.com/aschauera/polaris-game/issues/27), hex world | #26, open | [#24](https://github.com/aschauera/polaris-game/pull/24) | Six-neighbour voxel board |
+| [#28](https://github.com/aschauera/polaris-game/issues/28), guidance | #27, open | [#29](https://github.com/aschauera/polaris-game/pull/29) | Shared contracts/docs |
+| [#30](https://github.com/aschauera/polaris-game/issues/30), graphics polish | #28, open | [#31](https://github.com/aschauera/polaris-game/pull/31), draft at snapshot | Rules/generator v4, direct orders, visual occurrences |
+
+Intended integration: **#20 → #21 → #22 → #24 → #29 → #31 → #33**. Some live PR bases are main, others predecessor branches; this table changes none and grants no merge approval. PR #33 targets `klaus/graphics-polish` while its parent remains open, avoiding duplicate gameplay diffs. After each predecessor merges, explicitly check base, CI and issue closure; do not assume automatic retargeting. Issue #32 carries integration blocker #30, not authorization to implement its blocked gameplay.
+
+Legacy issues #9–#15 require separately authorized reconciliation:
+
+| Legacy issue | Still-needed outcome | Required reinterpretation |
+| --- | --- | --- |
+| #9 workers/roads | Improvements/connections | Six resources, workforce, hex distance; road movement discount is not automatic |
+| #10 combat | Domain combat | Three classes, sight, counters/zones and separate siege packages, not just adjacent attack |
+| #11 research/policies/unrest | Later depth | Small research separate from unrest, not a prerequisite for first PvP victory |
+| #12 fog | Information-safe actions | Separate public objectives from private unit/economy sight |
+| #13 diplomacy | Optional treaties | War from start; no old declaration gate |
+| #14 factions/AI | Four target tribes, later AI | Meridian/Lantern future bonuses and mandatory AI are superseded |
+| #15 full match | Victory/defeat/draw | Deliver before full research, politics, diplomacy and AI |
+
+Those issues were not changed/closed by documenting the plan. Their replacement dependency relationships are not claimed to be configured already.
+
+### Milestones and deliberate limits
+
+| Milestone | Outcome | Not yet required |
+| --- | --- | --- |
+| M0 concept | Saved target, baseline, decisions and order | Gameplay code |
+| M1 integrated foundation | Hex cities, deterministic messenger, compatible storage | New economy/tribes |
+| M2 complete core | Two humans, small fair map, three classes/beacons, conquest and explicit result | Full tribal buildings, research, diplomacy, AI |
+| M3 viable economy | Six resources, work, unlimited city expansion, hunger, supply and small common research tree | Full special effects |
+| M4 initial four tribes | Common classes/civilians and one characteristic ability each, free choice/mirrors | Entire three-tier buildings/all abilities |
+| M5 verified matches | Six mixed/four mirror pairings, swapped starts, measured resource/counter/duration problems | Final balance claim |
+| M6 later depth | Further catalogs, optional diplomacy and compliant AI as needed | Server/new engine/unrequested platform move |
+
+M2 may retain the existing generic-material economy. It is not yet a complete workforce/hunger economy: mark that intermediate state in UI/docs and assign separate rules versions. Never expose a half-built mixed economy with invented six zero balances.
+
+### P0 — Concept and approval register
+
+**Prerequisites:** none. **Outcome:** canonical design and this plan; M0.
+
+Acceptance: complete four tribes/common rules; historical main separated from development; coherent provisional numeric rules; confirmed choices not marked open. README and guidance point to the existing English canonical documents. This PR publishes only documentation.
+
+### P1 — Have the existing foundation integrated
+
+**Prerequisites:** P0 and the real six-PR chain. On main, prerequisite issues must actually be closed; alternatively use an expressly approved stacked basis.
+
+The local cumulative foundation is already present for documentation. Main integration is an organizational gate, not a request to merge here. Intended approval is not reported as an accomplished remote merge. Before new gameplay, reread then-current hex/city/messenger/storage/render contracts and run the existing checks.
+
+Acceptance: selected basis has those contracts; two devices exchange valid current turns; incompatible saves survive; no square-grid assumptions in new packages. Resolve conflicts with any later predecessor changes.
+
+### P2 — Scenario, player slots and content scaffold
+
+**Prerequisites:** P1.
+
+Separate player/tribe IDs; define a small map with two validated starts, three reserved public beacons and six-direction topology. Use common class profiles first, without pretending full tribal content exists.
+
+Acceptance:
+
+- Host/first player not tribe-bound; free independent choice, including mirrors. Ownership, commands/research remain player-specific; exports contain matching scenario data.
+- One free initial founder/scout, equal disclosed stocks, no completed army; later founders are production decisions.
+- Every beacon on legal reachable land, no required water crossing or impassable bottleneck.
+- Measure weighted routes and start resources; mirrored appearance alone proves no fairness.
+- Validate IDs/references/class definitions; do not reinterpret Meridian/Lantern saves.
+
+Version impact: content/schema for player/tribe selection; generator only for canonical generation/placement change, not merely a curated fixture with its own scenario version.
+
+### P3 — Visibility-safe combat foundation
+
+**Prerequisites:** P2. Use E2/E7/E13 test fixtures from the [decision register](game-design.md#target-decision-register).
+
+Health, movement/attack budgets, three classes, shared deterministic preview, melee/ranged/line of fire, entrenchment, flank, counter budget, rest and zones; no tribal abilities yet.
+
+Acceptance:
+
+- Test advantage 6/neutral 4/disadvantage 3; hill/entrench/flank/protection/minimum damage identical in preview/resolution.
+- Dead defenders never counter; second melee attack gets no second counter; ranged attacks trigger no melee counter.
+- Traverse own units, never stack endpoints; tied paths repeat.
+- Explicit cases for zone entry, starting inside, withdrawal, city tiles and restricted teleport.
+- No fog leaks through targets, path search, fire lines or rejection reasons; preview never derives from hidden truth.
+
+Version impact: rules and command/transport shape where needed; hashes include health/all budgets.
+
+### P4 — City attacks, capture and occupation
+
+**Prerequisites:** P3. Use E8 civilian direction; M2 retains existing material economy.
+
+Implement fortification, garrison, eligible capturers, one-tile advance exception, explicit fatal adjacent civilian attacks, ownership transfer, occupation and paid repair.
+
+Acceptance:
+
+- Test walls 8/12/16 and siege damage 1/1/3 separately from class damage; no overflow/free city attack.
+- Empty wall breach, last garrison, ranged attackers and control zones handled.
+- Exactly two qualified occupation endings; explicit presence, rounding/liberation rules.
+- Buildings, local food/territory survive; enemy global stocks not looted.
+- Foreign queues pause; no free refunds or collection of foreign abilities.
+- Only explicit adjacent attack removes a civilian, spending attack; no retreat/prisoners/loot/conversion. Remove walls first, then civilian attack and eligible advance atomically without entity/ownership gaps.
+
+### P5 — Beacon victory and final result
+
+**Prerequisites:** P4. Use E1 confirmed war start and documented round boundaries.
+
+Activation spends attack for any combat class; implement public ownership, immediate reset, victory/defeat/draw and result lock.
+
+Acceptance:
+
+- Two of three through three own endings; losing below two on opponent turn resets immediately.
+- Pair changes legal without dropping below two; no civilian activation, ranged Breaker may activate.
+- No cities/founders loses; a founder alone prevents defeat.
+- Defeat before beacon before draw; 40 complete rounds, player two can win at final ending.
+- Completed-result import idempotent; no subsequent gameplay commands.
+
+### P6 — Accept M2 device to device
+
+**Prerequisites:** P5.
+
+Two humans complete a link/code/file match. Narrow integration gate, not a new feature collection.
+
+Acceptance: reproducible setup, complete turns, combat, capture, beacon recapture, result and resume. Duplicate/late/corrupt/wrong packages do not mutate a match. Test long logs/storage limits with new commands. UI explains the intermediate mode without promising absent economy/tribal bonuses. Fresh running-app captures for any visual changes, separately delivered as Visual overview.
+
+### P7 — Six resources and worker jobs
+
+**Prerequisites:** P6. Use E4 shared test data.
+
+Version generic materials into resource vectors; canonical deposits, finite ruins, improvements, workdays and connection. Set common prices before special bonuses.
+
+Acceptance:
+
+- Explicit source/stock/use for six resources; food local, five others global.
+- Presentation apple/fish/stone classification is not silently authoritative extraction data.
+- No rare-resource requirement for basic counters; test start-region access.
+- Paid worker jobs interrupt and complete exactly once; population operates completed sites, not permanently stationed workers.
+- Fisheries from own land; roads do not change water passability.
+- Finite ruins, no negative inventories or recycling arbitrage.
+- Basic food/wood/stone/simple metal/classes need no research. Until F1, gated distant facilities/crystals are only explicit unlocked test fixtures, not a claimed complete economy.
+
+Version impact: rules/content/economy schema; generator for canonical deposits. No automatic old-material conversion in live games.
+
+### P8 — Workforce, territory and construction economy
+
+**Prerequisites:** P7 **and F1 for the complete mode**. E3/E5 test rules; isolated tests may use explicit research fixtures.
+
+Assignments/pins, basic centre, housing/storage, radius unlocks, individual claims, own tile transfer, reservations, expensive founders and cancellation.
+
+Acceptance:
+
+- Each population slot used at most once; unworked ownership has no hidden yield.
+- Unstaffed starting centre prevents economic deadlock.
+- Population 4/7 plus administration enables radius 2/3, never free full rings.
+- Connected unambiguous coastal claims/fisheries without walking on water.
+- No city cap: third/later cities foundable/capturable. Spacing 3 illegal, 4 legal otherwise; overlapping catchments retain unique ownership.
+- Test founder 36 work vs basic soldier 12, plus wood/stone/12 local food. Provisions, death, cancellation and blocked output neither create food nor silently remove population.
+- Housing 6 through Cultivation Methods before population 4, administration/radius 2 afterward; housing 9 before population 7. No per-city free research or cyclic unlock.
+- Reservations unavailable twice; cancellation, blocked troop output and foreign-paid jobs cannot multiply materials.
+
+### P9 — Food, hunger and army obligation
+
+**Prerequisites:** P8. Use E6 provisionally accepted debt.
+
+First implement ordered ending without intercity transfers: yields, local needs, upkeep/debt, hunger/growth, production. Show stores/actual expenditure.
+
+Acceptance:
+
+- 2 food/population; growth `8 + 4 * population`, at most once; housing/overflow visible.
+- Second consecutive hungry ending loses population, thereafter at most one/turn, minimum 1; full feeding resets.
+- 1 food/combat unit; city loss, reassignment, disconnected roads/citylessness never erase obligation.
+- No tactical hunger penalties; debt/recruitment lock visible and serialized.
+- New population/buildings not retroactive; occupation rounding/food exception correct.
+
+### P10 — Bounded intercity food deliveries
+
+**Prerequisites:** P9 and F1.
+
+Standing routes after Stockpiling, road connection after Roadbuilding; source needs, shared export snapshots and recipient capacity. May move after M4 if its unlocked-but-unimplemented status is transparent.
+
+Acceptance: multiple sources, constrained recipients, A→B→C, cycles, caps, debt priority, city loss/interruption reproduce. No forwarding newly received food that ending. Transfers conserve totals; only explicit storage overflow loses food.
+
+### P11 — Tribal data, buildings and civilian identity
+
+**Prerequisites:** P9 and F1. E11 mirrors; obtain E12 final content approvals before actual assets.
+
+Four definitions with common equivalents and explicit split between available content and full expansion catalog. Implement first-increment necessities, not every F7 tier in one package.
+
+Acceptance:
+
+- Exactly four target tribes, no additional discarded Stonewatch/Tidebound identities.
+- Three common combat/civilian roles each; document two-tier units/four three-tier building chains. Do not expose absent entries as free selectable products.
+- Actual content has explicit prices, work, predecessors, staffing/slots, never zero placeholders. Equipment unlocks all tier-2 classes, not basic counters.
+- Consistent Path House/Supply Nest naming; Salvage Crew stays worker upgrade.
+- Captured foreign buildings use explicit common equivalents: no housing loss from wrong tribe ID or accumulation of every bonus.
+- Ordinary troops do not consume population; no gender-dependent stats.
+
+### P12 — Bounded tribal abilities
+
+**Prerequisites:** P11.
+
+Choose **exactly one initial characteristic ability per tribe** from the catalog under a common budget/cost frame. E9 selection remains open; other abilities are not silently included. Further combinations belong to F7.
+
+Acceptance: correct wood/crystal prices, single charges, movement/attack budgets. No protection/healing stacks, fog teleports, zone bypass, free repair or city-switch recharging. No blanket Engineer superiority; Raccoons viable without ruins; Amazons pay alternative connection through building opportunity cost; Sorceresses retain basic counters without crystals.
+
+### P13 — M5 pairings, resources and first-player advantage
+
+**Prerequisites:** P12; also P10 if the tested mode includes deliveries.
+
+Ten unordered pairings: Amazons–Raccoons, Amazons–Engineers, Amazons–Sorceresses, Raccoons–Engineers, Raccoons–Sorceresses, Engineers–Sorceresses, plus Amazons–Amazons, Raccoons–Raccoons, Engineers–Engineers and Sorceresses–Sorceresses. Repeat each with starts/first player swapped. Twenty matches give initial full coverage, **not statistical balance validation**. Also independently cross position and first player if the scenario permits them to vary separately. Mirrors must prove separate ownership/research despite the same tribe.
+
+Acceptance: publish seeds, versions, starts, logs and evaluation. Measure first beacon contact, victory time, counter access, shortages, hunger/debt, class shares, blockades and first-player win rate. Agree measurable ranges beforehand, never select thresholds after favorable results. Justify balance changes separately and repeat swapped conditions.
+
+### Additional and later packages
+
+| Package | Prerequisites | Scope / acceptance |
+| --- | --- | --- |
+| F1 small common research | **P7 only; before full P8** | Eight technologies/applications from design; one player project, fixed baseline plus staffed knowledge, retained per-tech progress/no theft. Not required before isolated M2 |
+| F2 society/policies | P9, F1 | Few meaningful choices; stability/unrest not mere numerical burden or double occupation punishment |
+| F3 diplomacy | P6 and separate peace/beacon decision | Consistent peace/war/pacts serialization without retroactively blocking core mode |
+| F4 AI | P13; optional F1 only if playing research | Same commands/fog, deterministic bounded search, no hidden bonuses; measure worst-case work |
+| F5 further resources/world rules | P13 and specific approval | Clear-cutting, depletion, ships, bridges or victories individually, never introduced incidentally by graphics |
+| F6 distribution/platforms | M5 and separate product decision | No unapproved replacement of browser/messenger; evaluate native packaging separately |
+| F7 complete tribal expansion | P13, F1 and approval of next catalog stage | Further documented unit/building tiers/abilities individually; retest ten pairings and recycling/protection limits each increment |
+
+**F1 detailed acceptance:** all eight technologies/applications accessible without gating basic supply/counters. Fixture baseline 1/faction, staffed workplace +1, costs 5/8; first unspecialized technology in 5 own endings within test target 4–6. Switching preserves technology-specific points without transferable credit; capture copies no research. Housing 6 before population 4 and housing 9 before 7 prevent deadlock.
+
+F1 does **not** depend on P8 or P11. Implement/test its baseline and minimal knowledge workplace against P7 definitions/explicit assignment fixtures; complete general workforce/territory integration in P8. No dependency on future tribal buildings is needed.
+
+### Dependency graph
+
+Required package edges (not an ordering inferred from numbering):
+
+```text
+P0 -> P1 -> P2 -> P3 -> P4 -> P5 -> P6 -> P7 -> F1
+P7 + F1 -> P8 -> P9
+P9 + F1 -> P10
+P9 + F1 -> P11 -> P12 -> P13
+P10 -> P13 only when deliveries are in the tested mode
+P9 + F1 -> F2
+P6 + separate peace/beacon decision -> F3
+P13 -> F4 (plus F1 if that AI mode uses research)
+P13 + specific approval -> F5
+M5 + product decision -> F6
+P13 + F1 + next-stage approval -> F7
+```
+
+In particular **P7 → F1 → P8**, not P8 → F1 → P11 → P8. Milestone labels describe achieved outcomes; they are not implicit extra dependency edges.
+
+### Version and persistence acceptance
+
+The authoritative change-to-version matrix and save contracts live in [architecture](architecture.md#target-version-and-persistence-boundaries), not a parallel rules document.
+
+For each rules milestone, retain an old readable package and test explicit rejection without overwrite; export/import new packages; replay all commands on two independent states; compare map/state checksums. No faction-name text replacement migration. Reject unknown product/ability IDs, invalid numbers, negative stocks, duplicate IDs, bad references/order and oversized logs before acceptance. No Babylon/DOM/frame data in authoritative state.
+
+### Cross-package verification strategy
+
+Domain tests first: focused new-rule cases, unchanged state on rejection, stable ordering. Scenario/replay tests integrate systems; Playwright verifies actual controls/information/turn handoff. Swapped manual matches provide balance feedback, never replace deterministic boundary tests.
+
+Existing implementation gates: `npm run typecheck`, `npm run lint`, `npm run test:unit`, `npm run test:e2e`. Start with the narrowest meaningful tests, then required repository gates. This docs-only correction changes no scripts and claims no new gameplay test run.
+
+| Area | Critical regressions |
+| --- | --- |
+| Victory | Opponent-turn reset, pair change, final player-two victory, founder without city |
+| Combat | Dead defender, spent counter, attacker counts in flank, minimum damage, blocked fire line |
+| Movement/fog | Zone start/withdrawal, own-unit traversal, hidden target, teleport destination |
+| City | Last wall without garrison, last garrison death, explicit civilian attack, atomic capture, foreign queue, recapture, third city |
+| Economy | No double assignment, hunger sequence/reset, housing block, overflow, newly completed building |
+| Logistics | A→B→C no forwarding, multiple sources, interrupted road, cityless army debt |
+| Materials | Reservation, cancellation including full progress, blocked spawn, dismantle/market/capture without gain cycle |
+| Research/expansion | One faction baseline despite many cities, retained progress, no knowledge theft, housing 6 before 4/9 before 7, no founder-food duplication |
+| Persistence | Readable incompatible save byte-identical; duplicate/old import, limits, replay divergence |
+| Presentation | No hidden deposits/enemies through picks/HUD; public beacons leak no sight |
+
+Per package update design/status/register, technical ADR/schema decisions, roadmap milestone/blockers, README usable scope and agent guidance together. For visual changes provide fresh running-app evidence separately; references are not implementation proof. Azure release-only deployment stays unchanged. Report publication/access failures honestly, never bypass them with account changes or alternate unauthorized writes.
+
+## Historical briefs: map prototype
 
 | Brief / objective | Depends on | Boundaries | Acceptance | Size |
 | --- | --- | --- | --- | --- |
@@ -14,16 +307,16 @@ Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 day
 | **4. Make map inspectable**: fixed orthographic camera, bounded pan/zoom, picking and inputs | 3 | No rotation; no movement; future HUD controls not presented as functional | Resize/touch/mouse work; corner picks resolve canonical IDs; reset and regeneration clear stale selection; validation errors visible; keyboard-accessible inputs | M |
 | **5. Verify prototype**: browser regression and measured benchmark report | 4 | No gameplay expansion or speculative optimization; initial shorter software-rendered runner evidence is not the full future device protocol | Domain/browser checks pass; sample duration/environment and limitations published; measured results separate from provisional budgets; regeneration and WebGL2 fallback covered; unperformed full-protocol checks explicitly pending | M |
 
-Briefs 1–5 describe the map foundation; the README records actual verification and outstanding device-validation limitations. **Briefs 6–7 are implemented:** scout exploration, deterministic commands, six-direction hex A*/Dijkstra, movement budgets, faction fog, city founding, yields, growth and a one-item production queue. **Recommended next task: brief 8 / #9**, workers and roads, once #28 has merged. Named-device performance and accessibility verification remain separate release gates, not claims implied by the software-rendered sample.
+Briefs 1–5 describe the map foundation; the README records actual verification and outstanding device-validation limitations. **Briefs 6–7 are implemented:** scout exploration, deterministic commands, six-direction hex A*/Dijkstra, movement budgets, faction fog, city founding, yields, growth and a one-item production queue. **Recommended next work follows P1–P6 in the new plan**, not the old automatic jump to brief 8: confirm the full integrated baseline, then close the human-versus-human match loop. Named-device performance and accessibility verification remain separate release gates.
 
-## First playable: two factions, one feature each
+## Historical briefs: earlier first-playable proposal
 
-Parent issue #5 has child issues #7–#15 for briefs 6–14 below. Retain their boundaries and acceptance criteria, and do not treat later-depth briefs 15–23 as part of the first-playable milestone. Completion of briefs 6–7 is not completion of the full two-faction match.
+Parent issue #5 has child issues #7–#15 for briefs 6–14 below. These tables retain traceability to existing issues, **not authority for the new target**. In particular Meridian/Lantern features, mandatory AI, peace-first diplomacy and victory only after all of them are superseded. Completion of briefs 6–7 is not completion of the full two-player match. Reconcile issue scope only through separately authorized remote edits.
 
 | Brief / objective | Depends on | Boundaries | Acceptance | Size |
 | --- | --- | --- | --- | --- |
 | **6. Add turn commands, movement and exploration** | 5 | Deterministic A*/movement range (four-cardinal at first, six hex directions since rules v3), integer costs, occupancy, one scout and per-faction unseen/explored/visible terrain; no combat/cities | Invalid commands do not mutate state/RNG; stable resolution and path ties tested; move/end-turn reveals only affected tiles; UI/picks hide unseen terrain; UI explains rejected orders | M |
-| **7. Add founding, yields and production** (implemented; issue #8) | 6 | Claim radius 1 (hex distance since rules v3), minimum city spacing 5, max two cities/faction; food/material economy; one queue per city; cities drawn as voxel settlements that grow with population and show a built storehouse | Founding consumes a founder; claims cannot overlap; food resolves before growth; starvation and growth are deterministic; Guard/Worker/Storehouse costs and progress are visible; blocked unit placement remains queued and cannot complete twice | L |
+| **7. Add founding, yields and production** (implemented; issue #8) | 6 | Claim radius 1 (hex distance since rules v3), minimum city spacing 5, max two cities/faction; food/material economy; one queue per city; cities drawn as voxel settlements that grow with population and show a built storehouse | Founding consumes a founder; claims cannot overlap; food resolves before growth; shortages prevent growth but do not reduce population in this existing version; Guard/Worker/Storehouse costs and progress are visible; blocked unit placement remains queued and cannot complete twice | L |
 | **8. Add workers and roads** | 7 | Turn-consuming improvements on owned deposits; road movement discount | Illegal work rejected; completion updates yields; connected road movement correct; no double completion | M |
 | **9. Add tactical combat** | 6 | Adjacent on-map attacks, health and terrain defense; no separate battle scene | Preview matches resolution; death/occupancy handled; attacks and turn limits tested; visible damage explanation | M |
 | **10. Add research, policies and unrest** | 7, 8 | Short prerequisite graph, one policy choice, explicit unrest thresholds | Unlocks/effects driven by validated definitions; thresholds and warning UI tested; no silent stacking | L |
@@ -32,11 +325,13 @@ Parent issue #5 has child issues #7–#15 for briefs 6–14 below. Retain their 
 | **13. Add two faction features and AI** | 8, 10, 11, 12 | Meridian civic improvement/unrest benefit; Lantern scout movement bonus; bounded heuristic AI/search; browser workers only after profiling | Both features observable and tested; deterministic decisions, no fog cheating or deadlock; search counts and future turn budget measured on fixed fixtures | L |
 | **14. Close the first playable loop** | 13 | One territorial victory, defeat/draw; no additional factions | Two factions can complete a match; win/tie ordering documented and tested; tutorial explains representative features; recorded balance/playtest feedback | L |
 
-**Outside the numbered briefs: play by messenger (implemented; issue #25).** A serverless two-player mode ([ADR-005](architecture.md#adr-005-serverless-play-by-messenger)) lets two people alternate turns by exchanging links, codes or files. It replays the deterministic command log, so every later rules change must stay deterministic and bump `RULES_VERSION`. Suggested follow-ups, not yet scheduled or filed as issues: delta packages once logs get long; verify the exchange on real iOS and Android browsers and decide whether the generator's trigonometry must become integer- or table-based; add a relay server or WebRTC only if hidden information, notifications or more than two players are required. (Drawing cities, founders and the opponent's units on the map is done with the hex voxel world.)
+**Outside the numbered briefs: play by messenger (implemented; issue #25).** A serverless two-player mode ([ADR-005](architecture.md#adr-005-serverless-play-by-messenger)) lets two people alternate turns by exchanging links, codes or files. It replays the deterministic command log, so every later rules change must stay deterministic and bump `RULES_VERSION`. Potential reliability follow-ups: delta packages once logs get long; verify exchange on real iOS/Android and assess cross-device generator arithmetic. A relay or WebRTC is not part of this target and requires a separate architectural decision. (Drawing cities, founders and opponent units is done with the hex voxel world.)
 
 **Outside the numbered briefs: hex voxel world (implemented; issues #26 and #27).** Hex fields built from cubic voxels after the approved concept, with territory borders, city name plates and voxel unit figures ([ADR-004](architecture.md#adr-004-map-and-rendering)). Issue #30 / stacked draft #31 adds reference colours, four underwater terraces, sandbanks, coastal rocks, smaller trees, resources and sharp hex frames; integration remains blocked by #28. Generator v4 adds organic bays and low highlands with broad grey deposits. Zoom restores up to 16 voxels per hex in bounded windows through the hard 256² map maximum. Sparse, throttled water glints respect reduced motion. At the maintainer's explicit request, rules v4 and direct selection extend movement to all existing unit types and add availability glows and city-production selection. Readable older-rule/generator saves are retained without migration. This does not complete worker improvements/roads (brief 8), combat (brief 9) or harvesting. Rivers, bridges, further resources, palms, fields and harbours also remain deferred.
 
-## Reliability and later depth
+## Historical briefs: reliability and later depth
+
+The future ordering and scope below are retained for issue/history traceability only. The new dependency plan governs work: validated messenger replay already exists, four tribes and human victory no longer wait for all old systems, and deployment remains Azure Container Apps rather than the old brief 23 static-host proposal.
 
 | Brief / objective | Depends on | Boundaries | Acceptance | Size |
 | --- | --- | --- | --- | --- |
