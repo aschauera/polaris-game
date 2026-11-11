@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page, type TestInfo } from '@playwright/test'
 import { applyCommand, createExpedition, type Expedition } from '../src/game/expedition'
+import { hexOffsets } from '../src/game/hex'
 import { generateMap, tileAt } from '../src/game/map'
 import { exportMatch, MATCH_FACTIONS, stateHash } from '../src/game/match'
 import { encodeTurn } from '../src/exchange/turn-code'
@@ -7,6 +8,8 @@ import { encodeTurn } from '../src/exchange/turn-code'
 const WORLD = { seed: 'polaris', width: 32, height: 32 }
 const WORLD_URL = `/?diagnostics=1&seed=${WORLD.seed}&width=${WORLD.width}&height=${WORLD.height}`
 const TURN_PREFIX = '#turn='
+// Pad labels for east, south-east, south-west, west, north-west and north-east as the camera shows them.
+const SCREEN_LABELS = ['down and left', 'down', 'down and right', 'up and right', 'up', 'up and left'] as const
 
 const browserErrors: string[] = []
 function watch(page: Page) {
@@ -28,6 +31,7 @@ async function openDevice(browser: Browser, testInfo: TestInfo) {
   const context = await browser.newContext({
     baseURL: testInfo.project.use.baseURL,
     viewport: { width: 1100, height: 760 },
+    reducedMotion: 'reduce',
     permissions: ['clipboard-read', 'clipboard-write'],
   })
   const page = await context.newPage()
@@ -43,16 +47,16 @@ function newMatch(): Expedition {
   return createExpedition(generateMap(WORLD), MATCH_FACTIONS)
 }
 
-// A legal one-tile move for whoever is on turn, together with the compass button that issues it.
+// A legal one-hex move for whoever is on turn, together with the screen-direction button that issues it.
 function legalStep(state: Expedition) {
   const scout = state.scouts.find(unit => unit.factionId === state.activeFaction)!
   const tile = state.map.tiles[scout.tileId]!
-  for (const [direction, dx, dz] of [['north', 0, -1], ['east', 1, 0], ['south', 0, 1], ['west', -1, 0]] as const) {
+  for (const [index, [dx, dz]] of hexOffsets(tile.z).entries()) {
     const target = tileAt(state.map, tile.x + dx, tile.z + dz)
     if (!target) continue
     const result = applyCommand(state, { type: 'move', factionId: state.activeFaction,
       sequence: state.commands.length + 1, unitId: scout.id, to: target.id })
-    if (result.ok) return { direction, state: result.state }
+    if (result.ok) return { direction: SCREEN_LABELS[index]!, state: result.state }
   }
   throw new Error(`${state.activeFaction} has no legal step`)
 }
@@ -67,7 +71,7 @@ function finishTurn(state: Expedition): Expedition {
 async function playTurn(page: Page, before: Expedition): Promise<Expedition> {
   await page.getByRole('button', { name: 'Select scout', exact: true }).click()
   const step = legalStep(before)
-  await page.getByRole('button', { name: `Move scout ${step.direction}`, exact: true }).click()
+  await page.getByRole('button', { name: `Move unit ${step.direction}`, exact: true }).click()
   expect(await matchOf(page)).toMatchObject({ commandCount: step.state.commands.length, stateHash: stateHash(step.state) })
   await endTurnButton(page).click()
   const after = finishTurn(step.state)
@@ -102,10 +106,15 @@ test('two devices exchange turns through a link and a pasted code and stay in sy
     let truth = await playTurn(host.page, newMatch())
     await expect(host.page.locator('#turn-info')).toContainText('Turn 1 · Lantern Compact · opponent\'s turn')
     await expect(endTurnButton(host.page)).toBeDisabled()
-    for (const direction of ['north', 'east', 'south', 'west']) {
-      await expect(host.page.getByRole('button', { name: `Move scout ${direction}`, exact: true })).toBeDisabled()
+    for (const direction of SCREEN_LABELS) {
+      await expect(host.page.getByRole('button', { name: `Move unit ${direction}`, exact: true })).toBeDisabled()
     }
     expect((await expeditionOf(host.page))!.reachable).toEqual([])
+    await expect(host.page.locator('.unit-target.available, .city-plate.available')).toHaveCount(0)
+    const waiting = await matchOf(host.page)
+    await host.page.locator('.unit-target[data-unit-id="founder-meridian"]').click()
+    expect(await matchOf(host.page)).toEqual(waiting)
+    expect((await expeditionOf(host.page))!.selectedReachable).toEqual([])
 
     const hostLink = await host.page.locator('#messenger-link').inputValue()
     await host.page.getByRole('button', { name: 'Copy link' }).click()
@@ -213,6 +222,32 @@ test('a running match survives a reload and is forgotten when the player leaves'
   expect(await expeditionOf(page)).toBeUndefined()
 })
 
+test('keeps a generator-v3 saved match and explains incompatibility without rebuilding or deleting it', async ({ page }) => {
+  const id = 'older-world-03'
+  const key = `polaris.matches.v1.${id}`
+  const raw = JSON.stringify({ faction: 'meridian', name: 'Earlier world',
+    match: { ...exportMatch(id, newMatch()), generator: 3 } })
+  await page.addInitScript(({ id, key, raw }) => {
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, raw)
+      localStorage.setItem('polaris.current-match.v1', id)
+    }
+  }, { id, key, raw })
+  await page.goto(WORLD_URL)
+  await expect(page.locator('#messenger-notice')).toContainText('The saved match has been kept')
+  await expect(page.locator('#messenger-notice')).toContainText('world generator 3, but your copy uses 4')
+  expect(await matchOf(page)).toBeUndefined()
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw)
+  expect(await page.evaluate(() => localStorage.getItem('polaris.current-match.v1'))).toBeNull()
+  await page.reload()
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw)
+  await expect(page.locator('#messenger-saved-list')).toContainText('Earlier world')
+  await page.getByRole('button', { name: 'Start messenger match' }).click()
+  expect(await storedMatchKeys(page)).toHaveLength(2)
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw)
+  expect(await matchOf(page)).toBeDefined()
+})
+
 test('rejects damaged, unfinished, tampered and repeated turns, and opens a foreign turn as its own match', async ({ page }) => {
   await page.goto(WORLD_URL)
   const inbox = page.locator('#messenger-inbox')
@@ -230,6 +265,7 @@ test('rejects damaged, unfinished, tampered and repeated turns, and opens a fore
     [await encodeTurn(unfinished), 'finished turn'],
     [await encodeTurn({ ...finished, stateHash: '0'.repeat(14) }), 'ended differently'],
     [await encodeTurn({ ...finished, mapHash: '0'.repeat(14) }), 'different world'],
+    [await encodeTurn({ ...finished, generator: 3 }), 'world generator 3, but your copy uses 4'],
   ]
   for (const [text, reason] of rejections) {
     await open(text)

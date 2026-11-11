@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyCommand, movementRange, type Expedition, type ProductionItemId } from './expedition'
+import { GENERATOR_VERSION } from './map'
 import {
   compactCommand, createMatch, exportMatch, mapHash, MATCH_FORMAT, MATCH_LIMITS, matchIdOf, matchProgress, openMatch,
   receiveTurn, stateHash, type LocalMatch, type MatchPackage,
@@ -59,6 +60,24 @@ function reorder<T extends object>(value: T): T {
 }
 
 describe('match checksums', () => {
+  it('replays founder and produced-unit moves with independent movement budgets', () => {
+    let state = createMatch(WORLD)
+    const founder = state.founders[0]!
+    const to = [...movementRange(state, founder.id).keys()].find(id => id !== founder.tileId)!
+    state = issue(state, { type: 'move', unitId: founder.id, to })
+    state = issue(state, { type: 'found-city', founderId: founder.id })
+    state = issue(state, { type: 'queue-production', cityId: state.cities[0]!.id, itemId: 'worker' })
+    for (let turn = 0; turn < 8 && (!state.units.length || state.activeFaction !== 'meridian'); turn++) {
+      state = issue(state, { type: 'end-turn' })
+    }
+    const worker = state.units[0]!
+    expect(worker).toBeDefined()
+    const target = [...movementRange(state, worker.id).keys()].find(id => id !== worker.tileId)!
+    state = issue(state, { type: 'move', unitId: worker.id, to: target })
+    const opened = openMatch(exportMatch(MATCH_ID, state))
+    expect(opened.ok).toBe(true)
+    if (opened.ok) expect(opened.state).toEqual(state)
+  })
   it('hashes equal worlds and states identically and any difference differently', () => {
     const state = createMatch(WORLD)
     expect(mapHash(state.map)).toMatch(CHECKSUM)
@@ -105,7 +124,7 @@ describe('exporting and opening a match', () => {
     const state = play(2)
     const pkg = exportMatch(MATCH_ID, state)
     expect(pkg).toMatchObject({
-      format: MATCH_FORMAT, matchId: MATCH_ID, rules: state.rulesVersion, generator: 2, seed: 'polaris', width: 32, height: 24,
+      format: MATCH_FORMAT, matchId: MATCH_ID, rules: state.rulesVersion, generator: GENERATOR_VERSION, seed: 'polaris', width: 32, height: 24,
       factions: ['meridian', 'lantern'], mapHash: mapHash(state.map), stateHash: stateHash(state),
     })
     expect(pkg.commands).toHaveLength(state.commands.length)
@@ -158,6 +177,7 @@ describe('rejecting turns that cannot be trusted', () => {
   it('rejects another version of the rules or of the world generator', () => {
     expect(failure(edit({ rules: pkg.rules - 1 }))).toMatch(/game rules .* same version/)
     expect(failure(edit({ generator: pkg.generator + 1 }))).toMatch(/world generator .* same version/)
+    expect(failure(edit({ generator: 3 }))).toMatch(/world generator 3, but your copy uses 4/)
   })
 
   it('rejects a world this device does not generate identically', () => {
@@ -201,7 +221,7 @@ describe('rejecting turns that cannot be trusted', () => {
 
   it('rejects orders for units of the faction that is not moving', () => {
     const forged = edit({ commands: [['m', 'scout-lantern', 1]] })
-    expect(failure(forged)).toMatch(/Order 1 was rejected: Choose a scout belonging to the active faction/)
+    expect(failure(forged)).toMatch(/Order 1 was rejected: Choose a unit belonging to the active faction/)
   })
 
   it('rejects malformed orders by position', () => {

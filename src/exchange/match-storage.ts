@@ -1,4 +1,5 @@
-import type { Expedition, FactionId } from '../game/expedition'
+import { RULES_VERSION, type Expedition, type FactionId } from '../game/expedition'
+import { GENERATOR_VERSION } from '../game/map'
 import { MATCH_FACTIONS, matchIdOf, matchProgress, openMatch, parseMatch, type MatchPackage } from '../game/match'
 
 // Every match has its own entry, so saving one never rewrites the others and damage costs only that match.
@@ -72,7 +73,7 @@ export function forgetMatch(storage: Store, matchId: string): void {
   if (currentMatchId(storage) === matchId) setCurrentMatch(storage)
 }
 
-// The stored history is replayed and checked like any received turn, so edited or outdated data is dropped.
+// Replay stored history like a received turn; keep incompatible worlds rather than deleting valid older matches.
 export function restoreMatch(storage: Store, matchId: string): RestoredMatch | undefined {
   const raw = read(storage, PREFIX + matchId)
   if (raw === undefined) return
@@ -83,7 +84,15 @@ export function restoreMatch(storage: Store, matchId: string): RestoredMatch | u
   const entry = readEntry(raw)
   if (!entry) return discard('The saved match was damaged and has been discarded.')
   const opened = openMatch(entry.match)
-  if (!opened.ok) return discard(`The saved match could not be resumed and has been discarded. ${opened.reason}`)
+  if (!opened.ok) {
+    const parsed = parseMatch(entry.match)
+    if (parsed.ok && parsed.value.matchId === matchId && isFaction(entry.faction)
+      && (parsed.value.generator !== GENERATOR_VERSION || parsed.value.rules !== RULES_VERSION)) {
+      if (currentMatchId(storage) === matchId) setCurrentMatch(storage)
+      return { ok: false, reason: `The saved match has been kept, but cannot be resumed in this version. ${opened.reason}` }
+    }
+    return discard(`The saved match could not be resumed and has been discarded. ${opened.reason}`)
+  }
   if (opened.matchId !== matchId) return discard('The saved match was damaged and has been discarded.')
   if (!isFaction(entry.faction)) return discard('The saved match did not say which side you play and has been discarded.')
   return { ok: true, matchId, faction: entry.faction, name: nameOf(entry.name), state: opened.state }

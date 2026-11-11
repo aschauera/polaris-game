@@ -1,8 +1,9 @@
 import './style.css'
+import { HEX_DIRECTIONS, hexOffsets, type HexDirection } from './game/hex'
 import { generateMap, tileAt, type Tile, type WorldMap } from './game/map'
 import {
   applyCommand, CITY_RULES, cityYields, createExpedition, FACTIONS, findPath, movementRange, PRODUCTION_ITEMS,
-  SCOUT, visibilityAt, type Command, type Expedition, type FactionId, type ProductionItemId,
+  UNIT_RULES, unitsOf, type Command, type Expedition, type FactionId, type ProductionItemId,
 } from './game/expedition'
 import { compactCommand, exportMatch, MATCH_FACTIONS, matchIdOf, receiveTurn, stateHash } from './game/match'
 import { decodeTurn, encodeTurn, linkedTurn, turnLink } from './exchange/turn-code'
@@ -11,7 +12,8 @@ import {
   type MatchSummary,
 } from './exchange/match-storage'
 import { WorldRenderer } from './rendering/world'
-import { createHud } from './ui/hud'
+import { RESOURCES } from './rendering/resources'
+import { createHud, SCREEN_DIRECTIONS, type ScreenDirection } from './ui/hud'
 import { createMessengerPanel } from './ui/messenger'
 
 const hud = createHud()
@@ -30,7 +32,8 @@ let generationMs = 0
 let renderSetupMs = 0
 let expedition: Expedition | undefined
 let selectedTile: Tile | undefined
-let scoutSelected = false
+let selectedUnitId: string | undefined
+let selectedCityId: string | undefined
 // The open messenger match. A solo expedition has none and simply plays whichever faction is active.
 // Other matches stay saved on this device until they are opened again.
 interface OpenMatch { readonly id: string; readonly faction: FactionId; readonly name: string }
@@ -39,8 +42,10 @@ let outboxToken = 0
 
 const viewerOf = (state: Expedition): FactionId => match?.faction ?? state.activeFaction
 const scoutOf = (state: Expedition) => state.scouts.find(unit => unit.factionId === viewerOf(state))!
+const selectedUnit = (state: Expedition) => unitsOf(state).find(unit => unit.id === selectedUnitId)
 const canAct = (state: Expedition) => !match || state.activeFaction === match.faction
 const turnsEnded = (state: Expedition) => state.commands.filter(command => command.type === 'end-turn').length
+const bannerOf = (factionId: FactionId): 0 | 1 => factionId === 'lantern' ? 1 : 0
 
 function browserStorage(): Storage | undefined {
   try {
@@ -60,12 +65,15 @@ function updateExpeditionHud(): void {
   if (!state) { hud.expedition(); return }
   const factionId = viewerOf(state)
   const acting = canAct(state)
-  const scout = scoutOf(state)
+  const unit = selectedUnit(state)
+  const scoutSelected = unit?.id === scoutOf(state).id
   const faction = state.factions.find(item => item.id === factionId)!
   hud.expedition({
-    faction: FACTIONS[state.activeFaction], round: state.round, movement: scout.movement, maxMovement: SCOUT.movement,
+    faction: FACTIONS[state.activeFaction], round: state.round, movement: unit?.movement ?? 0,
+    maxMovement: unit ? UNIT_RULES[unit.kind].movement : 0, unitName: unit?.kind,
     discovered: Object.keys(faction.fog).length, total: state.map.tiles.length,
-    scoutSelected, canOrder: acting && scoutSelected && !!selectedTile && selectedTile.id !== scout.tileId,
+    scoutSelected, unitSelected: !!unit, canOrder: acting && !!unit && !!selectedTile && selectedTile.id !== unit.tileId
+      && !!findPath(state, unit.id, selectedTile.id),
     canAct: acting, inMatch: !!match, status: match ? (acting ? 'your turn' : 'opponent\'s turn') : undefined,
   })
   const cities = state.cities.filter(city => city.factionId === factionId).map(city => {
@@ -74,7 +82,7 @@ function updateExpeditionHud(): void {
       ? { name: PRODUCTION_ITEMS[city.production.itemId].name, progress: city.production.progress,
         cost: PRODUCTION_ITEMS[city.production.itemId].cost }
       : undefined
-    return { id: city.id, x: state.map.tiles[city.tileId]!.x, z: state.map.tiles[city.tileId]!.z,
+    return { id: city.id, name: city.name, x: state.map.tiles[city.tileId]!.x, z: state.map.tiles[city.tileId]!.z,
       population: city.population, food: city.food, foodYield: yields.food,
       foodConsumption: city.population * CITY_RULES.foodPerPopulation,
       materials: city.materials, materialYield: yields.materials,
@@ -86,25 +94,50 @@ function updateExpeditionHud(): void {
         }) }
   })
   const founder = state.founders.find(unit => unit.factionId === factionId)
-  hud.cities(cities, founder ? { x: state.map.tiles[founder.tileId]!.x, z: state.map.tiles[founder.tileId]!.z } : undefined, acting)
+  hud.cities(cities, founder ? { x: state.map.tiles[founder.tileId]!.x, z: state.map.tiles[founder.tileId]!.z } : undefined,
+    acting, selectedCityId)
 }
 
-function select(tile?: Tile): void {
+function resourceName(tile?: Tile): string | undefined {
+  const kind = tile && renderer?.resource(tile.id)
+  return kind ? RESOURCES[kind].name : undefined
+}
+
+function select(tile?: Tile, unitId?: string, citySelected = false): void {
   selectedTile = tile
-  hud.selection(tile)
+  hud.selection(tile, resourceName(tile))
   const state = expedition
   if (!state) return
-  const scout = scoutOf(state)
-  if (tile?.id === scout.tileId) scoutSelected = true
+  const ownUnit = unitsOf(state).find(unit => unit.factionId === viewerOf(state)
+    && (unitId ? unit.id === unitId : unit.tileId === tile?.id))
+  const city = state.cities.find(city => city.factionId === viewerOf(state) && city.tileId === tile?.id)
+  const unit = selectedUnit(state)
+  const route = tile && unit && canAct(state) && tile.id !== unit.tileId && findPath(state, unit.id, tile.id)
+  if (city && (citySelected || (!ownUnit && !route))) {
+    selectedCityId = city.id
+    selectedUnitId = undefined
+    hud.order(city.production ? `${city.name} is producing ${PRODUCTION_ITEMS[city.production.itemId].name}.`
+      : `${city.name} selected. Choose production.`)
+  } else if (ownUnit) {
+    selectedUnitId = ownUnit.id
+    selectedCityId = undefined
+    hud.order(`${ownUnit.kind[0]!.toUpperCase() + ownUnit.kind.slice(1)} selected. Tap a highlighted hex to move.`)
+  } else if (tile && route) {
+    move(tile.id)
+    return
+  } else if (!tile) {
+    selectedUnitId = undefined
+    selectedCityId = undefined
+    hud.order('Tap a unit or city to select it.')
+  } else {
+    hud.order(unit ? 'No affordable known route. Choose a highlighted tile or end the turn.'
+      : 'Tap one of your units or cities to select it.')
+  }
   if (!canAct(state)) {
     hud.order(`Waiting for ${FACTIONS[state.activeFaction]}. Open their turn from your messenger to continue.`)
-  } else if (tile && tile.id !== scout.tileId && scoutSelected) {
-    const route = findPath(state, scout.id, tile.id)
-    const visibility = visibilityAt(state, viewerOf(state), tile.id)
-    hud.order(route ? `Destination (${tile.x}, ${tile.z}). ${visibility === 'explored' ? 'Remembered terrain. ' : ''}Route: ${route.cost} movement. Choose Move scout here.`
-      : 'No affordable known route. Choose another tile or end the turn.')
-  } else hud.order(scoutSelected ? 'Scout selected. Choose a charted destination or use N/E/S/W.' : 'Select the gold scout to begin.')
-  updateExpeditionHud()
+  }
+  renderExpedition([])
+  if (city && selectedCityId === city.id) hud.revealCity()
 }
 
 function renderExpedition(dirtyTiles?: readonly number[]): void {
@@ -112,16 +145,26 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
   if (!state) { renderer?.setExploration(); updateExpeditionHud(); return }
   const scout = scoutOf(state)
   const viewer = viewerOf(state)
+  const unit = selectedUnit(state)
+  const acting = canAct(state)
   const fog = state.factions.find(item => item.id === viewer)!.fog
   renderer?.setExploration({
     fog, scoutTileId: scout.tileId,
     // Only the active faction can move, so this stays empty while the opponent is on turn.
-    reachable: [...movementRange(state, scout.id).keys()],
+    reachable: acting && unit ? [...movementRange(state, unit.id).keys()].filter(id => id !== unit.tileId) : [],
     // Rival cities show only while in sight; remembering them belongs to last-known-state rendering.
     settlements: state.cities.filter(city => city.factionId === viewer || fog[city.tileId] === 'visible')
       .map(city => ({ tileId: city.tileId, houses: city.population, storehouse: city.storehouse,
-        banner: city.factionId === 'lantern' ? 1 : 0 })),
+        banner: bannerOf(city.factionId), name: city.name, population: city.population, claimTileIds: city.claimTileIds,
+        available: acting && city.factionId === viewer && !city.production, selected: city.id === selectedCityId,
+        own: city.factionId === viewer })),
+    // Own units are always shown; rival units only while their tile is in sight.
+    units: unitsOf(state).filter(unit => unit.factionId === viewer || fog[unit.tileId] === 'visible')
+      .map(unit => ({ id: unit.id, tileId: unit.tileId, kind: unit.kind, banner: bannerOf(unit.factionId),
+        rival: unit.factionId !== viewer, selected: unit.id === selectedUnitId,
+        available: acting && unit.factionId === viewer && movementRange(state, unit.id).size > 1 })),
   }, dirtyTiles)
+  hud.selection(selectedTile, resourceName(selectedTile))
   updateExpeditionHud()
 }
 
@@ -143,8 +186,17 @@ function order(command: Command): void {
   const result = applyCommand(state, command)
   if (!result.ok) { hud.order(result.reason, true); return }
   expedition = result.state
+  if (command.type === 'found-city') {
+    selectedUnitId = undefined
+    selectedCityId = result.state.cities.at(-1)!.id
+  }
+  if (command.type === 'end-turn' && result.state.activeFaction !== state.activeFaction) {
+    selectedUnitId = undefined
+    selectedCityId = undefined
+  }
   renderExpedition(result.dirtyTiles)
-  if (scoutSelected) renderer?.selectTile(scoutOf(result.state).tileId)
+  const unit = selectedUnit(result.state)
+  if (unit) renderer?.selectTile(unit.tileId)
   hud.order(result.message)
   if (!match) return
   persist()
@@ -158,8 +210,8 @@ function order(command: Command): void {
 
 function move(to: number): void {
   const state = expedition
-  if (!state || !scoutSelected) return
-  order({ type: 'move', factionId: viewerOf(state), sequence: state.commands.length + 1, unitId: scoutOf(state).id, to })
+  if (!state || !selectedUnitId) return
+  order({ type: 'move', factionId: viewerOf(state), sequence: state.commands.length + 1, unitId: selectedUnitId, to })
 }
 
 const MAX_TURN_FILE_BYTES = 2_000_000
@@ -174,9 +226,12 @@ function syncForm(world: WorldMap): void {
 function show(next: WorldMap, session?: Expedition): void {
   try {
     const renderStart = performance.now()
-    renderer ??= new WorldRenderer(hud.canvas, select, hud.hover, hud.error)
+    renderer ??= new WorldRenderer(hud.canvas, select, tile => hud.hover(tile, resourceName(tile)), hud.error)
     expedition = session
-    scoutSelected = false
+    selectedUnitId = undefined
+    selectedCityId = undefined
+    selectedTile = undefined
+    hud.selection()
     renderer.setMap(next)
     map = next
     hud.loaded(next)
@@ -207,7 +262,9 @@ function regenerate(): void {
 // Enters an expedition on the map that is already on screen.
 function begin(state: Expedition): void {
   expedition = state
-  scoutSelected = false
+  selectedUnitId = undefined
+  selectedCityId = undefined
+  selectedTile = undefined
   renderExpedition()
   renderer?.focusTile(scoutOf(state).tileId)
   syncMessenger()
@@ -285,7 +342,8 @@ function closeMatch(): void {
   match = undefined
   outboxToken++
   expedition = undefined
-  scoutSelected = false
+  selectedUnitId = undefined
+  selectedCityId = undefined
   hud.worldLocked(false)
   renderExpedition()
   renderer?.reset()
@@ -450,7 +508,7 @@ hud.startExpedition.addEventListener('click', () => {
   if (!map || !renderer) return
   try {
     begin(createExpedition(map))
-    hud.order('Select the gold scout to begin. Sight reaches two cardinal steps.')
+    hud.order('Select the gold scout to begin. Sight reaches two hexes in every direction.')
   } catch (error) {
     hud.error(error instanceof Error ? error.message : 'Unable to start the expedition.')
   }
@@ -458,7 +516,8 @@ hud.startExpedition.addEventListener('click', () => {
 hud.leaveExpedition.addEventListener('click', () => {
   if (match) return
   expedition = undefined
-  scoutSelected = false
+  selectedUnitId = undefined
+  selectedCityId = undefined
   renderExpedition()
   renderer?.reset()
   syncMessenger()
@@ -494,15 +553,28 @@ hud.queueProduction.addEventListener('click', () => {
   order({ type: 'queue-production', factionId: viewerOf(state),
     sequence: state.commands.length + 1, cityId, itemId })
 })
-hud.cityChoice.addEventListener('change', updateExpeditionHud)
+hud.cityChoice.addEventListener('change', () => {
+  const city = expedition?.cities.find(city => city.id === hud.selectedCityId())
+  if (!city) return
+  selectedCityId = city.id
+  selectedUnitId = undefined
+  renderer?.selectTile(city.tileId, undefined, true)
+  renderer?.focusTile(city.tileId)
+})
 hud.productionChoice.addEventListener('change', updateExpeditionHud)
-const offsets = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] } as const
-for (const direction of Object.keys(offsets) as (keyof typeof offsets)[]) {
+// The camera looks along the south-east axis, so each pad arrow maps to a fixed hex neighbour.
+const SCREEN_HEX: Record<ScreenDirection, HexDirection> = {
+  'up-left': 'north-east', up: 'north-west', 'up-right': 'west',
+  'down-left': 'east', down: 'south-east', 'down-right': 'south-west',
+}
+for (const direction of SCREEN_DIRECTIONS) {
   hud.directions[direction].addEventListener('click', () => {
     const state = expedition
     if (!state) return
-    const tile = state.map.tiles[scoutOf(state).tileId]!
-    const [dx, dz] = offsets[direction]
+    const unit = selectedUnit(state)
+    if (!unit) return
+    const tile = state.map.tiles[unit.tileId]!
+    const [dx, dz] = hexOffsets(tile.z)[HEX_DIRECTIONS.indexOf(SCREEN_HEX[direction])]!
     move(tileAt(state.map, tile.x + dx, tile.z + dz)?.id ?? -1)
   })
 }
@@ -543,7 +615,8 @@ if (params.get('diagnostics') === '1') {
       return {
         round: state.round, movement: scout.movement, scoutTileId: scout.tileId,
         commandCount: state.commands.length,
-        founders: state.founders, cities: state.cities, units: state.units,
+        founders: state.founders, cities: state.cities, units: state.units, selectedUnitId, selectedCityId,
+        selectedReachable: selectedUnitId ? [...movementRange(state, selectedUnitId).keys()] : [],
         fog: { ...state.factions.find(item => item.id === viewerOf(state))!.fog },
         reachable: [...movementRange(state, scout.id).keys()],
       }

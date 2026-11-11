@@ -46,11 +46,12 @@ test('portrait phone: map above messenger controls, no page scrolling, touch-siz
   await sized('start-expedition')
   await page.locator('#start-expedition').tap()
   await expect(page.locator('#turn-info')).toContainText('Turn 1')
-  for (const id of ['zoom-in', 'zoom-out', 'reset', 'select-scout', 'move-scout', 'move-north', 'move-east',
-    'move-south', 'move-west', 'end-turn', 'leave-expedition']) await sized(id)
+  await expect(page.locator('#scout-info')).toHaveText('No unit selected')
+  for (const id of ['zoom-in', 'zoom-out', 'reset', 'select-scout', 'move-scout', 'move-up-left', 'move-up', 'move-up-right',
+    'move-down-left', 'move-down', 'move-down-right', 'end-turn', 'leave-expedition']) await sized(id)
   expect(await fitsScreen(page)).toBe(true)
   const controls = (await page.locator('.panel').boundingBox())!
-  for (const id of ['select-scout', 'move-scout', 'move-north', 'end-turn']) {
+  for (const id of ['select-scout', 'move-scout', 'move-up', 'end-turn']) {
     const box = (await page.locator(`#${id}`).boundingBox())!
     expect(box.y + box.height, `#${id} reachable without scrolling`).toBeLessThanOrEqual(controls.y + controls.height)
   }
@@ -91,7 +92,7 @@ test('touch: tap selects, one finger pans, two fingers pinch-zoom without select
   await page.goto('/?diagnostics=1')
   await page.locator('#start-expedition').tap()
   await expect(page.locator('#turn-info')).toContainText('Turn 1')
-  await page.locator('#select-scout').tap()
+  await page.locator('.unit-target[data-unit-id="scout-meridian"]').tap()
   await settled(page)
 
   const { scoutTileId, reachable } = (await page.evaluate(() => window.polarisDiagnostics!.expedition()))!
@@ -99,6 +100,16 @@ test('touch: tap selects, one finger pans, two fingers pinch-zoom without select
   const point = (await page.evaluate(id => window.polarisDiagnostics!.projectTile(id), target))!
   await page.touchscreen.tap(point.x, point.y)
   await expect(page.locator('#selection')).toContainText(`Tile ${target}`)
+  expect((await page.evaluate(() => window.polarisDiagnostics!.expedition()))!.scoutTileId).toBe(target)
+  const founder = page.locator('.unit-target[data-unit-id="founder-meridian"]')
+  await founder.tap()
+  await expect(founder).toHaveAttribute('aria-pressed', 'true')
+  await page.locator('#found-city').tap()
+  const city = page.locator('.city-plate')
+  await city.tap()
+  await expect(city).toHaveClass(/available/)
+  await page.locator('#queue-production').tap()
+  await expect(city).not.toHaveClass(/available/)
 
   await page.locator('#zoom-in').tap()
   const zoomedIn = await camera(page)

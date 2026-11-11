@@ -32,11 +32,12 @@ input, textarea { width: 100%; padding: 10px; color: #f4f1dc; background: #0f232
 .tile-card { margin-top: 28px; border-top: 1px solid #61756a; border-bottom: 1px solid #61756a; padding: 18px 0; min-height: 113px; }
 #selection { font-size: 14px; margin: 14px 0 8px; color: #f0dbab; }
 #hover { font-size: 11px; color: #a5bab2; }
+#resource-info { font-size: 12px; line-height: 1.5; color: #e4d7ae; margin-bottom: 8px; }
 .legend { margin-top: 24px; font-size: 12px; }
 .legend div { margin: 12px 0; display: flex; align-items: center; gap: 9px; }
 .legend small { margin-left: auto; font-size: 10px; color: #9badab; }
-.legend i { width: 12px; height: 12px; display: inline-block; transform: rotate(45deg); }
-.grass { background: #609b83; } .water { background: #387c9b; } .hills { background: #bdab86; }
+.legend i { width: 13px; height: 15px; display: inline-block; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.grass { background: #5fb13f; } .water { background: #4fb3df; } .hills { background: #8fa64c; }
 .scope { font-size: 10px; color: #92a9a2; line-height: 1.8; margin-top: 28px; }
 .expedition { margin-top: 18px; border-bottom: 1px solid #61756a; padding-bottom: 16px; }
 .expedition p { font-size: 12px; line-height: 1.5; }
@@ -45,8 +46,8 @@ input, textarea { width: 100%; padding: 10px; color: #f4f1dc; background: #0f232
 #city-controls select { width: 100%; padding: 8px; color: #e8ebdf; background: #0f232e; border: 1px solid #506862; }
 #city-info { color: #d7deb7; overflow-wrap: anywhere; }
 #city-controls > button { width: 100%; margin-top: 8px; font-size: 12px; }
-.direction-tools { display: flex; gap: 6px; margin-top: 10px; }
-.direction-tools button { flex: 1; }
+.direction-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.direction-tools button { font-size: 16px; padding: 6px; }
 #order-status { color: #d7deb7; min-height: 54px; }
 #order-status.rejected { color: #ffd0bd; border-left: 2px solid #f19e87; padding-left: 10px; }
 .expedition .help { color: #afc0ba; font-size: 11px; }
@@ -75,6 +76,21 @@ input, textarea { width: 100%; padding: 10px; color: #f4f1dc; background: #0f232
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .atlas-heading { position: absolute; pointer-events: none; top: 26px; left: 30px; right: 30px; display: flex; justify-content: space-between; color: #c1cec3; font-size: 11px; letter-spacing: .13em; }
 .north { color: #dec38c; font-size: 16px; }
+.city-plates { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.city-plate { position: absolute; transform: translate(-50%, -100%); display: flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid; border-radius: 3px; font-size: 12px; font-weight: 700; color: #fffbea; white-space: nowrap; text-shadow: 0 1px 0 #0007; box-shadow: 0 2px 0 #0006; }
+.city-plate.gold { background: #b98a2c; border-color: #f4d270; }
+.city-plate.blue { background: #2f63a8; border-color: #92c4f4; }
+.city-plate-population { font-size: 11px; color: #ffe7a0; }
+.city-plates button { pointer-events: auto; touch-action: none; min-height: 44px; margin: 0; }
+.city-plate.available { box-shadow: 0 0 8px 3px #ffe58ba8, 0 0 20px #ffe58b70; }
+.city-plate[aria-pressed="true"] { outline: 2px solid #fff3bd; outline-offset: 3px; }
+.city-plates .unit-target { position: absolute; transform: translate(-50%, -50%); min-height: 0; min-width: 0; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; }
+.unit-target:hover, .unit-target:active { background: transparent; }
+.unit-target.available { box-shadow: 0 0 9px 3px #ffe58baa, inset 0 0 8px #fff3bda0; }
+.unit-target[aria-pressed="true"] { outline: 1px solid #ffe58b; outline-offset: 2px; }
+.city-plates [hidden] { display: none; }
+.resource-marker { position: absolute; transform: translate(-50%, -100%); line-height: 0; filter: drop-shadow(0 0 2px #e8f4ce) drop-shadow(0 1px 2px #18394a); }
+.resource-marker svg { display: block; width: 100%; height: auto; }
 .camera-tools { position: absolute; right: 24px; bottom: 68px; display: flex; gap: 6px; }
 .camera-tools button { background: #152a35ed; min-width: 40px; font-size: 13px; }
 .map-caption { position: absolute; pointer-events: none; bottom: 25px; left: 30px; right: 30px; display: flex; justify-content: space-between; font-size: 9px; letter-spacing: .12em; color: #a3b9b2; }

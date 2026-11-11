@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { applyCommand, createExpedition, findPath, movementRange, neighbors, type Expedition } from '../src/game/expedition'
+import { hexOffsets } from '../src/game/hex'
 import { generateMap } from '../src/game/map'
 
 async function settled(page: Page) {
@@ -56,24 +57,24 @@ test('selects a scout, spends movement, explores, rejects orders and restores mo
     if (!destinations.length) break
     const [to, cost] = destinations[0]!
     await clickTile(page, to)
-    await expect(page.locator('#order-status')).toContainText(`Route: ${cost} movement`)
-    await page.getByRole('button', { name: 'Move scout here' }).click()
+    await expect(page.locator('#order-status')).toContainText(`Used ${cost} movement`)
     state = step(state, to)
     expect(await snapshot(page)).toMatchObject({ scoutTileId: to, movement: state.scouts[0]!.movement,
       commandCount: state.commands.length, fog: state.factions[0]!.fog })
   }
   expect(state.scouts[0]!.movement).toBe(0)
+  await expect(page.locator('.unit-target[data-unit-id="scout-meridian"]')).not.toHaveClass(/available/)
   expect(Object.keys(state.factions[0]!.fog).length).toBeGreaterThan(Object.keys(initialFog).length)
   expect(Object.values(state.factions[0]!.fog)).toContain('explored')
   const before = await snapshot(page)
   const target = neighbors(state.map, state.scouts[0]!.tileId).find(id => state.map.tiles[id]!.terrain !== 'water')!
   await clickTile(page, target)
-  await page.getByRole('button', { name: 'Move scout here' }).click()
-  await expect(page.locator('#order-status')).toHaveClass('rejected')
+  await expect(page.locator('#order-status')).toContainText('No affordable known route')
   expect(await snapshot(page)).toEqual(before)
   await page.getByRole('button', { name: 'End turn', exact: true }).click()
   await expect(page.locator('#turn-info')).toContainText('Turn 2')
   await expect(page.locator('#scout-info')).toContainText('4/4 movement')
+  await expect(page.locator('.unit-target[data-unit-id="scout-meridian"]')).toHaveClass(/available/)
   expect((await snapshot(page))!.fog).toEqual(before!.fog)
   await settled(page)
   const markerPixels = await page.evaluate(id => {
@@ -121,6 +122,64 @@ test('founds a city, inspects its economy and completes queued production', asyn
 })
 
 const SCOUT_MOVEMENT_LIMIT = 4
+
+test('direct unit and city selection shows availability, independent ranges and production', async ({ page }, info) => {
+  const initial = await start(page)
+  expect((await snapshot(page))!.selectedReachable).toEqual([])
+  const founder = initial.founders[0]!
+  const targetButton = page.locator(`.unit-target[data-unit-id="${founder.id}"]`)
+  await expect(targetButton).toHaveClass(/available/)
+  const box = (await targetButton.boundingBox())!
+  const beforePan = await page.evaluate(() => window.polarisDiagnostics!.camera())
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 3 })
+  await page.mouse.up()
+  expect((await snapshot(page))!.selectedUnitId).toBeUndefined()
+  expect((await snapshot(page))!.commandCount).toBe(0)
+  expect(await page.evaluate(() => window.polarisDiagnostics!.camera())).not.toEqual(beforePan)
+  await targetButton.focus()
+  await page.keyboard.press('Enter')
+  await expect(targetButton).toHaveAttribute('aria-pressed', 'true')
+  await expect(targetButton).toBeFocused()
+  expect((await snapshot(page))!.selectedUnitId).toBe(founder.id)
+  const to = [...movementRange(initial, founder.id)].filter(([id]) => id !== founder.tileId)
+    .sort((a, b) => b[1] - a[1])[0]![0]
+  await clickTile(page, to)
+  const moved = (await snapshot(page))!
+  expect(moved.founders[0]!.tileId).toBe(to)
+  expect(moved.scoutTileId).toBe(initial.scouts[0]!.tileId)
+  expect(moved.movement).toBe(4)
+  await expect(targetButton).not.toHaveClass(/available/)
+  await page.locator('.unit-target[data-unit-id="scout-meridian"]').click()
+  expect((await snapshot(page))!.selectedUnitId).toBe('scout-meridian')
+  await targetButton.click()
+  await page.locator('#found-city').click()
+  await expect(targetButton).toHaveCount(0)
+  const city = page.locator('.city-plate')
+  await expect(city).toHaveClass(/available/)
+  await city.click()
+  await expect(city).toHaveAttribute('aria-pressed', 'true')
+  expect((await snapshot(page))!.selectedUnitId).toBeUndefined()
+  expect((await snapshot(page))!.selectedReachable).toEqual([])
+  await page.locator('#production-choice').selectOption('worker')
+  await page.locator('#queue-production').click()
+  await expect(city).not.toHaveClass(/available/)
+  await expect(page.locator('#production-choice')).toBeDisabled()
+  for (let turn = 0; turn < 8 && !(await snapshot(page))!.units.length; turn++) {
+    await page.locator('#end-turn').click()
+  }
+  await expect(city).toHaveClass(/available/)
+  const worker = (await snapshot(page))!.units[0]!
+  const workerButton = page.locator(`.unit-target[data-unit-id="${worker.id}"]`)
+  await expect(workerButton).toHaveClass(/available/)
+  await workerButton.click()
+  await expect(page.locator('#scout-info')).toContainText('Worker · 2/2')
+  const destination = (await snapshot(page))!.selectedReachable.find(id => id !== worker.tileId)!
+  await clickTile(page, destination)
+  expect((await snapshot(page))!.units[0]!.tileId).toBe(destination)
+  await page.screenshot({ path: info.outputPath('direct-orders.png') })
+})
 
 test('unknown land and water have identical opaque surfaces, no trees or inspection leaks', async ({ page }, testInfo) => {
   const state = await start(page)
@@ -175,12 +234,15 @@ test('only affected fog buffers update; camera and HUD controls do not advance s
   await page.keyboard.press('ArrowLeft')
   expect(await snapshot(page)).toEqual(before)
   expect(await page.evaluate(() => window.polarisDiagnostics!.stats().fogUpdates)).toBe(updates)
-  // Keyboard-accessible cardinal buttons issue real orders, without intercepting camera arrows.
+  // Keyboard-accessible screen-direction buttons issue real orders, without intercepting camera arrows.
   const scout = state.scouts[0]!
   const to = neighbors(state.map, scout.tileId).find(id => findPath(state, scout.id, id))!
-  const delta = to - scout.tileId
-  const direction = delta === -state.map.width ? 'north' : delta === 1 ? 'east' : delta === state.map.width ? 'south' : 'west'
-  await page.getByRole('button', { name: `Move scout ${direction}`, exact: true }).focus()
+  const from = state.map.tiles[scout.tileId]!
+  const target = state.map.tiles[to]!
+  const index = hexOffsets(from.z).findIndex(([dx, dz]) => from.x + dx === target.x && from.z + dz === target.z)
+  // East, south-east, south-west, west, north-west and north-east as the camera shows them.
+  const direction = ['down and left', 'down', 'down and right', 'up and right', 'up', 'up and left'][index]!
+  await page.getByRole('button', { name: `Move unit ${direction}`, exact: true }).focus()
   await page.keyboard.press('Enter')
   expect((await snapshot(page))!.scoutTileId).toBe(to)
   const changed = await page.evaluate(() => window.polarisDiagnostics!.stats().fogUpdates!)
@@ -198,8 +260,9 @@ test('regeneration restarts exploration and leaving releases the scout without r
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     expect(await snapshot(page)).toEqual(expedition)
     const playing = await page.evaluate(() => window.polarisDiagnostics!.stats())
-    expect(playing).toMatchObject({ meshes: initial.meshes! + 1, materials: initial.materials! + 1,
-      geometries: initial.geometries! + 1 })
+    // Every unit adds one figure mesh with its own geometry; figures share preallocated materials.
+    expect(playing.meshes).toBeGreaterThan(initial.meshes!)
+    expect(playing).toMatchObject({ materials: initial.materials, geometries: initial.geometries! - initial.meshes! + playing.meshes! })
     await page.getByRole('button', { name: 'Return to atlas (discard expedition)', exact: true }).click()
     expect(await snapshot(page)).toBeUndefined()
     const restored = await page.evaluate(() => window.polarisDiagnostics!.stats())
@@ -211,8 +274,8 @@ test('regeneration restarts exploration and leaving releases the scout without r
 
 test('tree-free rectangular maps, invalid regeneration and pointer cancellation retain a valid expedition', async ({ page }) => {
   await start(page, 'aurora', 8, 8)
-  const before = await snapshot(page)
   await page.getByRole('button', { name: 'Select scout', exact: true }).click()
+  const before = await snapshot(page)
   await page.getByLabel('World seed').fill('bad seed')
   await page.getByRole('button', { name: 'Regenerate atlas' }).click()
   await expect(page.getByRole('alert')).toContainText('Seed must')

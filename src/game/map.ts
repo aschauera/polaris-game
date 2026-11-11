@@ -1,7 +1,9 @@
+import { HEX_ROW, hexCenter } from './hex'
+
 export const TERRAIN = {
   grassland: { name: 'Grassland', height: 0.65 },
   water: { name: 'Water', height: 0.25 },
-  hills: { name: 'Hills', height: 1.35 },
+  hills: { name: 'Hills', height: 0.65 },
 } as const
 
 export type Terrain = keyof typeof TERRAIN
@@ -14,13 +16,17 @@ export interface Tile {
   readonly elevation: number
   readonly trees: number
 }
+export const GENERATOR_VERSION = 4
 export interface WorldMap extends MapConfig {
-  readonly generatorVersion: 2
+  readonly generatorVersion: typeof GENERATOR_VERSION
   readonly rngState: number
   readonly tiles: readonly Tile[]
 }
 
-interface Landform { x: number; z: number; radiusX: number; radiusZ: number; angle: number }
+interface Landform {
+  x: number; z: number; radiusX: number; radiusZ: number; angle: number
+  bay?: { angle: number; width: number; bend: number }
+}
 
 export function validateConfig(config: MapConfig): void {
   if (typeof config.seed !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(config.seed)) {
@@ -65,12 +71,12 @@ function noise(seed: number, x: number, z: number, spacing: number): number {
   return top * (1 - tz) + bottom * tz
 }
 
-function distanceTo(form: Landform, x: number, z: number): number {
+function localPoint(form: Landform, x: number, z: number): [number, number] {
   const dx = x - form.x, dz = z - form.z
   const cos = Math.cos(form.angle), sin = Math.sin(form.angle)
   const rotatedX = dx * cos - dz * sin
   const rotatedZ = dx * sin + dz * cos
-  return Math.sqrt((rotatedX / form.radiusX) ** 2 + (rotatedZ / form.radiusZ) ** 2)
+  return [rotatedX / form.radiusX, rotatedZ / form.radiusZ]
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -90,65 +96,89 @@ export function generateMap(config: MapConfig): WorldMap {
     state = step.state
     return step.value
   }
-  const minDimension = Math.min(config.width, config.height)
+  // Landforms and noise live in world space, where hex rows are HEX_ROW apart. Landform sizes follow
+  // the tile count so a hex world keeps the land share of the earlier square worlds.
+  const extentX = config.width, extentZ = config.height * HEX_ROW
+  const minDimension = Math.min(extentX, extentZ)
+  const landScale = Math.min(config.width, config.height)
   const count = Math.max(2, Math.min(5, Math.round(Math.sqrt(config.width * config.height) / 16)))
   const continents: Landform[] = []
   for (let index = 0; index < count; index++) {
     let x = 0, z = 0, separated = false
     for (let attempt = 0; attempt < 48; attempt++) {
-      x = config.width * (0.12 + random() * 0.76)
-      z = config.height * (0.12 + random() * 0.76)
+      x = extentX * (0.12 + random() * 0.76)
+      z = extentZ * (0.12 + random() * 0.76)
       if (continents.every(form => Math.hypot(form.x - x, form.z - z) > minDimension * 0.69)) {
         separated = true
         break
       }
     }
     if (!separated && continents.length) continue
-    const radius = minDimension * (0.15 + random() * 0.05)
+    const radius = landScale * (0.156 + random() * 0.052)
     continents.push({
       x, z, radiusX: radius * (0.78 + random() * 0.54), radiusZ: radius * (0.78 + random() * 0.54),
       angle: random() * Math.PI,
     })
   }
   const islands = Array.from({ length: 1 + Math.floor(random() * 3) }, () => {
-    const radius = minDimension * (0.035 + random() * 0.045)
+    const radius = landScale * (0.035 + random() * 0.045)
     return {
-      x: config.width * (0.08 + random() * 0.84), z: config.height * (0.08 + random() * 0.84),
+      x: extentX * (0.08 + random() * 0.84), z: extentZ * (0.08 + random() * 0.84),
       radiusX: radius * (0.7 + random() * 0.6), radiusZ: radius * (0.7 + random() * 0.6),
       angle: random() * Math.PI,
     }
   })
-  const landforms = [...continents, ...islands]
+  const landforms: Landform[] = [...continents, ...islands]
   const inlandSea = random() < 0.28
-    ? { x: config.width * (0.2 + random() * 0.6), z: config.height * (0.2 + random() * 0.6),
-      radius: minDimension * (0.045 + random() * 0.04) }
+    ? { x: extentX * (0.2 + random() * 0.6), z: extentZ * (0.2 + random() * 0.6),
+      radius: landScale * (0.045 + random() * 0.04) }
     : undefined
   const tiles: Tile[] = []
   const broadScale = minDimension * 0.19
   const detailScale = Math.max(2, minDimension * 0.07)
+  for (const [index, form] of continents.entries()) {
+    if (Math.min(form.radiusX, form.radiusZ) < 2) continue
+    form.bay = {
+      angle: hash(state ^ 0x518cc1b7, index, 0) * Math.PI * 2,
+      width: 0.3 + hash(state ^ 0x421f0a3d, index, 1) * 0.12,
+      bend: (hash(state ^ 0x76da8279, index, 2) - 0.5) * 0.5,
+    }
+  }
   for (let z = 0; z < config.height; z++) {
     for (let x = 0; x < config.width; x++) {
+      const [px, pz] = hexCenter(x, z)
+      const warpedX = px + (noise(state ^ 0x4ab17c93, px, pz, broadScale) - 0.5) * landScale * 0.09
+      const warpedZ = pz + (noise(state ^ 0x792edb61, px, pz, broadScale) - 0.5) * landScale * 0.09
+      const coastWarp = (noise(state ^ 0x68bc21eb, px, pz, broadScale) - 0.5) * 0.3
+        + (noise(state ^ 0x02e5be93, px, pz, detailScale) - 0.5) * 0.16
       let landScore = -Infinity
       let nearestRadius = Infinity
       for (const form of landforms) {
-        const radius = distanceTo(form, x, z)
-        const coastWarp = (noise(state ^ 0x68bc21eb, x, z, broadScale) - 0.5) * 0.58
-          + (noise(state ^ 0x02e5be93, x, z, detailScale) - 0.5) * 0.2
-        const score = 1 - radius + coastWarp
+        const [u, v] = localPoint(form, warpedX, warpedZ)
+        const radius = Math.hypot(u, v)
+        let score = 1 - radius + coastWarp
+        if (form.bay) {
+          const cos = Math.cos(form.bay.angle), sin = Math.sin(form.bay.angle)
+          const along = u * cos + v * sin, across = v * cos - u * sin
+          const bend = form.bay.bend * Math.max(0, 1.1 - along) ** 2
+          // The rounded inlet head reaches inland; its far end extends beyond the shore into open sea.
+          const inlet = Math.hypot((along - 1.1) / 1.1, (across - bend) / form.bay.width)
+          score = Math.min(score, inlet - 1)
+        }
         if (score > landScore) {
           landScore = score
           nearestRadius = radius
         }
       }
       if (inlandSea && landScore > 0.1 &&
-        Math.hypot((x - inlandSea.x) / inlandSea.radius, (z - inlandSea.z) / inlandSea.radius) < 1) {
+        Math.hypot((px - inlandSea.x) / inlandSea.radius, (pz - inlandSea.z) / inlandSea.radius) < 1) {
         landScore = -1
       }
       const isLand = landScore >= 0
-      const regionalVariation = (noise(state ^ 0x9e3779b9, x, z, broadScale * 0.72) - 0.5) * 0.22
+      const regionalVariation = (noise(state ^ 0x9e3779b9, px, pz, broadScale * 0.72) - 0.5) * 0.22
       const heightScore = clamp(1 - nearestRadius + regionalVariation, 0, 1)
       const elevation = isLand ? 1 + Number(heightScore > 0.24) + Number(heightScore > 0.49) + Number(heightScore > 0.76) : 0
-      const vegetation = noise(state ^ 0x85ebca6b, x, z, Math.max(2, minDimension * 0.16))
+      const vegetation = noise(state ^ 0x85ebca6b, px, pz, Math.max(2, minDimension * 0.16))
       const treeChance = hash(state ^ 0xc2b2ae35, x, z)
       const trees = isLand && elevation <= 3 && vegetation > 0.57 && treeChance > 0.38
         ? 1 + Math.floor(hash(state ^ 0x27d4eb2f, x, z) * 3)
@@ -157,5 +187,5 @@ export function generateMap(config: MapConfig): WorldMap {
       tiles.push(Object.freeze({ id: z * config.width + x, x, z, terrain, elevation, trees }))
     }
   }
-  return Object.freeze({ ...config, generatorVersion: 2, rngState: state, tiles: Object.freeze(tiles) })
+  return Object.freeze({ ...config, generatorVersion: GENERATOR_VERSION, rngState: state, tiles: Object.freeze(tiles) })
 }

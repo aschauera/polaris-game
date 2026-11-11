@@ -1,6 +1,10 @@
 import { PRODUCTION_ITEMS } from '../game/expedition'
 import { TERRAIN, type MapConfig, type Tile, type WorldMap } from '../game/map'
 
+/** Direction-pad buttons, named by where the neighbouring hex appears on screen. */
+export const SCREEN_DIRECTIONS = ['up-left', 'up', 'up-right', 'down-left', 'down', 'down-right'] as const
+export type ScreenDirection = typeof SCREEN_DIRECTIONS[number]
+
 export interface ExpeditionSummary {
   faction: string
   round: number
@@ -9,6 +13,8 @@ export interface ExpeditionSummary {
   discovered: number
   total: number
   scoutSelected: boolean
+  unitSelected: boolean
+  unitName?: string
   canOrder: boolean
   // Messenger matches lock the controls while the opponent is on turn; a solo expedition always may act.
   canAct?: boolean
@@ -18,6 +24,7 @@ export interface ExpeditionSummary {
 
 export interface CitySummary {
   id: string
+  name: string
   x: number
   z: number
   population: number
@@ -48,12 +55,12 @@ export function createHud() {
         <button id="start-expedition" class="primary" disabled>Start expedition</button>
         <section id="messenger" class="messenger" aria-label="Play by messenger" hidden></section>
         <section id="expedition" class="expedition" aria-label="Expedition controls" hidden>
-          <div class="section-label">SCOUT EXPEDITION</div>
+          <div class="section-label">EXPEDITION</div>
           <p id="turn-info" aria-live="polite" aria-atomic="true"></p>
           <p id="scout-info"></p>
           <p id="exploration-info"></p>
           <button id="select-scout" aria-pressed="false">Select scout</button>
-          <button id="move-scout" disabled>Move scout here</button>
+          <button id="move-scout" disabled>Move unit here</button>
           <button id="found-city" disabled>Found city</button>
           <section id="city-controls" aria-label="City economy" hidden>
             <label for="city-choice">City</label><select id="city-choice"></select>
@@ -62,19 +69,22 @@ export function createHud() {
             <select id="production-choice"></select>
             <button id="queue-production">Queue production</button>
           </section>
-          <div class="direction-tools" aria-label="Cardinal scout movement">
-            <button id="move-north" aria-label="Move scout north">N</button>
-            <button id="move-east" aria-label="Move scout east">E</button>
-            <button id="move-south" aria-label="Move scout south">S</button>
-            <button id="move-west" aria-label="Move scout west">W</button>
+          <div class="direction-tools" aria-label="Hex unit movement">
+            <button id="move-up-left" aria-label="Move unit up and left">↖</button>
+            <button id="move-up" aria-label="Move unit up">↑</button>
+            <button id="move-up-right" aria-label="Move unit up and right">↗</button>
+            <button id="move-down-left" aria-label="Move unit down and left">↙</button>
+            <button id="move-down" aria-label="Move unit down">↓</button>
+            <button id="move-down-right" aria-label="Move unit down and right">↘</button>
           </div>
           <p id="order-status" aria-live="polite"></p>
           <button id="end-turn" class="primary">End turn</button>
           <button id="leave-expedition">Return to atlas (discard expedition)</button>
-          <p class="help">Select the gold scout, then a charted tile and Move scout here.
-            N/E/S/W buttons also move the selected scout. Grassland costs 1, hills 2; water blocks movement.
-            Dark tiles are uncharted, dim tiles remembered, bright tiles in sight.
-            Pale land is reachable this turn.<span id="help-regenerate"> Regenerating starts a new expedition.</span></p>
+          <p class="help">Tap or click a unit, then a highlighted hex to move immediately.
+            Glowing units can still move; glowing cities need production. Tap a city or its name to choose production.
+            The six arrows step the selected unit to a neighbouring hex. Grassland costs 1, hills 2; water blocks movement.
+            Dark hexes are uncharted, dim hexes remembered, bright hexes in sight.
+            Outlined hexes are reachable this turn; coloured borders mark city territory.<span id="help-regenerate"> Regenerating starts a new expedition.</span></p>
         </section>
         <form id="map-form" novalidate>
           <label for="seed">World seed</label><input id="seed" maxlength="64" autocomplete="off" spellcheck="false" />
@@ -91,12 +101,13 @@ export function createHud() {
         <section class="tile-card" aria-labelledby="tile-heading">
           <div class="section-label" id="tile-heading">SELECTED TERRITORY</div>
           <div id="selection" role="status" aria-live="polite">No tile selected</div>
+          <div id="resource-info" aria-live="polite" hidden></div>
           <div id="hover">Hover over the map to survey a tile.</div>
         </section>
         <section class="legend" aria-label="Terrain legend">
           <div><i class="grass"></i> Grassland <small>low plateau</small></div>
           <div><i class="water"></i> Water <small>blue shelf</small></div>
-          <div><i class="hills"></i> Hills <small>raised block</small></div>
+          <div><i class="hills"></i> Hills <small>low upland</small></div>
         </section>
         <p class="scope">PROCEDURAL PLACEHOLDERS<br>Scout exploration and the first city economy are playable. Combat &amp; AI remain planned.</p>
       </aside>
@@ -120,15 +131,16 @@ export function createHud() {
     option.textContent = `${item.name} · ${item.cost} materials`
     return option
   }))
-  const directions = {
-    north: get<HTMLButtonElement>('move-north'), east: get<HTMLButtonElement>('move-east'),
-    south: get<HTMLButtonElement>('move-south'), west: get<HTMLButtonElement>('move-west'),
-  }
-  const selection = (tile?: Tile) => {
+  const directions = Object.fromEntries(SCREEN_DIRECTIONS.map(direction =>
+    [direction, get<HTMLButtonElement>(`move-${direction}`)])) as Record<ScreenDirection, HTMLButtonElement>
+  const selection = (tile?: Tile, resource?: string) => {
     get('selection').textContent = tile ? `(${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name} · Tile ${tile.id}` : 'No tile selected'
+    get('resource-info').hidden = !tile || !resource
+    get('resource-info').textContent = tile && resource ? `${resource} · Visual occurrence; harvesting is not available yet.` : ''
   }
-  const hover = (tile?: Tile) => {
-    get('hover').textContent = tile ? `Surveying (${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name}` : 'Hover over the map to survey a tile.'
+  const hover = (tile?: Tile, resource?: string) => {
+    get('hover').textContent = tile ? `Surveying (${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name}${resource ? ` · ${resource}` : ''}`
+      : 'Hover over the map to survey a tile.'
   }
   return {
     inputs, selection, hover, directions,
@@ -143,18 +155,19 @@ export function createHud() {
     cityChoice: get<HTMLSelectElement>('city-choice'), productionChoice,
     queueProduction: get<HTMLButtonElement>('queue-production'),
     selectedCityId: () => get<HTMLSelectElement>('city-choice').value,
-    cities: (cities: readonly CitySummary[], founder?: FounderSummary, canAct = true) => {
+    revealCity: () => get('city-controls').scrollIntoView({ block: 'nearest' }),
+    cities: (cities: readonly CitySummary[], founder?: FounderSummary, canAct = true, selectedCityId?: string) => {
       const founderButton = get<HTMLButtonElement>('found-city')
       founderButton.disabled = !founder || !canAct
       founderButton.textContent = founder ? `Found city at (${founder.x}, ${founder.z})` : 'Found city'
       const controls = get('city-controls')
       controls.hidden = !cities.length
       const cityChoice = get<HTMLSelectElement>('city-choice')
-      const previous = cityChoice.value
+      const previous = selectedCityId ?? cityChoice.value
       cityChoice.replaceChildren(...cities.map(city => {
         const option = document.createElement('option')
         option.value = city.id
-        option.textContent = `City at (${city.x}, ${city.z})`
+        option.textContent = `${city.name} (${city.x}, ${city.z})`
         return option
       }))
       if (cities.some(city => city.id === previous)) cityChoice.value = previous
@@ -170,6 +183,7 @@ export function createHud() {
         `${city.storehouse ? 'Storehouse built' : 'No storehouse'} · ${production} · ` +
         `Units: ${city.units.length ? city.units.join(', ') : 'none'}`
       const choice = get<HTMLSelectElement>('production-choice')
+      choice.disabled = !canAct || !!city.production
       const duplicateStorehouse = choice.value === 'storehouse' && city.storehouse
       get<HTMLButtonElement>('queue-production').disabled = !canAct || !!city.production || duplicateStorehouse
     },
@@ -184,11 +198,12 @@ export function createHud() {
       }
       const canAct = summary.canAct !== false
       get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}${summary.status ? ` · ${summary.status}` : ''}`
-      get('scout-info').textContent = `Scout · ${summary.movement}/${summary.maxMovement} movement`
+      const name = summary.unitName && summary.unitName[0]!.toUpperCase() + summary.unitName.slice(1)
+      get('scout-info').textContent = name ? `${name} · ${summary.movement}/${summary.maxMovement} movement` : 'No unit selected'
       get('exploration-info').textContent = `${summary.discovered}/${summary.total} tiles charted`
       get('select-scout').setAttribute('aria-pressed', String(summary.scoutSelected))
       get<HTMLButtonElement>('move-scout').disabled = !summary.canOrder
-      for (const button of Object.values(directions)) button.disabled = !summary.scoutSelected || !canAct
+      for (const button of Object.values(directions)) button.disabled = !summary.unitSelected || !canAct
       get<HTMLButtonElement>('end-turn').disabled = !canAct
       get('leave-expedition').hidden = !!summary.inMatch
       get('help-regenerate').hidden = !!summary.inMatch
