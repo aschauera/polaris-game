@@ -1,37 +1,117 @@
 import {
-  AbstractMesh, Camera, Color3, Color4, Engine, FreeCamera, HemisphericLight, Matrix,
-  Mesh, MeshBuilder, Scene, SceneInstrumentation, StandardMaterial, Vector3, Viewport,
+  Camera, Color3, Color4, Constants, DirectionalLight, Engine, FreeCamera, HemisphericLight, MaterialPluginBase, Matrix,
+  Mesh, MeshBuilder, RawTexture, RenderTargetTexture, Scene, SceneInstrumentation, ShaderLanguage, ShadowGenerator,
+  StandardMaterial, Texture, Vector3, VertexData, Viewport,
+  type Material, type MaterialDefines, type UniformBuffer,
 } from '@babylonjs/core'
-import { TERRAIN, type Terrain, type Tile, type WorldMap } from '../game/map'
+import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
+import {
+  PALETTE, VOXEL, affectedChunks, createVoxelWorld, meshChunk, pickTile, siteCode, tileSurface,
+  type Settlement, type VoxelWorld,
+} from './voxels'
 
-export const CHUNK_SIZE = 16
-const COLORS: Record<Terrain, string> = { grassland: '#609b83', water: '#387c9b', hills: '#bdab86' }
+export interface SettlementView extends Settlement {
+  readonly tileId: number
+}
 
-interface Batch { mesh: Mesh; ids: number[]; matrices: Float32Array; colors: Float32Array }
-interface TreeInstance { mesh: Mesh; index: number; matrix: Matrix; color: Color3 }
 export interface ExplorationView {
   readonly fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
   readonly scoutTileId: number
   readonly reachable: readonly number[]
-}
-
-function surfaceHeight(tile: Tile): number {
-  return TERRAIN[tile.terrain].height + (tile.terrain === 'water' ? 0 : (tile.elevation - 1) * 0.24)
+  /** Cities the viewer may see; tiles that are not charted never show one. */
+  readonly settlements?: readonly SettlementView[]
 }
 
 export interface RenderStats {
   meshes: number
   materials: number
   geometries: number
-  batches: number
-  instances: number
-  instanceBufferBytes: number
-  disposedBatches: number
+  chunks: number
+  voxelsPerTile: number
+  vertices: number
+  quads: number
+  vertexBufferBytes: number
+  disposedChunks: number
+  remeshedChunks: number
+  settlements: number
   drawCalls: number
   frameMs: number
   webGLVersion: number
   fogUpdates: number
+}
+
+interface Chunk { mesh: Mesh; quads: number; bytes: number }
+
+// Key light travel direction: lit from the upper left of the screen, shadows fall to the right.
+const SUN = new Vector3(-0.35, -1, 0.55).normalize()
+const SHADOW_MAP_SIZE = 1024
+
+/**
+ * Per-voxel grain, explored dimming and reachable highlight on top of baked vertex colours and ambient occlusion.
+ * Tile state lives in a tiny texture so fog-of-war shading changes never require remeshing.
+ */
+class VoxelMaterialPlugin extends MaterialPluginBase {
+  tileState?: RawTexture
+  voxelSize = 1
+  mapWidth = 1
+  mapHeight = 1
+  readonly fogColor = new Color3(PALETTE[VOXEL.fog * 3], PALETTE[VOXEL.fog * 3 + 1], PALETTE[VOXEL.fog * 3 + 2])
+
+  constructor(material: Material) {
+    super(material, 'PolarisVoxel', 200, { POLARIS_VOXEL: false }, true, true)
+  }
+
+  override getClassName(): string { return 'PolarisVoxelMaterialPlugin' }
+  override isCompatible(shaderLanguage: ShaderLanguage): boolean { return shaderLanguage === ShaderLanguage.GLSL }
+  override prepareDefines(defines: MaterialDefines): void { defines['POLARIS_VOXEL'] = true }
+  override getSamplers(samplers: string[]): void { samplers.push('polarisTileState') }
+  override isReadyForSubMesh(): boolean { return this.tileState?.isReady() ?? false }
+
+  override getUniforms() {
+    return {
+      ubo: [{ name: 'polarisVoxel', size: 4, type: 'vec4' }, { name: 'polarisFog', size: 3, type: 'vec3' }],
+      fragment: 'uniform vec4 polarisVoxel;\nuniform vec3 polarisFog;',
+    }
+  }
+
+  override bindForSubMesh(uniformBuffer: UniformBuffer): void {
+    uniformBuffer.updateFloat4('polarisVoxel', this.voxelSize, this.mapWidth, this.mapHeight, 0)
+    uniformBuffer.updateColor3('polarisFog', this.fogColor)
+    if (this.tileState) uniformBuffer.setTexture('polarisTileState', this.tileState)
+  }
+
+  override getCustomCode(shaderType: string): Record<string, string> | null {
+    if (shaderType === 'vertex') {
+      return {
+        CUSTOM_VERTEX_DEFINITIONS: 'varying float vPolarisFlag;',
+        // Vertex alpha is disabled for blending, so the fog flag travels in its own varying.
+        CUSTOM_VERTEX_MAIN_END: '#ifdef VERTEXCOLOR\nvPolarisFlag = color.a;\n#else\nvPolarisFlag = 1.0;\n#endif',
+      }
+    }
+    return {
+      CUSTOM_FRAGMENT_DEFINITIONS: 'varying float vPolarisFlag;\nuniform sampler2D polarisTileState;',
+      CUSTOM_FRAGMENT_UPDATE_DIFFUSE: `
+#ifdef POLARIS_VOXEL
+vec3 polarisInside = vPositionW - normalW * 0.5 * polarisVoxel.x;
+ivec3 polarisCell = ivec3(floor((polarisInside + vec3(0.5, 0.0, 0.5)) / polarisVoxel.x)) + 8192;
+uint polarisHash = uint(polarisCell.x) * 73856093u ^ uint(polarisCell.y) * 19349663u ^ uint(polarisCell.z) * 83492791u;
+polarisHash = (polarisHash ^ (polarisHash >> 13u)) * 1274126177u;
+baseColor.rgb *= 0.95 + 0.1 * float((polarisHash >> 8u) & 255u) / 255.0;
+vec2 polarisTile = clamp(floor(polarisInside.xz + 0.5), vec2(0.0), polarisVoxel.yz - 1.0);
+vec4 polarisState = texture2D(polarisTileState, (polarisTile + 0.5) / polarisVoxel.yz);
+baseColor.rgb *= mix(1.0, 0.4, polarisState.r);
+baseColor.rgb = mix(baseColor.rgb, vec3(0.7255, 0.8667, 0.6314), 0.35 * polarisState.g);
+#endif
+`,
+      // Uncharted fog is flat and unlit so no shading, shadow or occlusion can hint at hidden relief.
+      CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `
+#ifdef POLARIS_VOXEL
+if (vPolarisFlag < 0.5) color = vec4(polarisFog * (normalW.y > 0.5 ? 1.0 : 0.72), 1.0);
+#endif
+`,
+    }
+  }
 }
 
 export class WorldRenderer {
@@ -39,24 +119,28 @@ export class WorldRenderer {
   private readonly scene: Scene
   private readonly camera: FreeCamera
   private readonly instrumentation: SceneInstrumentation
-  private readonly materials = new Map<Terrain, StandardMaterial>()
-  private readonly treeMaterials: StandardMaterial[] = []
+  private readonly sun: DirectionalLight
+  private readonly shadows: ShadowGenerator
+  private readonly terrain: StandardMaterial
+  private readonly voxels: VoxelMaterialPlugin
   private readonly hover: Mesh
   private readonly selection: Mesh
-  private batches: Batch[] = []
-  private treeMeshes: Mesh[] = []
-  private readonly tileInstances = new Map<number, { batch: Batch; index: number }>()
-  private readonly treeInstances = new Map<number, TreeInstance[]>()
+  private chunks: Chunk[] = []
+  private world?: VoxelWorld
+  private known = new Uint8Array(0)
+  private heights = new Float32Array(0)
+  private tileStateData = new Uint8Array(0)
+  private tileState?: RawTexture
   private exploration?: ExplorationView
   private scout?: Mesh
   private fogUpdates = 0
-  private batchIds = new Map<AbstractMesh, number[]>()
   private map?: WorldMap
   private target = Vector3.Zero()
   private halfHeight = 20
   private maxHalfHeight = 100
-  private disposedBatches = 0
-  private bufferBytes = 0
+  private disposedChunks = 0
+  private remeshedChunks = 0
+  private shadowsStale = true
   private pointer?: { id: number; x: number; y: number; lastX: number; lastY: number; dragged: boolean }
   private readonly touches = new Map<number, { x: number; y: number }>()
   private pinchDistance?: number
@@ -76,32 +160,36 @@ export class WorldRenderer {
       throw new Error('Polaris requires WebGL 2; this renderer is unsupported.')
     }
     this.scene = new Scene(this.engine)
-    this.scene.clearColor = Color4.FromHexString('#122733ff')
+    this.scene.clearColor = Color4.FromHexString('#1d2329ff')
     this.scene.skipPointerMovePicking = true
     this.scene.skipPointerDownPicking = true
     this.scene.skipPointerUpPicking = true
-    const light = new HemisphericLight('atlas-light', new Vector3(-0.4, 1, -0.2), this.scene)
-    light.intensity = 1.05
-    light.groundColor = Color3.FromHexString('#37454d')
+    const sky = new HemisphericLight('sky-light', new Vector3(0.2, 1, -0.3), this.scene)
+    sky.intensity = 0.62
+    sky.diffuse = Color3.FromHexString('#e8f1ff')
+    sky.groundColor = Color3.FromHexString('#4a4f55')
+    this.sun = new DirectionalLight('sun-light', SUN.clone(), this.scene)
+    this.sun.intensity = 0.78
+    this.sun.diffuse = Color3.FromHexString('#fff4e0')
+    this.sun.autoCalcShadowZBounds = true
+    // PCF samples the depth texture; a single-channel colour target keeps the map at about 6 MiB.
+    this.shadows = new ShadowGenerator(SHADOW_MAP_SIZE, this.sun, false, undefined, true)
+    this.shadows.usePercentageCloserFiltering = true
+    this.shadows.filteringQuality = ShadowGenerator.QUALITY_MEDIUM
+    this.shadows.bias = 0.0015
+    this.shadows.normalBias = 0.01
+    this.shadows.darkness = 0.15
+    // Terrain only changes on regeneration or exploration, so the shadow map is redrawn on demand.
+    this.shadows.getShadowMap()!.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE
     this.camera = new FreeCamera('isometric', Vector3.Zero(), this.scene)
     this.camera.mode = Camera.ORTHOGRAPHIC_CAMERA
     this.camera.minZ = 0.1
     this.camera.maxZ = 2000
     // Babylon camera inputs are deliberately not attached; only canvas listeners below can move it.
-    for (const terrain of Object.keys(TERRAIN) as Terrain[]) {
-      const material = new StandardMaterial(terrain, this.scene)
-      material.diffuseColor = Color3.White()
-      material.specularColor = Color3.Black()
-      material.freeze()
-      this.materials.set(terrain, material)
-    }
-    for (let index = 0; index < 2; index++) {
-      const material = new StandardMaterial(`tree-${this.treeMaterials.length}`, this.scene)
-      material.diffuseColor = Color3.White()
-      material.specularColor = Color3.Black()
-      material.freeze()
-      this.treeMaterials.push(material)
-    }
+    this.terrain = new StandardMaterial('voxel-terrain', this.scene)
+    this.terrain.diffuseColor = Color3.White()
+    this.terrain.specularColor = Color3.Black()
+    this.voxels = new VoxelMaterialPlugin(this.terrain)
     this.hover = this.makeMarker('hover', '#c5e6df')
     this.selection = this.makeMarker('selection', '#f0c873')
     this.instrumentation = new SceneInstrumentation(this.scene)
@@ -135,7 +223,14 @@ export class WorldRenderer {
       this.engine.stopRenderLoop()
       onError('Rendering context lost. Reload the page to restore the atlas.')
     })
-    this.engine.runRenderLoop(() => this.scene.render())
+    this.engine.runRenderLoop(() => {
+      // Casters whose shaders are still compiling would be missing from a one-shot shadow map.
+      if (this.shadowsStale && this.scene.isReady()) {
+        this.shadowsStale = false
+        this.shadows.getShadowMap()!.resetRefreshCounter()
+      }
+      this.scene.render()
+    })
   }
 
   private listen(name: string, listener: EventListener, options?: AddEventListenerOptions): void {
@@ -151,145 +246,106 @@ export class WorldRenderer {
     material.wireframe = true
     mesh.material = material
     mesh.isPickable = false
+    // Markers stay legible over hill relief and voxel canopies.
+    mesh.renderingGroupId = 1
     mesh.setEnabled(false)
     return mesh
   }
 
   setMap(map: WorldMap): void {
     this.exploration = undefined
-    this.scout?.dispose(false, true)
-    this.scout = undefined
+    this.removeScout()
     this.pointer = undefined
     this.touches.clear()
     this.pinched = false
     this.pinchDistance = undefined
     this.showHover()
     this.showSelection()
-    for (const batch of this.batches) {
-      batch.mesh.dispose()
-      if (batch.mesh.isDisposed()) this.disposedBatches++
+    for (const chunk of this.chunks) {
+      this.shadows.removeShadowCaster(chunk.mesh, false)
+      chunk.mesh.dispose()
+      if (chunk.mesh.isDisposed()) this.disposedChunks++
     }
-    for (const mesh of this.treeMeshes) mesh.dispose()
-    this.batches = []
-    this.treeMeshes = []
-    this.batchIds.clear()
-    this.tileInstances.clear()
-    this.treeInstances.clear()
-    this.bufferBytes = 0
+    this.chunks = []
+    this.tileState?.dispose()
     this.map = map
-    for (let cz = 0; cz < map.height; cz += CHUNK_SIZE) {
-      for (let cx = 0; cx < map.width; cx += CHUNK_SIZE) {
-        const groups = new Map<Terrain, Tile[]>()
-        for (let z = cz; z < Math.min(cz + CHUNK_SIZE, map.height); z++) {
-          for (let x = cx; x < Math.min(cx + CHUNK_SIZE, map.width); x++) {
-            const tile = map.tiles[z * map.width + x]!
-            const group = groups.get(tile.terrain) ?? []
-            group.push(tile)
-            groups.set(tile.terrain, group)
-          }
-        }
-        for (const [terrain, tiles] of groups) {
-          const name = `chunk-${cx}-${cz}-${terrain}`
-          // Thin-instance matrix attributes belong to the geometry: share within a batch, not across batches.
-          const mesh = MeshBuilder.CreateBox(name, { size: 1 }, this.scene)
-          mesh.material = this.materials.get(terrain)!
-          const matrices = new Float32Array(tiles.length * 16)
-          const colors = new Float32Array(tiles.length * 4)
-          for (const [index, tile] of tiles.entries()) {
-            const height = surfaceHeight(tile)
-            Matrix.Scaling(0.96, height, 0.96).multiply(Matrix.Translation(tile.x, height / 2, tile.z))
-              .copyToArray(matrices, index * 16)
-            const color = Color3.FromHexString(COLORS[terrain])
-            colors.set([color.r, color.g, color.b, 1], index * 4)
-          }
-          mesh.thinInstanceSetBuffer('matrix', matrices, 16, false)
-          mesh.thinInstanceSetBuffer('color', colors, 4, false)
-          mesh.thinInstanceEnablePicking = true
-          mesh.freezeWorldMatrix()
-          const ids = tiles.map(tile => tile.id)
-          this.batchIds.set(mesh, ids)
-          const batch = { mesh, ids, matrices, colors }
-          this.batches.push(batch)
-          ids.forEach((id, index) => this.tileInstances.set(id, { batch, index }))
-          this.bufferBytes += matrices.byteLength
-        }
-      }
-    }
-    this.addTrees(map)
+    const world = createVoxelWorld(map)
+    this.world = world
+    this.known = new Uint8Array(map.tiles.length).fill(1)
+    this.heights = Float32Array.from(map.tiles, tile => tileSurface(world, tile, true) * world.size)
+    this.tileStateData = new Uint8Array(map.tiles.length * 4)
+    this.tileState = new RawTexture(this.tileStateData, map.width, map.height, Constants.TEXTUREFORMAT_RGBA, this.scene,
+      false, false, Texture.NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_UNSIGNED_BYTE)
+    this.tileState.name = 'voxel-tile-state'
+    this.tileState.wrapU = Texture.CLAMP_ADDRESSMODE
+    this.tileState.wrapV = Texture.CLAMP_ADDRESSMODE
+    Object.assign(this.voxels, { tileState: this.tileState, voxelSize: world.size, mapWidth: map.width, mapHeight: map.height })
+    for (let index = 0; index < world.chunksX * world.chunksZ; index++) this.buildChunk(index)
+    const centre = new Vector3((map.width - 1) / 2, 0, (map.height - 1) / 2)
+    this.sun.position = centre.subtract(SUN.scale(Math.max(map.width, map.height) * 2))
+    this.shadowsStale = true
     this.reset()
   }
 
-  private addTrees(map: WorldMap): void {
-    const trees = map.tiles.flatMap(tile => {
-      if (!tile.trees) return []
-      const offsets: [number, number][] = tile.trees === 1 ? [[0, 0]]
-        : tile.trees === 2 ? [[-0.2, 0], [0.2, 0]]
-          : [[-0.2, -0.15], [0.2, -0.15], [0, 0.2]]
-      return offsets.map(([x, z]) => ({ tile, x: tile.x + x, z: tile.z + z }))
-    })
-    const definitions = [
-      { name: 'tree-trunks', height: 0.38, width: 0.13, offset: 0.19, material: this.treeMaterials[0]! },
-      { name: 'tree-canopies', height: 0.82, width: 0.78, offset: 0.59, material: this.treeMaterials[1]! },
-    ]
-    for (const definition of definitions) {
-      const mesh = MeshBuilder.CreateCylinder(definition.name, {
-        height: definition.height, diameterTop: 0.04, diameterBottom: definition.width, tessellation: 5,
-      }, this.scene)
-      mesh.material = definition.material
+  private buildChunk(index: number): void {
+    const data = meshChunk(this.world!, this.known, index)
+    let chunk = this.chunks[index]
+    if (!chunk) {
+      const mesh = new Mesh(`voxel-chunk-${index}`, this.scene)
+      mesh.material = this.terrain
       mesh.isPickable = false
-      const matrices = new Float32Array(trees.length * 16)
-      const colors = new Float32Array(trees.length * 4)
-      const color = Color3.FromHexString(definition.name === 'tree-trunks' ? '#725943' : '#315d53')
-      for (const [index, tree] of trees.entries()) {
-        const height = surfaceHeight(tree.tile) + definition.offset
-        const matrix = Matrix.Translation(tree.x, height, tree.z)
-        matrix.copyToArray(matrices, index * 16)
-        colors.set([color.r, color.g, color.b, 1], index * 4)
-        const instances = this.treeInstances.get(tree.tile.id) ?? []
-        instances.push({ mesh, index, matrix, color })
-        this.treeInstances.set(tree.tile.id, instances)
-      }
-      mesh.thinInstanceSetBuffer('matrix', matrices, 16, false)
-      mesh.thinInstanceSetBuffer('color', colors, 4, false)
-      mesh.setEnabled(trees.length > 0)
-      mesh.freezeWorldMatrix()
-      this.treeMeshes.push(mesh)
+      mesh.receiveShadows = true
+      this.shadows.addShadowCaster(mesh, false)
+      chunk = { mesh, quads: 0, bytes: 0 }
+      this.chunks[index] = chunk
     }
+    const vertexData = new VertexData()
+    vertexData.positions = data.positions
+    vertexData.normals = data.normals
+    vertexData.colors = data.colors
+    vertexData.indices = data.indices
+    vertexData.applyToMesh(chunk.mesh, false)
+    // Colour alpha only flags fog for the shader; chunks stay in the opaque pass.
+    chunk.mesh.hasVertexAlpha = false
+    chunk.mesh.freezeWorldMatrix()
+    chunk.quads = data.quads
+    chunk.bytes = data.positions.byteLength + data.normals.byteLength + data.colors.byteLength + data.indices.byteLength
   }
 
   setExploration(view?: ExplorationView, dirtyTiles?: readonly number[]): void {
-    if (!this.map) return
+    const { map, world, tileState } = this
+    if (!map || !world || !tileState) return
     const previous = this.exploration
     this.exploration = view
     const ids = dirtyTiles && previous && view
       ? new Set([...dirtyTiles, ...previous.reachable, ...view.reachable])
-      : new Set(this.map.tiles.map(tile => tile.id))
+      : new Set(map.tiles.map(tile => tile.id))
     const reachable = new Set(view?.reachable)
-    const changed = new Set<Mesh>()
+    const charted: number[] = []
     for (const id of ids) {
-      const tile = this.map.tiles[id]!
-      const { batch, index } = this.tileInstances.get(id)!
       const visibility = view ? view.fog[id] ?? 'unseen' : 'visible'
-      const height = visibility === 'unseen' ? 0.65 : surfaceHeight(tile)
-      const matrix = Matrix.Scaling(0.96, height, 0.96).multiply(Matrix.Translation(tile.x, height / 2, tile.z))
-      // Update Babylon's CPU picking cache as well as the affected GPU buffer slice.
-      batch.mesh.thinInstanceSetMatrixAt(index, matrix, false)
-      batch.mesh.thinInstancePartialBufferUpdate('matrix', batch.matrices.subarray(index * 16, index * 16 + 16), index * 16)
-      let color = visibility === 'unseen' ? Color3.FromHexString('#263b4a') : Color3.FromHexString(COLORS[tile.terrain])
-      if (visibility === 'explored') color = color.scale(0.4)
-      if (reachable.has(id)) color = Color3.Lerp(color, Color3.FromHexString('#b9dda1'), 0.35)
-      batch.colors.set([color.r, color.g, color.b, 1], index * 4)
-      batch.mesh.thinInstancePartialBufferUpdate('color', batch.colors.subarray(index * 4, index * 4 + 4), index * 4)
-      changed.add(batch.mesh)
-      for (const tree of this.treeInstances.get(id) ?? []) {
-        const transform = visibility === 'unseen' ? Matrix.Scaling(0, 0, 0) : tree.matrix
-        tree.mesh.thinInstanceSetMatrixAt(tree.index, transform, false)
-        tree.mesh.thinInstancePartialBufferUpdate('matrix', Float32Array.from(transform.asArray()), tree.index * 16)
-        const tint = tree.color.scale(visibility === 'explored' ? 0.4 : 1)
-        tree.mesh.thinInstancePartialBufferUpdate('color', new Float32Array([tint.r, tint.g, tint.b, 1]), tree.index * 4)
+      const known = visibility === 'unseen' ? 0 : 1
+      if (this.known[id] !== known) {
+        this.known[id] = known
+        this.heights[id] = tileSurface(world, map.tiles[id]!, known === 1) * world.size
+        charted.push(id)
       }
+      this.tileStateData[id * 4] = visibility === 'explored' ? 255 : 0
+      this.tileStateData[id * 4 + 1] = reachable.has(id) ? 255 : 0
     }
-    for (const mesh of changed) mesh.thinInstanceRefreshBoundingInfo()
+    tileState.update(this.tileStateData)
+    const sites = new Map<number, number>()
+    for (const settlement of view?.settlements ?? []) sites.set(settlement.tileId, siteCode(settlement))
+    const settled: number[] = []
+    for (let id = 0; id < world.sites.length; id++) {
+      const code = sites.get(id) ?? 0
+      if (world.sites[id] === code) continue
+      world.sites[id] = code
+      settled.push(id)
+    }
+    const remesh = affectedChunks(world, [...charted, ...settled])
+    for (const chunk of remesh) this.buildChunk(chunk)
+    this.remeshedChunks += remesh.size
     this.fogUpdates += ids.size
     if (view) {
       if (!this.scout) {
@@ -299,17 +355,23 @@ export class WorldRenderer {
         material.emissiveColor = Color3.FromHexString('#856124')
         this.scout.material = material
         this.scout.isPickable = false
-        // The own-unit indicator must remain legible above decorative trees.
+        // The own-unit indicator must remain legible above voxel canopies.
         this.scout.renderingGroupId = 1
+        this.shadows.addShadowCaster(this.scout, false)
       }
-      const tile = this.map.tiles[view.scoutTileId]!
-      this.scout.position.set(tile.x, surfaceHeight(tile) + 0.45, tile.z)
-    } else {
-      this.scout?.dispose(false, true)
-      this.scout = undefined
-    }
+      const tile = map.tiles[view.scoutTileId]!
+      this.scout.position.set(tile.x, this.heights[tile.id]! + 0.45, tile.z)
+    } else this.removeScout()
+    this.shadowsStale = true
     this.showHover()
     if (!previous || !view) this.showSelection()
+  }
+
+  private removeScout(): void {
+    if (!this.scout) return
+    this.shadows.removeShadowCaster(this.scout, false)
+    this.scout.dispose(false, true)
+    this.scout = undefined
   }
 
   selectTile(id: number): void {
@@ -445,18 +507,19 @@ export class WorldRenderer {
   }
 
   private pick(clientX: number, clientY: number): Tile | undefined {
+    if (!this.map || !this.world) return
     const rect = this.canvas.getBoundingClientRect()
     const x = (clientX - rect.left) * this.engine.getRenderWidth() / rect.width
     const y = (clientY - rect.top) * this.engine.getRenderHeight() / rect.height
-    const result = this.scene.pick(x, y, mesh => this.batchIds.has(mesh), false, this.camera)
-    if (!result?.hit || !result.pickedMesh || result.thinInstanceIndex < 0) return
-    const id = this.batchIds.get(result.pickedMesh)?.[result.thinInstanceIndex]
-    return id === undefined || (this.exploration && !this.exploration.fog[id]) ? undefined : this.map?.tiles[id]
+    const ray = this.scene.createPickingRay(x, y, Matrix.Identity(), this.camera, false)
+    const id = pickTile(this.world, this.heights, [ray.origin.x, ray.origin.y, ray.origin.z],
+      [ray.direction.x, ray.direction.y, ray.direction.z])
+    return id === undefined || (this.exploration && !this.exploration.fog[id]) ? undefined : this.map.tiles[id]
   }
 
   private placeMarker(marker: Mesh, tile?: Tile): void {
     marker.setEnabled(!!tile)
-    if (tile) marker.position.set(tile.x, surfaceHeight(tile) + 0.035, tile.z)
+    if (tile) marker.position.set(tile.x, this.heights[tile.id]! + 0.035, tile.z)
   }
 
   private showHover(tile?: Tile): void { this.placeMarker(this.hover, tile); this.onHover(tile) }
@@ -465,8 +528,12 @@ export class WorldRenderer {
   stats(): RenderStats {
     return {
       meshes: this.scene.meshes.length, materials: this.scene.materials.length, geometries: this.scene.geometries.length,
-      batches: this.batches.length, instances: this.map?.tiles.length ?? 0,
-      instanceBufferBytes: this.bufferBytes, disposedBatches: this.disposedBatches,
+      chunks: this.chunks.length, voxelsPerTile: this.world?.scale ?? 0,
+      vertices: this.chunks.reduce((sum, chunk) => sum + chunk.mesh.getTotalVertices(), 0),
+      quads: this.chunks.reduce((sum, chunk) => sum + chunk.quads, 0),
+      vertexBufferBytes: this.chunks.reduce((sum, chunk) => sum + chunk.bytes, 0),
+      disposedChunks: this.disposedChunks, remeshedChunks: this.remeshedChunks,
+      settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code ? 1 : 0), 0) : 0,
       drawCalls: this.engine._drawCalls.current,
       frameMs: this.instrumentation.frameTimeCounter.current, webGLVersion: this.engine.webGLVersion,
       fogUpdates: this.fogUpdates,
@@ -477,8 +544,7 @@ export class WorldRenderer {
   projectTile(id: number): { x: number; y: number } | undefined {
     const tile = this.map?.tiles[id]
     if (!tile) return
-    const height = this.exploration && !this.exploration.fog[id] ? 0.65 : surfaceHeight(tile)
-    const projected = Vector3.Project(new Vector3(tile.x, height, tile.z),
+    const projected = Vector3.Project(new Vector3(tile.x, this.heights[id]!, tile.z),
       Matrix.Identity(), this.scene.getTransformMatrix(),
       new Viewport(0, 0, this.engine.getRenderWidth(), this.engine.getRenderHeight()))
     const rect = this.canvas.getBoundingClientRect()
@@ -499,12 +565,8 @@ export class WorldRenderer {
     this.instrumentation.dispose()
     this.scene.dispose()
     this.engine.dispose()
-    this.batches = []
-    this.batchIds.clear()
-    this.materials.clear()
-    this.treeMaterials.length = 0
-    this.treeMeshes = []
-    this.tileInstances.clear()
-    this.treeInstances.clear()
+    this.chunks = []
+    this.tileState = undefined
+    this.world = undefined
   }
 }

@@ -103,6 +103,7 @@ test('founds a city, inspects its economy and completes queued production', asyn
   await expect(page.locator('#city-info')).toContainText(/\+\d+\/turn\) · \d+ claimed tiles/)
   expect((await snapshot(page))!.cities).toHaveLength(1)
   expect((await snapshot(page))!.founders).toHaveLength(0)
+  expect((await page.evaluate(() => window.polarisDiagnostics!.stats())).settlements).toBe(1)
 
   await page.getByLabel('Production', { exact: true }).selectOption('guard')
   await page.getByRole('button', { name: 'Queue production' }).click()
