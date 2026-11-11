@@ -1,28 +1,58 @@
 # Polaris: implementation roadmap
 
-**Canonical delivery plan, updated 11 November 2026:** this document owns the full target packages, dependencies, acceptance and test strategy. [Game design](game-design.md#target-status-and-baseline) owns complete rules, lore, catalogs and decision status; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical version/save contracts. All intended PRs #20 → #21 → #22 → #24 → #29 → #31 form the baseline, not a claim of completed remote integration.
+**Canonical delivery plan, updated 11 November 2026:** this document owns the full target packages, dependencies, acceptance and test strategy. [Game design](game-design.md#target-status-and-baseline) owns complete rules, lore, catalogs and decision status; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical version/save contracts. Foundation PRs #20 → #21 → #22 → #24 → #29 → #31 and design #33/#34 are integrated into main at `f3f07d4`; their prerequisite issues are closed. The target gameplay remains planned.
 
 **New delivery order:** existing hex/city/messenger/graphics foundation → complete two-human match with three common classes, three beacons, city capture and end conditions → six-resource/worker/city economy with the chosen small common research tree → first four-tribe slice with one characteristic ability each → six mixed plus four mirror pairings with swapped starts → further documented tribal catalogs. Diplomacy, policies and AI are optional later. Research is not required before the isolated first combat/victory slice, but its unlocks govern the complete economy. This supersedes the historical future sequencing below, not implemented regression contracts or real GitHub blockers.
 
 Confirmed directions and numeric caveats are recorded once in the [design decision register](game-design.md#target-decision-register). Acceptance below exercises those rules; it does not turn provisional values into measured balance.
 
-The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented in the cumulative development baseline; briefs 8–14 have existing follow-up issues #9–#15 that require later reconciliation with the new plan. The board is a **hex grid** with rules and generator version 4; the renderer draws hex fields from cubic voxels in 66×66-column chunks (`src/rendering/voxels.ts`), with territory borders, city name plates and voxel unit figures. No new gameplay is implemented by this planning update.
+The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented on main. Legacy follow-ups #9–#15 have been reconciled with the package map below under maintenance #35; creating or rescoping them does not implement their gameplay. The board is a **hex grid** with rules and generator version 4; the renderer draws hex fields from cubic voxels in 66×66-column chunks (`src/rendering/voxels.ts`), with territory borders, city name plates and voxel unit figures.
 
-Sizes are rough focused-development estimates: **S** 1–2 days, **M** 3–5 days, **L** 6–10 days. Split an L brief before execution if acceptance cannot be reviewed together. Dependencies refer to brief numbers; on GitHub the same order is recorded as *blocked by* relationships between the issues, which every agent checks before starting work ([working order](../.github/copilot-instructions.md#working-order-issues-blocked-by-and-stacked-prs)). Work outside the numbered briefs gets its own issue in that chain: play by messenger #25, the voxel diorama #26, the hex voxel world #27 and the aligned agent guidance #28 follow #8 in this order, and #9 and #10 are blocked by #28.
+Sizes in historical briefs are rough focused-development estimates: **S** 1–2 days, **M** 3–5 days, **L** 6–10 days. Re-estimate and split packages into narrow issues before execution when needed. Use the current package map and live *blocked by* issue relationships, not the obsolete brief-number sequence ([working order](../.github/copilot-instructions.md#working-order-issues-blocked-by-and-stacked-prs)). The completed foundation chain was #8 → #25 → #26 → #27 → #28 → #30.
 
 ## Detailed target delivery plan
 
-Planning only; this documentation revision implements no gameplay. Its publication concerns existing issue #32 and PR #33, not authorization for new implementation issues, merging, release or deployment.
+Packages below remain planned. Issue #32 was delivered by #33/#34 and is closed. The separately authorized maintenance #35 fixes save reliability and reconciles the GitHub backlog; it implements no target gameplay and authorizes no merge, release or deployment.
 
 ### Baseline and working order
 
-Use the cumulative `klaus/graphics-polish` commit `834ffc491fa4932e3c719191db837b3fea639445`: cities, messenger, hex rules/generator v4 and graphics polish. Historical main `6aa2dbe8d45ccea58def5054ff32a55295a22b04` lacks those contracts; planning from it would discard intended groundwork. The documentation branch was advanced to the cumulative commit, not a remote merge/retarget. Review the documentation delta against that parent rather than counting its inherited 57 changed files as new work.
+Use integrated main from `f3f07d4` and then-current compatible maintenance: cities, messenger, hex rules/generator v4, graphics polish and canonical design. Historical main `6aa2dbe8d45ccea58def5054ff32a55295a22b04` lacks those contracts. The original documentation was prepared against cumulative graphics commit `834ffc491fa4932e3c719191db837b3fea639445`; #33/#34 subsequently integrated it. Do not discard inherited foundation work when reviewing a later narrow change.
 
-Before any package, reread current code/blockers, fix its test rules and acceptance cases, choose a narrow reviewable increment and appropriate versions, and synchronize affected docs/guidance. Do not reopen confirmed decisions or implement blocked predecessors incidentally. Estimates follow source inspection; package IDs below are planning labels, not GitHub issues or promised dates.
+Before any package, reread current code/blockers, fix its test rules and acceptance cases, choose a narrow reviewable increment and appropriate versions, and synchronize affected docs/guidance. Do not reopen confirmed decisions or implement blocked predecessors incidentally. Estimates follow source inspection; package IDs are planning labels mapped to GitHub issues below, not promised dates.
 
 ### Existing dependencies and legacy issues
 
-These are the issue relationships read on the documentation date, not dependencies guessed from PR numbers:
+**Current integration:** #20, #21, #22, #24, #29, #31, #33 and #34 are merged. Foundation issues #8 and #25–#30 and documentation issue #32 are closed. Save reliability #35 is the additional gate before new P2 gameplay.
+
+The following GitHub relationships were configured and read back during maintenance #35. Check live state again before starting:
+
+| Package | Issue | Blocked by |
+| --- | --- | --- |
+| Save reliability | [#35](https://github.com/aschauera/polaris-game/issues/35) | #30 (closed) |
+| P2 scenario/player scaffold | [#36](https://github.com/aschauera/polaris-game/issues/36) | #30, #32 (closed), #35 |
+| P3 visibility-safe combat | [#10](https://github.com/aschauera/polaris-game/issues/10) | #36 |
+| P4 city capture/occupation | [#37](https://github.com/aschauera/polaris-game/issues/37) | #10 |
+| P5 beacons/results | [#15](https://github.com/aschauera/polaris-game/issues/15) | #37 |
+| P6 complete two-human match | [#38](https://github.com/aschauera/polaris-game/issues/38) | #15 |
+| P7 resources/worker jobs | [#9](https://github.com/aschauera/polaris-game/issues/9) | #38 |
+| F1 small common research | [#11](https://github.com/aschauera/polaris-game/issues/11) | #9 |
+| P8 workforce/territory/construction | [#39](https://github.com/aschauera/polaris-game/issues/39) | #9, #11 |
+| P9 food/hunger/army obligation | [#40](https://github.com/aschauera/polaris-game/issues/40) | #39 |
+| P10 food deliveries | [#41](https://github.com/aschauera/polaris-game/issues/41) | #40, #11 |
+| P11 tribal data/buildings | [#42](https://github.com/aschauera/polaris-game/issues/42) | #40, #11 |
+| P12 initial tribal abilities | [#43](https://github.com/aschauera/polaris-game/issues/43) | #42 |
+| P13 pairings/playtests | [#44](https://github.com/aschauera/polaris-game/issues/44) | #43; also #41 if deliveries are included |
+| F2 optional policies | [#45](https://github.com/aschauera/polaris-game/issues/45) | #40, #11 |
+| F3 peace/beacon decision | [#46](https://github.com/aschauera/polaris-game/issues/46) | #38 |
+| F3 optional diplomacy | [#13](https://github.com/aschauera/polaris-game/issues/13) | #38, #46 |
+| F4 optional AI | [#14](https://github.com/aschauera/polaris-game/issues/14) | #44; F1 too if its mode uses research |
+
+Before P13 starts, record whether deliveries are included and add #41 as an actual blocker when they are. #12 is closed as superseded, **not implemented**: its remaining information-safe combat acceptance belongs to P3/#10. The research part of old #11 is F1; policies are separately tracked in #45. Old #14's faction content belongs to #42/#43; #14 now tracks later AI. No mandatory AI/diplomacy edge remains before core victory.
+
+<details>
+<summary>Historical pre-integration snapshot from the original documentation</summary>
+
+These were the issue relationships before the foundation merged, not current open blockers:
 
 | Issue | Recorded blocker | Associated PR | Meaning at that snapshot |
 | --- | --- | --- | --- |
@@ -33,21 +63,9 @@ These are the issue relationships read on the documentation date, not dependenci
 | [#28](https://github.com/aschauera/polaris-game/issues/28), guidance | #27, open | [#29](https://github.com/aschauera/polaris-game/pull/29) | Shared contracts/docs |
 | [#30](https://github.com/aschauera/polaris-game/issues/30), graphics polish | #28, open | [#31](https://github.com/aschauera/polaris-game/pull/31), draft at snapshot | Rules/generator v4, direct orders, visual occurrences |
 
-Intended integration: **#20 → #21 → #22 → #24 → #29 → #31 → #33**. Some live PR bases are main, others predecessor branches; this table changes none and grants no merge approval. PR #33 targets `klaus/graphics-polish` while its parent remains open, avoiding duplicate gameplay diffs. After each predecessor merges, explicitly check base, CI and issue closure; do not assume automatic retargeting. Issue #32 carries integration blocker #30, not authorization to implement its blocked gameplay.
+The intended integration was **#20 → #21 → #22 → #24 → #29 → #31 → #33**. PR #33 targeted `klaus/graphics-polish`; #34 brought the completed design to main. Its original `Closes #32` did not close the issue on the stacked base, so maintenance explicitly verified delivery and closed #32. Continue checking base, CI and issue closure after future stacked merges rather than assuming automatic retargeting.
 
-Legacy issues #9–#15 require separately authorized reconciliation:
-
-| Legacy issue | Still-needed outcome | Required reinterpretation |
-| --- | --- | --- |
-| #9 workers/roads | Improvements/connections | Six resources, workforce, hex distance; road movement discount is not automatic |
-| #10 combat | Domain combat | Three classes, sight, counters/zones and separate siege packages, not just adjacent attack |
-| #11 research/policies/unrest | Later depth | Small research separate from unrest, not a prerequisite for first PvP victory |
-| #12 fog | Information-safe actions | Separate public objectives from private unit/economy sight |
-| #13 diplomacy | Optional treaties | War from start; no old declaration gate |
-| #14 factions/AI | Four target tribes, later AI | Meridian/Lantern future bonuses and mandatory AI are superseded |
-| #15 full match | Victory/defeat/draw | Deliver before full research, politics, diplomacy and AI |
-
-Those issues were not changed/closed by documenting the plan. Their replacement dependency relationships are not claimed to be configured already.
+</details>
 
 ### Milestones and deliberate limits
 
@@ -67,13 +85,13 @@ M2 may retain the existing generic-material economy. It is not yet a complete wo
 
 **Prerequisites:** none. **Outcome:** canonical design and this plan; M0.
 
-Acceptance: complete four tribes/common rules; historical main separated from development; coherent provisional numeric rules; confirmed choices not marked open. README and guidance point to the existing English canonical documents. This PR publishes only documentation.
+Acceptance: complete four tribes/common rules; historical main separated from the integrated foundation; coherent provisional numeric rules; confirmed choices not marked open. README and guidance point to the existing English canonical documents. Delivered by #33/#34; no target gameplay was implemented by that documentation.
 
 ### P1 — Have the existing foundation integrated
 
 **Prerequisites:** P0 and the real six-PR chain. On main, prerequisite issues must actually be closed; alternatively use an expressly approved stacked basis.
 
-The local cumulative foundation is already present for documentation. Main integration is an organizational gate, not a request to merge here. Intended approval is not reported as an accomplished remote merge. Before new gameplay, reread then-current hex/city/messenger/storage/render contracts and run the existing checks.
+The foundation is integrated on main at `f3f07d4`, with the prerequisite issues closed. Before new gameplay, include save reliability #35, reread then-current hex/city/messenger/storage/render contracts and run the existing checks. This completed gate is not permission to merge future work without review.
 
 Acceptance: selected basis has those contracts; two devices exchange valid current turns; incompatible saves survive; no square-grid assumptions in new packages. Resolve conflicts with any later predecessor changes.
 
@@ -280,7 +298,7 @@ For each rules milestone, retain an old readable package and test explicit rejec
 
 Domain tests first: focused new-rule cases, unchanged state on rejection, stable ordering. Scenario/replay tests integrate systems; Playwright verifies actual controls/information/turn handoff. Swapped manual matches provide balance feedback, never replace deterministic boundary tests.
 
-Existing implementation gates: `npm run typecheck`, `npm run lint`, `npm run test:unit`, `npm run test:e2e`. Start with the narrowest meaningful tests, then required repository gates. This docs-only correction changes no scripts and claims no new gameplay test run.
+Existing implementation gates: `npm run typecheck`, `npm run lint`, `npm run test:unit`, `npm run test:e2e`. Start with the narrowest meaningful tests, then required repository gates. Save maintenance #35 adds storage-failure and exact history-boundary regressions, not target-gameplay evidence; setup and release scripts are unchanged.
 
 | Area | Critical regressions |
 | --- | --- |
@@ -327,7 +345,7 @@ Parent issue #5 has child issues #7–#15 for briefs 6–14 below. These tables 
 
 **Outside the numbered briefs: play by messenger (implemented; issue #25).** A serverless two-player mode ([ADR-005](architecture.md#adr-005-serverless-play-by-messenger)) lets two people alternate turns by exchanging links, codes or files. It replays the deterministic command log, so every later rules change must stay deterministic and bump `RULES_VERSION`. Potential reliability follow-ups: delta packages once logs get long; verify exchange on real iOS/Android and assess cross-device generator arithmetic. A relay or WebRTC is not part of this target and requires a separate architectural decision. (Drawing cities, founders and opponent units is done with the hex voxel world.)
 
-**Outside the numbered briefs: hex voxel world (implemented; issues #26 and #27).** Hex fields built from cubic voxels after the approved concept, with territory borders, city name plates and voxel unit figures ([ADR-004](architecture.md#adr-004-map-and-rendering)). Issue #30 / stacked draft #31 adds reference colours, four underwater terraces, sandbanks, coastal rocks, smaller trees, resources and sharp hex frames; integration remains blocked by #28. Generator v4 adds organic bays and low highlands with broad grey deposits. Zoom restores up to 16 voxels per hex in bounded windows through the hard 256² map maximum. Sparse, throttled water glints respect reduced motion. At the maintainer's explicit request, rules v4 and direct selection extend movement to all existing unit types and add availability glows and city-production selection. Readable older-rule/generator saves are retained without migration. This does not complete worker improvements/roads (brief 8), combat (brief 9) or harvesting. Rivers, bridges, further resources, palms, fields and harbours also remain deferred.
+**Outside the numbered briefs: hex voxel world (implemented; issues #26 and #27).** Hex fields built from cubic voxels after the approved concept, with territory borders, city name plates and voxel unit figures ([ADR-004](architecture.md#adr-004-map-and-rendering)). Issue #30 / merged #31 adds reference colours, four underwater terraces, sandbanks, coastal rocks, smaller trees, resources and sharp hex frames; the prerequisite #28 and integration are complete. Generator v4 adds organic bays and low highlands with broad grey deposits. Zoom restores up to 16 voxels per hex in bounded windows through the hard 256² map maximum. Sparse, throttled water glints respect reduced motion. At the maintainer's explicit request, rules v4 and direct selection extend movement to all existing unit types and add availability glows and city-production selection. Readable older-rule/generator saves are retained without migration. This does not complete worker improvements/roads (brief 8), combat (brief 9) or harvesting. Rivers, bridges, further resources, palms, fields and harbours also remain deferred.
 
 ## Historical briefs: reliability and later depth
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { applyCommand, movementRange, type Expedition, type ProductionItemId } from './expedition'
 import { GENERATOR_VERSION } from './map'
 import {
-  compactCommand, createMatch, exportMatch, mapHash, MATCH_FORMAT, MATCH_LIMITS, matchIdOf, matchProgress, openMatch,
+  applyMatchCommand, compactCommand, createMatch, exportMatch, mapHash, MATCH_FORMAT, MATCH_LIMITS, matchIdOf, matchProgress, openMatch,
   receiveTurn, stateHash, type LocalMatch, type MatchPackage,
 } from './match'
 
@@ -162,6 +162,41 @@ describe('exporting and opening a match', () => {
       expect(opened.state.commands).toHaveLength(state.commands.length)
     }
   })
+
+  it('reserves the final history slot for End turn and stops before creating an unreplayable match', () => {
+    let state = createMatch({ ...WORLD, width: 16, height: 16 })
+    for (let index = 0; index < MATCH_LIMITS.commands - 2; index++) {
+      const result = applyMatchCommand(state, { type: 'end-turn', factionId: state.activeFaction,
+        sequence: state.commands.length + 1 })
+      if (!result.ok) throw new Error(result.reason)
+      state = result.state
+    }
+    const scout = state.scouts.find(unit => unit.factionId === state.activeFaction)!
+    const to = [...movementRange(state, scout.id).keys()].find(id => id !== scout.tileId)!
+    const moved = applyMatchCommand(state, { type: 'move', unitId: scout.id, to,
+      factionId: state.activeFaction, sequence: state.commands.length + 1 })
+    if (!moved.ok) throw new Error(moved.reason)
+    state = moved.state
+    const found = { type: 'found-city', founderId: `founder-${state.activeFaction}`,
+      factionId: state.activeFaction, sequence: state.commands.length + 1 } as const
+    expect(applyCommand(state, found).ok).toBe(true)
+    expect(applyMatchCommand(state, found)).toEqual({
+      ok: false, state, reason: expect.stringMatching(/Only End turn/),
+    })
+    const ended = applyMatchCommand(state, { type: 'end-turn', factionId: state.activeFaction,
+      sequence: state.commands.length + 1 })
+    if (!ended.ok) throw new Error(ended.reason)
+    expect(ended.state.commands).toHaveLength(MATCH_LIMITS.commands)
+    const reopened = openMatch(exportMatch(MATCH_ID, ended.state))
+    if (!reopened.ok) throw new Error(reopened.reason)
+    expect(stateHash(reopened.state)).toBe(stateHash(ended.state))
+    const another = { type: 'end-turn', factionId: ended.state.activeFaction,
+      sequence: ended.state.commands.length + 1 } as const
+    expect(applyMatchCommand(ended.state, another)).toEqual({
+      ok: false, state: ended.state, reason: expect.stringMatching(/10000-order history limit/),
+    })
+    expect(applyCommand(ended.state, another).ok, 'The transport cap must not change solo rules').toBe(true)
+  }, 30_000)
 })
 
 describe('rejecting turns that cannot be trusted', () => {

@@ -1,7 +1,7 @@
 import { generateMap, type MapConfig, type WorldMap } from './map'
 import {
   applyCommand, createExpedition, FACTIONS, PRODUCTION_ITEMS, RULES_VERSION,
-  type Command, type Expedition, type FactionId, type ProductionItemId,
+  type Command, type CommandResult, type Expedition, type FactionId, type ProductionItemId,
 } from './expedition'
 
 export const MATCH_FORMAT = 1
@@ -136,8 +136,7 @@ export function matchIdOf(input: unknown): string | undefined {
   return isRecord(input) && typeof input.matchId === 'string' && MATCH_ID.test(input.matchId) ? input.matchId : undefined
 }
 
-// Checks only the shape of a package; openMatch also rebuilds and verifies it.
-export function parseMatch(input: unknown): { readonly ok: true; readonly value: MatchPackage } | Failure {
+function parsePackage(input: unknown, retainLongHistory: boolean): { readonly ok: true; readonly value: MatchPackage } | Failure {
   const fail = (reason: string): Failure => ({ ok: false, reason })
   if (!isRecord(input) || input.format !== MATCH_FORMAT) {
     return fail('This is not a Polaris turn, or it was made by a newer version of the game.')
@@ -154,7 +153,7 @@ export function parseMatch(input: unknown): { readonly ok: true; readonly value:
     !MATCH_FACTIONS.every((id, index) => factions[index] === id)) {
     return fail('The turn names factions that this version of Polaris cannot play.')
   }
-  if (!Array.isArray(commands) || commands.length > MATCH_LIMITS.commands) {
+  if (!Array.isArray(commands) || (!retainLongHistory && commands.length > MATCH_LIMITS.commands)) {
     return fail(`The turn history is missing or longer than ${MATCH_LIMITS.commands} orders.`)
   }
   const orders: CompactCommand[] = []
@@ -172,6 +171,12 @@ export function parseMatch(input: unknown): { readonly ok: true; readonly value:
   }) }
 }
 
+// Incoming packages stay bounded before replay or world allocation.
+export function parseMatch(input: unknown) { return parsePackage(input, false) }
+
+// Local archives may be too long to replay; validate their shape without deleting them or relaxing incoming limits.
+export function parseStoredMatch(input: unknown) { return parsePackage(input, true) }
+
 // Factions take turns in package order and a round ends with the last of them, so the number of finished
 // turns tells whose turn it is without replaying the match.
 export function matchProgress(pkg: Pick<MatchPackage, 'factions' | 'commands'>): { readonly round: number; readonly active: FactionId } {
@@ -181,6 +186,18 @@ export function matchProgress(pkg: Pick<MatchPackage, 'factions' | 'commands'>):
 
 export function createMatch(config: MapConfig): Expedition {
   return createExpedition(generateMap(config), MATCH_FACTIONS)
+}
+
+export function applyMatchCommand(state: Expedition, command: Command): CommandResult {
+  const remaining = MATCH_LIMITS.commands - state.commands.length
+  if (remaining <= 0) {
+    return { ok: false, state,
+      reason: `This match has reached the ${MATCH_LIMITS.commands}-order history limit. No further orders can be added; start a new match to play again.` }
+  }
+  if (remaining === 1 && command.type !== 'end-turn') {
+    return { ok: false, state, reason: 'Only End turn is available: the last order is reserved so this turn can still be sent.' }
+  }
+  return applyCommand(state, command)
 }
 
 export function exportMatch(matchId: string, state: Expedition): MatchPackage {
