@@ -189,7 +189,7 @@ float polarisSparkle(vec2 position, vec3 glint) {
   float period = 2.6 + 2.4 * polarisGrain(ivec3(cell.x, -301, cell.y));
   float cycle = glint.x / period + polarisGrain(ivec3(cell.x, -302, cell.y));
   float gust = smoothstep(0.35, 0.85, polarisPatch(position * 0.45 + glint.x * vec2(0.11, 0.07)));
-  float chance = 0.004 + 0.06 * gust;
+  float chance = 0.003 + 0.04 * gust;
   float chosen = step(1.0 - chance, polarisGrain(ivec3(cell.x, 4096 + (int(floor(cycle)) & 4095), cell.y)));
   float seconds = fract(cycle) * period;
   return chosen * clamp(seconds / 0.08, 0.0, 1.0) * (1.0 - smoothstep(0.08, 0.5, seconds));
@@ -245,7 +245,7 @@ if (vPolarisFlag > 0.25) {
   int polarisOwner = polarisByte(polarisState.b) & 3;
   // Remembered water stays still; only charted water in sight glints.
   if (polarisSurface > 0.5 && normalW.y > 0.5 && polarisGlint.z > 0.0) {
-    polarisGlintLevel = 0.85 * polarisGlint.z * (1.0 - polarisState.r) * polarisSparkle(vPositionW.xz, polarisGlint);
+    polarisGlintLevel = 0.35 * polarisGlint.z * (1.0 - polarisState.r) * polarisSparkle(vPositionW.xz, polarisGlint);
   }
   // Territory and reachable tints stay on land; water gets only the ordinary hex hairline.
   float polarisGround = polarisLand;

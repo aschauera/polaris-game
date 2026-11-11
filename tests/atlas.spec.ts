@@ -28,21 +28,30 @@ test('water glints animate sparse cap pixels with bounded frames and respect red
       gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
       return pixels
     }
+    const started = performance.now()
+    const initialFrames = window.polarisDiagnostics!.stats().renderedFrames!
     const first = read()
     await new Promise(resolve => setTimeout(resolve, 1100))
     const second = read()
-    let changed = 0
+    const elapsedMs = performance.now() - started
+    const renderedFrames = window.polarisDiagnostics!.stats().renderedFrames! - initialFrames
+    let changed = 0, peakChannelChange = 0
     for (let i = 0; i < first.length; i += 4) {
-      if (Math.abs(first[i]! - second[i]!) + Math.abs(first[i + 1]! - second[i + 1]!)
-        + Math.abs(first[i + 2]! - second[i + 2]!) > 10) changed++
+      const red = Math.abs(first[i]! - second[i]!)
+      const green = Math.abs(first[i + 1]! - second[i + 1]!)
+      const blue = Math.abs(first[i + 2]! - second[i + 2]!)
+      peakChannelChange = Math.max(peakChannelChange, red, green, blue)
+      if (red + green + blue > 10) changed++
     }
-    return { changed, pixels: first.length / 4 }
+    return { changed, pixels: first.length / 4, peakChannelChange, elapsedMs, renderedFrames }
   })
   const after = await stats(page)
+  await info.attach('water-glint-contrast', { body: JSON.stringify(change), contentType: 'application/json' })
   expect(change.changed).toBeGreaterThan(5)
   expect(change.changed / change.pixels).toBeLessThan(0.04)
-  expect(after.renderedFrames! - before.renderedFrames!).toBeGreaterThan(0)
-  expect(after.renderedFrames! - before.renderedFrames!).toBeLessThanOrEqual(17)
+  expect(change.peakChannelChange, 'glints should shimmer rather than flash white').toBeLessThanOrEqual(80)
+  expect(change.renderedFrames).toBeGreaterThan(0)
+  expect(change.renderedFrames).toBeLessThanOrEqual(Math.ceil(change.elapsedMs / 80) + 1)
   expect(after).toMatchObject({ vertices: before.vertices, geometries: before.geometries, meshes: before.meshes,
     materials: before.materials, rngState: before.rngState })
   await page.screenshot({ path: info.outputPath('water-glints.png') })
