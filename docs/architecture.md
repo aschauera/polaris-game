@@ -21,9 +21,9 @@ The [complete design](game-design.md#target-status-and-baseline) and [delivery p
 
 Keep all outcomes in pure `src/game`, with integer economy, explicit IDs, stable neighbour/job orders and serializable state machines. Costs, yields, abilities and prices use validated versioned definitions, never UI-local state or render-derived heights. Separate player identity from tribe definitions so mirror choices retain independent ownership, commands, budgets and research.
 
-Planned state covers typed classes/tribes, health/movement/action/counter budgets, public objectives/streaks, fortifications/occupation/original city owner, six resource balances, finite ruin inventories, local food/hunger, assignments/pins, project reservations and paid-cost receipts, carried founder provisions, military debt, research project/per-technology progress and ability charges/expiry.
+Planned state covers typed classes/tribes, health/movement/action/counter budgets, public objectives/streaks, fortifications/occupation/original city owner, six resource balances, finite ruin inventories, local food/hunger, assignments/pins, project reservations and paid-cost receipts, carried founder provisions, embarked state with vessel kind, Landing/Harbour projects, military debt, research project/per-technology progress and ability charges/expiry.
 
-Version serializable commands for attack (including explicit civilian attack), entrench, rest, ability, beacon activation, improvement/dismantling, assignment, project cancellation, territorial claim/transfer and supply orders. Occupation and completion transitions are explicit logged domain outcomes. UI-local selection/animations are never authoritative.
+Version serializable commands for attack (including explicit civilian attack), entrench, rest, embark/disembark, ability, beacon activation, improvement/dismantling, assignment, project cancellation, territorial claim/transfer and supply orders. Occupation and completion transitions are explicit logged domain outcomes. UI-local selection/animations are never authoritative.
 
 Removal, permitted capture advance and ownership transfer resolve atomically before defeat checks; no observable intermediate entity/owner gap. A rejected command changes neither state, sequence, log nor RNG.
 
@@ -37,6 +37,7 @@ The [complete target ending sequence](game-design.md#complete-proposed-own-endin
 | Storage-failure recovery / outgoing history guard | No: simulation/replay unchanged | No | No | Existing format and 10,000-order receive cap |
 | Inherited hex/messenger foundation | Retain predecessor version | Retain existing v4 | Existing definitions | Existing format |
 | Combat/victory/occupation | Yes | Only if canonical placement changes | Classes/objectives/fortifications | Review new commands/state |
+| Water crossing/island scenarios | Yes: coastal-water derivation, embark/disembark, boats | Scenario yes for island start/beacon placement; generator only if canonical generation changes | Landing, later Harbour, vessel kinds | Embarked state and new commands |
 | Canonical resources | Yes | Yes for generated distribution | Six resources/improvements | Stocks, inventory/reservations |
 | Work/hunger/supply | Yes | Normally no | Yields/costs | Pins, debt, hunger/routes |
 | Four tribes/research | Yes for effects | No without placement change | Yes | Mirror player separation, charges, project/per-technology progress |

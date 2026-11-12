@@ -25,7 +25,7 @@ An original, browser-first, turn-based 4X game about rival societies rebuilding 
 
 | Target layer | Planned scope | Delivery boundary |
 | --- | --- | --- |
-| Complete core match | Small fair hex map, three common counter-classes, deterministic combat and city capture, three beacons, defeat and draw | First; may retain the existing generic-material economy as an explicitly versioned intermediate slice |
+| Complete core match | Small fair hex map, on one landmass or with separate home and beacon islands; common Landing crossing over coastal water; three common counter-classes, deterministic combat and city capture, three beacons, defeat and draw | First; may retain the existing generic-material economy as an explicitly versioned intermediate slice |
 | Economy and cities | Six resources, population-operated improvements, paid construction, housing, territorial expansion without a city cap, hunger and military food debt | After the core match; small research tree accompanies the full economy; no implicit save conversion |
 | Four tribes | Amazons, Raccoons, Engineers and Sorceresses; independent choice including mirrors, initially one characteristic ability each | Full two-tier unit and building/ability catalogs remain expansion goals |
 | Later depth | Additional tribal content, optional diplomacy/policies and bounded fog-respecting AI | Not blockers of human-versus-human victory |
@@ -123,13 +123,20 @@ A small curated or deterministically generated and validated map comes first. **
 
 ### Geography and fairness
 
-Use the fixed six-neighbour order east, south-east, south-west, west, north-west, north-east. Initial land units cannot cross water. Mountains as a domain terrain type remain later; visible stones do not make land impassable. Decorative trees imply no forest movement obstacle or defense.
+Use the fixed six-neighbour order east, south-east, south-west, west, north-west, north-east. Land units never walk on water; they cross coastal water only as embarked boats ([water crossing](#water-crossing)). Mountains as a domain terrain type remain later; visible stones do not make land impassable. Decorative trees imply no forest movement obstacle or defense.
 
 Each starting region needs food, reachable wood/stone and a reliable early metal path, not necessarily all inside the first city. Crystals and ruins may be contested. Random placement must never deny a tribe its three basic counters.
 
-Three neutral beacons occupy reserved legal land: one nearer each start and one contested central site. All are reachable without ships. Compare **weighted path cost**, choke points, arrival time and supply access, not just geometric distance. Fair routes need not look identical. Beacons cannot double as city or resource sites.
+Three neutral beacons occupy reserved legal land: one nearer each start and one contested central site. Each may lie on a start landmass or on its own beacon island, and each is reachable from both starts with the common baseline crossing. Compare **weighted path cost**, choke points, arrival time and supply access, not just geometric distance. Fair routes need not look identical. Beacons cannot double as city or resource sites.
 
-**Chosen: shared start landmass.** Both starts and all three beacons lie on **one connected landmass**, so the rivals always meet over land, possibly along coasts or around bays. Scenario validation proves a land path from each start to the other start and to every beacon. When no landmass offers both starts at a fair distance, room for further cities at the minimum spacing and three beacons, reject that seed or fixture and use another validated map; never repair it with land bridges, ships or a teleport. Other islands may exist and be seen from the coast, but land units cannot reach them, and nothing needed for victory or the three basic counters lies only there. Crossing water through embarkation, ships or bridges remains the separately approved later package F5; it must never become a prerequisite of the core match.
+**Chosen direction: separate islands allowed (Klaus, 12 November 2026).** This replaces the earlier shared-landmass proposal, which could leave too little room on small maps. Two independent choices shape a scenario: both starts share one landmass or each uses its own **home island**, and each beacon lies on a start landmass or on a neutral **beacon island**. Island beacons are deliberate strategic objectives: holding one requires landing troops and supplying a crossing. Every combination is legal when validation passes (details are proposals; numbers are test values):
+
+- **Room:** each player has the start plus at least two further legal city sites at the minimum spacing on its home landmass (on a shared landmass, sites nearer its own start than the opponent's), and a legal coastal city site within 2 land steps of the start, so the first city can build a Landing.
+- **Reachability:** from each start, the opponent's start and all three beacons are reachable with the **common baseline** only: land movement plus coastal-water legs through a Landing. Open sea, Harbours, research, [tribal water styles](#water-crossing), bridges and ruins never count.
+- **Contestability:** each beacon has at least two free adjacent land tiles, so an occupant can be attacked after a landing; boats cannot attack.
+- **Fairness:** compare baseline travel turns of a basic combat unit, not geometric distance: 2 land movement with hills costing 2, embarking and disembarking each end the turn, 3 coastal-water hexes per turn and equal Landing lead time. Each player's travel turns to its own near beacon, to the central beacon and to the opponent's start may differ from the opponent's mirrored value by at most 1 turn.
+
+Maps that fail are rejected, never repaired with land bridges, a teleport or forced paths. Further islands are expansion space reached through coastal water, a later Harbour or a tribal style; nothing needed for victory or the three basic counters lies only there. A probe of 18 generator-v4 maps (24 × 24, 32 × 32 and 64 × 48, six seeds each) found the two largest landmasses linked through water within 2 hexes of land on 7 of 10 multi-island maps and within 3 hexes on all 10, with crossings of 1–14 water hexes; some islands lie only across open sea. On a shared landmass, starts were 7–30 land steps apart.
 
 ### Visibility and public objectives
 
@@ -391,6 +398,33 @@ Rest replaces the entire movement/attack turn and requires no previous action, c
 
 Abilities have visible targets, resource prices, fixed movement/attack consumption and caps. Rejection spends nothing. No healing in enemy-threatened adjacent space, attack-heal-attack or free recharge via city switching. Catalog costs are profiles, not approved numerical balance.
 
+### Water crossing
+
+**Proposal (E17), test values:** crossing water is a common production rule available from the start, never research ([E16](#target-common-research)). Every tribe has the same baseline, so map validation and the basic counters never depend on a tribe.
+
+- **Water classes** derive from canonical terrain: **coastal water** lies within hex distance 2 of any land tile; anything farther is **open sea**. This is a rules derivation, not a generator change. Radius 2 versus 3 is a test question; see the [geography probe](#geography-and-fairness).
+- **Landing:** common city project, legal only in a coastal city, one with a territory land tile adjacent to water; test price 10 materials in the M2 generic economy (between Guard 8 and Storehouse 12), with wood/stone prices set alongside the six resources. One per city; it transfers with a captured city.
+- **Embark:** a land unit, combat or civilian, with at least 1 movement left on a coastal land tile in the territory of an own city with a Landing moves onto an adjacent free coastal-water tile and becomes a boat. Embarking ends its movement and attack for that turn.
+- **At sea:** a boat has 3 movement and pays 1 per coastal-water hex; open sea is impassable for ordinary boats. One unit per tile; own boats may be traversed and enemy boats block. Sight stays 2. Boats cannot attack, entrench, rest, found, work, capture or activate a beacon, and they generate no control zones. Bulwark control zones also cover adjacent water tiles, so a coastal Bulwark can stop a passing boat.
+- **Vulnerable boats:** land units may attack an adjacent boat in melee or one within range and line of fire with ranged units. Every such attack deals a neutral 4 without class, terrain or entrench modifiers, and boats never counter. There is no boat-versus-boat combat.
+- **Disembark:** with at least 1 movement left, the boat moves onto an adjacent free land tile that is not an enemy city centre; enemy territory and a free beacon tile are legal. Disembarking ends movement and attack, so a landing never attacks, captures or activates in the same turn: the defender always gets one response turn.
+- Founders may settle other islands, army food still applies at sea and a founder at sea still prevents defeat. Boats follow ordinary fog rules; previews and rejections use only known occupancy.
+- **Commitment:** under the common rule, units landed on another island can embark again only from the territory of an own city with a Landing, typically one they found or capture there. Holding a beacon island is therefore a deliberate investment, not a free raid; the Raccoon drift raft (E18) is the only tribal exception.
+- **Harbour (later, with the full economy):** paid Landing upgrade without research; boats launched there may also enter open sea at 2 movement per hex. Naval combat and warships remain later depth.
+
+Embarked state records the vessel kind so tribal and Harbour variants share one rule path.
+
+**Tribal water styles (Proposal, E18):** each tribe crosses water in its own way through one passive trait, delivered with the first tribal increment beside its single characteristic ability. Map validation never relies on them; pairing playtests measure their effect on island maps.
+
+| Tribe | Style | Effect | Bound |
+| --- | --- | --- | --- |
+| Amazons | Bark canoes | Sea movement 4 instead of 3 | Coastal water only; embark/disembark rules unchanged |
+| Raccoons | Drift rafts | Embark from any coastal land tile, including foreign islands, without a Landing, for 1 wood | A raft moves 2, not 3; Landing boats remain normal |
+| Engineers | Bridges | A Construction Team bridges one water hex with land on two opposite sides | Expensive stone/metal and several workdays; every land unit may cross, including enemies; boats cannot pass it; dismantling or siege damage (test: 4 points) removes it; no bridge chains |
+| Sorceresses | Star navigation | Boats from their Landings may enter open sea without a Harbour | Open sea still costs 2 per hex; no other sea advantage |
+
+Each style matches its tribe's identity: Amazon terrain mobility, Raccoon improvisation, Engineer construction and the Sorceresses' preserved star charts. None removes the response turn after a landing or makes boats able to attack.
+
 ## Target siege, capture and occupation
 
 ### Walls are not a fourth class
@@ -431,7 +465,7 @@ Walls do not regenerate automatically. Paid repair restores displayed points; ad
 
 The four target tribes replace Meridian/Lantern only in new versioned content. Stonewatch and Tidebound were discarded alternatives, not fifth/sixth tribes.
 
-Each full expansion catalog has **three two-tier combat chains, three civilian roles and four three-tier special building chains**. The first tribal increment delivers **one characteristic ability each** alongside common classes/civilians. Remaining abilities/building tiers are expansion goals, not first-increment requirements. Selection of the initial ability and concrete prices remains P12 work.
+Each full expansion catalog has **three two-tier combat chains, three civilian roles and four three-tier special building chains**. The first tribal increment delivers **one characteristic ability each** alongside common classes/civilians. Remaining abilities/building tiers are expansion goals, not first-increment requirements. Selection of the initial ability and concrete prices remains P12 work. Each tribe's passive [water style](#water-crossing) (E18) is a proposal beside that ability; because it widens E9's first increment, it needs both maintainers' approval.
 
 All three basic classes recruit from the centre; military buildings support tier 2 rather than gating basic counters behind rare resources.
 
@@ -560,7 +594,7 @@ No mind control, whole lost enemy turns, infinite summons, unlimited healing/pro
 
 Basic food, wood, stone, simple metal, all three basic classes and beacon activation are available **from the start**. No basic class or essential healing/supply is gated behind research, crystals or ruins. Local first-ring yields need no Roadbuilding; outlying facilities and intercity deliveries need their stated unlocks.
 
-**Confirmed: no movement research.** Every land unit may enter hills from the start at movement cost 2; water stays impassable to land units. No technology unlocks or cheapens hill or water movement. A request to gate hill/water movement behind research (#11) was rejected on 12 November 2026. Water crossing belongs to F5, not this tree.
+**Confirmed: no movement research.** Every land unit may enter hills from the start at movement cost 2; land units never walk on water. No technology unlocks or cheapens hill or water movement. A request to gate hill/water movement behind research (#11) was rejected on 12 November 2026. Water is crossed through the common Landing (E17) and later Harbour, both without research; tribal water styles (E18) come from tribes, not this tree.
 
 One active project per **player faction**, not tribe/city. A small fixed faction baseline exists once even with many cities: no free research per new city. Staffed knowledge buildings add output at population/slot cost. Switching preserves progress **on each technology**, neither deleting nor transferring points. No selected project means no unallocated banked research.
 
@@ -650,6 +684,10 @@ Three Breaker attacks take wall 8→5→2→0, without overflow. They require se
 
 A owns two beacons and has streak 2. B activates one: A drops to one, immediately resets to 0. Recapturing next turn yields streak 1, not 3. If A had owned all three and dropped to two, its streak would remain.
 
+### Landing on a beacon island
+
+The central beacon lies on a small island across a strait of 4 coastal-water hexes from A's home island. A's coastal city completes a Landing. Turn 1: an Assault walks onto a coastal tile in that city's territory and embarks onto the first water hex, ending its turn. Turn 2: it sails the remaining 3 hexes; had it entered a hex beside B's coastal Bulwark, its movement would have stopped there and any land attack would deal 4 without a counter. Turn 3: it disembarks beside the free beacon, ending its turn. B sees the landing and may respond. Turn 4: if it survives and the beacon is still free, the Assault moves onto it and activates with its attack.
+
 ## Target decision register
 
 Confirmed product decisions, provisional rules and actual open choices are separate. Tests may justify documented revisions; they do not make settled direction undecided again.
@@ -670,8 +708,10 @@ Confirmed product decisions, provisional rules and actual open choices are separ
 | E12 | Target identities; provisional names/assets | No gender-dependent stats; cultural dress as above | **Open:** final names and actual art |
 | E13 | **Test rules:** visibility-safe actions | No hidden state via previews/reasons | Contact stop, line of fire, bounded reconnaissance |
 | E14 | **Unmeasured:** scenario/first player | Weighted routes, victory 2 of 3 through 3 endings; test round cap 40 | Set release maps and measurable balance acceptance before M5 |
-| E15 | **Chosen:** shared start landmass | Both starts and all three beacons on one connected landmass; players always meet over land; unsuitable maps are rejected, not bridged | P2 validates land paths start↔start and start↔beacon; water crossing stays F5 |
-| E16 | **Confirmed:** no movement research | Hills cost 2 movement from the start; water impassable to land units; #11 request rejected | No movement technology in F1; water crossing only through approved F5 |
+| E15 | **Chosen direction:** separate start and beacon islands allowed | Klaus replaced the shared-landmass proposal on 12 November 2026 because it could get too cramped; starts share a landmass or use home islands, beacons lie on start landmasses or beacon islands | P2 validates shared-landmass maps; P3a adds island placement with baseline reachability, room, contestable beacons and travel turns within 1 (test values) |
+| E16 | **Confirmed:** no movement research | Hills cost 2 movement from the start; land units never walk on water; #11 request rejected | No movement or crossing technology in F1; water is crossed through the common Landing (E17) |
+| E17 | **Proposal:** common coastal crossing | Landing project; embarking and disembarking end the turn; coastal water within 2 hexes of land; 3 sea movement; boats cannot attack, take neutral 4 and never counter; open sea only through a later Harbour | P3a; test radius 2 vs 3, Landing price, response time after landings and boat blockades of narrow channels |
+| E18 | **Proposal:** tribal water styles | Amazon canoes, Raccoon drift rafts, Engineer bridges and Sorceress star navigation as passive traits beside E9's single ability | Needs both maintainers' approval; delivered in P12, measured in P13; never a map-validation dependency |
 
 Each implemented package updates this register, implemented rule sections and agent guidance together. A test value is binding for replay **in its test-rules version**, not a permanent balance claim. Changes need traceable rules/content version boundaries.
 
