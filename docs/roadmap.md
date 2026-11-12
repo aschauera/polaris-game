@@ -6,17 +6,17 @@
 
 Confirmed directions and numeric caveats are recorded once in the [design decision register](game-design.md#target-decision-register). Acceptance below exercises those rules; it does not turn provisional values into measured balance.
 
-The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented on main. Legacy follow-ups #9–#15 have been reconciled with the package map below under maintenance #35; creating or rescoping them does not implement their gameplay. The board is a **hex grid** with rules and generator version 4; the renderer draws hex fields from cubic voxels in 66×66-column chunks (`src/rendering/voxels.ts`), with territory borders, city name plates and voxel unit figures.
+The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented on main. Legacy follow-ups #9–#15 have been reconciled with the package map below under maintenance #35; creating or rescoping them does not implement their gameplay. G1/#53 implements canonical bathymetry and its presentation without new gameplay. The board is a **hex grid** with rules version 4 and generator version 5; the renderer draws hex fields from cubic voxels in 66×66-column chunks (`src/rendering/voxels.ts`), with territory borders, city name plates and voxel unit figures.
 
 Sizes in historical briefs are rough focused-development estimates: **S** 1–2 days, **M** 3–5 days, **L** 6–10 days. Re-estimate and split packages into narrow issues before execution when needed. Use the current package map and live *blocked by* issue relationships, not the obsolete brief-number sequence ([working order](../.github/copilot-instructions.md#working-order-issues-blocked-by-and-stacked-prs)). The completed foundation chain was #8 → #25 → #26 → #27 → #28 → #30.
 
 ## Detailed target delivery plan
 
-Packages below remain planned. Issue #32 was delivered by #33/#34 and is closed. Save maintenance #35 was delivered by #47 and is also closed: storage failures and the transport history boundary are covered, and the GitHub backlog is reconciled. It implemented no target gameplay. Documentation/capture refresh #48 records this integrated state without authorizing another merge, release or deployment.
+The remaining gameplay packages below remain planned; G1's generator/data/presentation increment is implemented here. Issue #32 was delivered by #33/#34 and is closed. Save maintenance #35 was delivered by #47 and is also closed: storage failures and the transport history boundary are covered, and the GitHub backlog is reconciled. It implemented no target gameplay. Documentation/capture refresh #48 records that integrated state without authorizing another merge, release or deployment.
 
 ### Baseline and working order
 
-Use integrated main from `c6c4cad` and then-current compatible maintenance: cities, messenger, hex rules/generator v4, graphics polish, canonical design and save safeguards. Historical main `6aa2dbe8d45ccea58def5054ff32a55295a22b04` lacks those contracts. The original documentation was prepared against cumulative graphics commit `834ffc491fa4932e3c719191db837b3fea639445`; #33/#34 subsequently integrated it, and #47 added save reliability. Do not discard inherited foundation work when reviewing a later narrow change.
+Use integrated main from `c6c4cad` and then-current compatible maintenance: cities, messenger, hex rules v4, graphics polish, canonical design and save safeguards. Water design #50/#51 merged at `30e6be5`; G1/#53 advances only the generator to v5 with canonical depth data. Historical main `6aa2dbe8d45ccea58def5054ff32a55295a22b04` lacks those contracts. The original documentation was prepared against cumulative graphics commit `834ffc491fa4932e3c719191db837b3fea639445`; #33/#34 subsequently integrated it, and #47 added save reliability. Do not discard inherited foundation work when reviewing a later narrow change.
 
 Before any package, reread current code/blockers, fix its test rules and acceptance cases, choose a narrow reviewable increment and appropriate versions, and synchronize affected docs/guidance. Do not reopen confirmed decisions or implement blocked predecessors incidentally. Estimates follow source inspection; package IDs are planning labels mapped to GitHub issues below, not promised dates.
 
@@ -24,14 +24,17 @@ Before any package, reread current code/blockers, fix its test rules and accepta
 
 **Current integration:** #20, #21, #22, #24, #29, #31, #33, #34 and #47 are merged. Foundation issues #8 and #25–#30, documentation issue #32 and save reliability #35 are closed. P2/#36 has no open blockers and is the next gameplay package, not completed gameplay.
 
-The following GitHub relationships were configured during maintenance #35 and read back after #47 merged on 12 November 2026. Parent #5's obsolete brief-number waves were synchronized with this map; its original native child links remain historical traceability, not delivery order. The parent stays open for unfinished gameplay. Check live state again before starting:
+The island/water design #50/#51 is merged at `30e6be5`. On 12 November 2026 Klaus approved extracting **G1/#53, canonical bathymetry and its presentation**, from P3a. G1 can be delivered before combat because it adds no boats or water movement; P2 remains the next gameplay package.
+
+The following GitHub relationships were configured during maintenance #35, read back after #47 merged, then updated for the approved G1 extraction after #51 on 12 November 2026. Parent #5's obsolete brief-number waves were synchronized with this map; its original native child links remain historical traceability, not delivery order. The parent stays open for unfinished gameplay. Check live state again before starting:
 
 | Package | Issue | Blocked by |
 | --- | --- | --- |
 | Save reliability (completed via #47) | [#35](https://github.com/aschauera/polaris-game/issues/35) | #30 (closed) |
+| G1 canonical bathymetry/presentation (implemented here) | [#53](https://github.com/aschauera/polaris-game/issues/53) | #50 (closed) |
 | P2 scenario/player scaffold | [#36](https://github.com/aschauera/polaris-game/issues/36) | #30, #32, #35 (all closed) |
 | P3 visibility-safe combat | [#10](https://github.com/aschauera/polaris-game/issues/10) | #36 |
-| P3a water crossing/island scenarios | [#52](https://github.com/aschauera/polaris-game/issues/52) | #10 |
+| P3a water crossing/island scenarios | [#52](https://github.com/aschauera/polaris-game/issues/52) | #10, #53 |
 | P4 city capture/occupation | [#37](https://github.com/aschauera/polaris-game/issues/37) | #10 |
 | P5 beacons/results | [#15](https://github.com/aschauera/polaris-game/issues/15) | #37, #52 |
 | P6 complete two-human match | [#38](https://github.com/aschauera/polaris-game/issues/38) | #15 |
@@ -48,7 +51,7 @@ The following GitHub relationships were configured during maintenance #35 and re
 | F3 optional diplomacy | [#13](https://github.com/aschauera/polaris-game/issues/13) | #38, #46 |
 | F4 optional AI | [#14](https://github.com/aschauera/polaris-game/issues/14) | #44; F1 too if its mode uses research |
 
-Before P13 starts, record whether deliveries are included and add #41 as an actual blocker when they are. P3a/#52 was added on 12 November 2026 for island maps (E15/E17); it is blocked by #10 and blocks #15. #12 is closed as superseded, **not implemented**: its remaining information-safe combat acceptance belongs to P3/#10. The research part of old #11 is F1; policies are separately tracked in #45. Old #14's faction content belongs to #42/#43; #14 now tracks later AI. No mandatory AI/diplomacy edge remains before core victory.
+Before P13 starts, record whether deliveries are included and add #41 as an actual blocker when they are. P3a/#52 was added on 12 November 2026 for island maps (E15/E17); it is blocked by #10 and #53 and blocks #15. #12 is closed as superseded, **not implemented**: its remaining information-safe combat acceptance belongs to P3/#10. The research part of old #11 is F1; policies are separately tracked in #45. Old #14's faction content belongs to #42/#43; #14 now tracks later AI. No mandatory AI/diplomacy edge remains before core victory.
 
 <details>
 <summary>Historical pre-integration snapshot from the original documentation</summary>
@@ -96,6 +99,16 @@ The foundation and save reliability #35/#47 are integrated on main at `c6c4cad`,
 
 Acceptance: selected basis has those contracts; two devices exchange valid current turns; incompatible saves survive; no square-grid assumptions in new packages. Resolve conflicts with any later predecessor changes.
 
+### G1 — Canonical bathymetry and presentation
+
+**Prerequisites:** merged water design #50/#51. Extracted from P3a with Klaus's approval; [#53](https://github.com/aschauera/polaris-game/issues/53). No combat prerequisite.
+
+Generate four stable depth tiers per water hex, irregular shallow-water areas and submerged offshore sandbanks. Preserve existing land/water identity, land elevations, trees and PRNG progression. Align seabed terraces, cap colours and charted-water inspection with those canonical classes across zoom and exploration. Use a new generator version and retain incompatible older saves unchanged.
+
+Acceptance: seeded repeatability; variable coastal widths and broad connected shallow extensions beyond two hexes, with deep-water gaps; no depth changes when nearby fog clears; hidden coasts and uncharted inspection remain protected; existing rendering/picking/resource bounds and fresh running-app visuals. No boats, Landing/Harbour, water movement or separate playable island starts. Final start/beacon reachability and fairness belong to P2/P3a.
+
+**Implemented:** generator v5, rules v4, required water depth in immutable tiles and the map checksum, four detailed seabed terraces, all four cap/inspection classes even in coarse views, and retained v3/v4 archives. Regression fixtures preserve v4 landforms/elevations/trees/RNG; multi-seed tests require broad connected upper-tier extensions at least three hex steps offshore, variable widths and deep-water gaps. Current messenger factions still start on one connected landmass and all water is impassable. [Fresh captures and verified evidence](../README.md#current-verification-and-screenshot-provenance) document G1, not completed P3a.
+
 ### P2 — Scenario, player slots and content scaffold
 
 **Prerequisites:** P1.
@@ -130,9 +143,9 @@ Version impact: rules and command/transport shape where needed; hashes include h
 
 ### P3a — Water crossing and island scenarios
 
-**Prerequisites:** P3. Use E15/E17 from the [decision register](game-design.md#target-decision-register) and the [water crossing rules](game-design.md#water-crossing); E18 tribal water styles stay in P12.
+**Prerequisites:** P3 and G1. Use E15/E17 from the [decision register](game-design.md#target-decision-register) and the [water crossing rules](game-design.md#water-crossing); E18 tribal water styles stay in P12.
 
-Generate stable per-water-hex bathymetry classes over the four broad underwater terraces; add the common Landing project, embark/disembark commands, boats at sea, land attacks on boats and Bulwark zones over water; extend scenario placement/validation to home-island and beacon-island layouts; add voxel boat and Landing pier presentation.
+Consume G1's stable per-water-hex depth classes; add the common Landing project, embark/disembark commands, boats at sea, land attacks on boats and Bulwark zones over water; extend scenario placement/validation to home-island and beacon-island layouts; add voxel boat and Landing pier presentation.
 
 Acceptance:
 
@@ -143,7 +156,7 @@ Acceptance:
 - Boats are hidden and revealed like land units; previews, paths and rejection reasons leak no hidden boats.
 - Fresh running-app captures of boats and piers, delivered separately as Visual overview.
 
-Version impact: rules (depth classes, commands, retained vessel capability), content (Landing), scenario/generator for bathymetry and island placement; bump the generator version if canonical generated depths/routes change; schema for water class and vessel state.
+Version impact: rules (navigation using G1 depth classes, commands, retained vessel capability), content (Landing), scenario/generator for changed island placement or generated depths/routes, and schema for vessel state/new commands. Merely consuming G1's existing depth field does not require regenerating it.
 
 ### P4 — City attacks, capture and occupation
 
@@ -295,7 +308,8 @@ Required package edges (not an ordering inferred from numbering):
 
 ```text
 P0 -> P1 -> P2 -> P3 -> P4
-P3 -> P3a
+merged water design #50/#51 -> G1
+P3 + G1 -> P3a
 P4 + P3a -> P5 -> P6 -> P7 -> F1
 P7 + F1 -> P8 -> P9
 P9 + F1 -> P10
