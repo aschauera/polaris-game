@@ -346,7 +346,7 @@ How it behaves:
 
 ### Visual overview
 
-Fresh application captures use seed `polaris`, 32 × 32, Windows Chromium/SwiftShader, DPR 1. The idle panel, match list, storage warning and two device captures are from the 12 November 2026 G1 browser suite for source `2bd9da6`; the host/guest captures are 1100 × 760 and come from two isolated browser contexts. The scenario capture is from the P2 tree on 12 November 2026, running rules v5, scenario v1 and generator v5 at 1440 × 900; its test frames the real match so all three public beacons are visible:
+Fresh application captures use seed `polaris`, 32 × 32, Windows Chromium/SwiftShader, DPR 1. The idle panel, match list, storage warning and two device captures are from the 12 November 2026 G1 browser suite for source `2bd9da6`; the host/guest captures are 1100 × 760 and come from two isolated browser contexts. The scenario capture is from P2 commit [`0048bfc`](https://github.com/aschauera/polaris-game/commit/0048bfc) on 12 November 2026, running rules v5, scenario v1 and generator v5 at 1440 × 900; its test frames the real match so all three public beacons are visible:
 
 ![The atlas with the Play by messenger panel before a match: start a match or open a received turn](docs/messenger-idle.png)
 
@@ -432,7 +432,7 @@ The same `polaris` 256 × 256 world in the running G1 production build (`2bd9da6
 
 ### Current verification and screenshot provenance
 
-The existing visual suite was freshly captured on **12 November 2026** from G1 source [`2bd9da6033e4d8fe5a1593157b11e668781e5b1a`](https://github.com/aschauera/polaris-game/commit/2bd9da6033e4d8fe5a1593157b11e668781e5b1a); those captures use rules v4 and generator v5. The P2 scenario capture was produced on **12 November 2026** from this change's working tree, with rules v5, scenario v1 and generator v5. Its browser test frames the real match to show all three public beacons. The screenshots are committed here so they remain available after CI artifacts expire; neither authoritative reference nor the historical performance benchmark was replaced.
+The existing visual suite was freshly captured on **12 November 2026** from G1 source [`2bd9da6033e4d8fe5a1593157b11e668781e5b1a`](https://github.com/aschauera/polaris-game/commit/2bd9da6033e4d8fe5a1593157b11e668781e5b1a); those captures use rules v4 and generator v5. The P2 scenario capture was produced on **12 November 2026** from P2 commit [`0048bfc`](https://github.com/aschauera/polaris-game/commit/0048bfc), with rules v5, scenario v1 and generator v5. Its browser test frames the real match to show all three public beacons. The screenshots are committed here so they remain available after CI artifacts expire; neither authoritative reference nor the historical performance benchmark was replaced.
 
 Local P2 verification passed `npm run typecheck`, `npm run lint` and **162 unit tests**. The production build completed with its existing >500 kB chunk-size warning. The latest full browser run passed **43 of 44 tests** in **17.4 minutes**; the existing water-glint animation test exceeded its 180-second timeout, and an isolated retry also timed out during browser-context teardown. The P2 scenario test and the other 43 browser tests passed; the glint test passed in an earlier full run. A temporary Playwright configuration used port 4174 because the existing preview occupied 4173; it is not part of the change. The local runtime was **Node 26.13.0**, outside the supported Node 24 range: use the PR's Node-24 CI checks for supported-runtime evidence. This change does not modify Azure setup or release deployment.
 
@@ -440,7 +440,7 @@ Local P2 verification passed `npm run typecheck`, `npm run lint` and **162 unit 
 | --- | --- |
 | 64 × 48 atlas overview and selected offshore shoal | Local production build, Windows Chromium 156.0.8078.4 / ANGLE SwiftShader, 1440 × 900, DPR 1; reduced motion |
 | Expedition, city, messenger, storage warning, coastal details, glints and 256² detail | Full local browser run of the same source, same Chromium/SwiftShader, 1440 × 900, DPR 1; host/guest contexts are 1100 × 760 |
-| Shared-landmass scenario with all three public beacons | P2 browser test on the current working tree, Windows Chromium/SwiftShader, 1440 × 900, DPR 1; rules v5, scenario v1, generator v5 |
+| Shared-landmass scenario with all three public beacons | P2 browser test on commit [`0048bfc`](https://github.com/aschauera/polaris-game/commit/0048bfc), Windows Chromium/SwiftShader, 1440 × 900, DPR 1; rules v5, scenario v1, generator v5 |
 | Phone atlas and messenger | Same local run, Chromium touch emulation, portrait 390 × 844 / landscape 844 × 390, DPR 2 |
 
 Most stills use reduced motion; the water-glint capture explicitly enables animation. Detail images cropped to the canvas region are 1138 × 768: they omit the sidebar but retain any visible projected labels and camera controls. The offshore-shoal capture includes the actual inspection label. No image is a measurement of native/mobile GPU performance or proof of planned boating/combat/economy/tribal gameplay.
