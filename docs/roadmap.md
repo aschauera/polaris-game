@@ -1,18 +1,18 @@
 # Polaris: implementation roadmap
 
-**Canonical delivery plan, status checked 12 November 2026:** this document owns the full target packages, dependencies, acceptance and test strategy. [Game design](game-design.md#target-status-and-baseline) owns complete rules, lore, catalogs and decision status; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical version/save contracts. Foundation PRs #20 → #21 → #22 → #24 → #29 → #31, design #33/#34 and save reliability #47 are integrated into main at `c6c4cad`; their prerequisite issues are closed. The target gameplay remains planned.
+**Canonical delivery plan, status checked 12 November 2026:** this document owns the full target packages, dependencies, acceptance and test strategy. [Game design](game-design.md#target-status-and-baseline) owns complete rules, lore, catalogs and decision status; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical version/save contracts. Foundation PRs #20 → #21 → #22 → #24 → #29 → #31, design #33/#34 and save reliability #47 are integrated into main at `c6c4cad`; their prerequisite issues are closed. G1/#53 and the shared-landmass scenario/player scaffold P2/#36 are implemented; combat, island crossing and the remaining target gameplay are still planned.
 
 **New delivery order:** existing hex/city/messenger/graphics foundation → complete two-human match with three common classes, common coastal crossing for island maps, three beacons, city capture and end conditions → six-resource/worker/city economy with the chosen small common research tree → first four-tribe slice with one characteristic ability each → six mixed plus four mirror pairings with swapped starts → further documented tribal catalogs. Diplomacy, policies and AI are optional later. Research is not required before the isolated first combat/victory slice, but its unlocks govern the complete economy. This supersedes the historical future sequencing below, not implemented regression contracts or real GitHub blockers.
 
 Confirmed directions and numeric caveats are recorded once in the [design decision register](game-design.md#target-decision-register). Acceptance below exercises those rules; it does not turn provisional values into measured balance.
 
-The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented on main. Legacy follow-ups #9–#15 have been reconciled with the package map below under maintenance #35; creating or rescoping them does not implement their gameplay. G1/#53 implements canonical bathymetry and its presentation without new gameplay. The board is a **hex grid** with rules version 4 and generator version 5; the renderer draws hex fields from cubic voxels in 66×66-column chunks (`src/rendering/voxels.ts`), with territory borders, city name plates and voxel unit figures.
+The atlas foundation and briefs 6–7 (scout exploration and the first city/economy slice) are implemented on main. Legacy follow-ups #9–#15 have been reconciled with the package map below under maintenance #35; creating or rescoping them does not implement their gameplay. G1/#53 implements canonical bathymetry and its presentation without new gameplay. P2/#36 adds a deterministic shared-landmass scenario, independent tribe selection, reserved public beacons and produced later founders. The board is a **hex grid** with rules version 5 and generator version 5; the renderer draws hex fields from cubic voxels in 66×66-column chunks (`src/rendering/voxels.ts`), with territory borders, city name plates and voxel unit figures.
 
 Sizes in historical briefs are rough focused-development estimates: **S** 1–2 days, **M** 3–5 days, **L** 6–10 days. Re-estimate and split packages into narrow issues before execution when needed. Use the current package map and live *blocked by* issue relationships, not the obsolete brief-number sequence ([working order](../.github/copilot-instructions.md#working-order-issues-blocked-by-and-stacked-prs)). The completed foundation chain was #8 → #25 → #26 → #27 → #28 → #30.
 
 ## Detailed target delivery plan
 
-The remaining gameplay packages below remain planned; G1's generator/data/presentation increment is implemented here. Issue #32 was delivered by #33/#34 and is closed. Save maintenance #35 was delivered by #47 and is also closed: storage failures and the transport history boundary are covered, and the GitHub backlog is reconciled. It implemented no target gameplay. Documentation/capture refresh #48 records that integrated state without authorizing another merge, release or deployment.
+The remaining gameplay packages below remain planned; G1's generator/data/presentation increment and P2's shared-landmass scenario scaffold are implemented here. Issue #32 was delivered by #33/#34 and is closed. Save maintenance #35 was delivered by #47 and is also closed: storage failures and the transport history boundary are covered, and the GitHub backlog is reconciled. Documentation/capture refresh #48 records that integrated state without authorizing another merge, release or deployment.
 
 ### Baseline and working order
 
@@ -22,9 +22,9 @@ Before any package, reread current code/blockers, fix its test rules and accepta
 
 ### Existing dependencies and legacy issues
 
-**Current integration:** #20, #21, #22, #24, #29, #31, #33, #34 and #47 are merged. Foundation issues #8 and #25–#30, documentation issue #32 and save reliability #35 are closed. P2/#36 has no open blockers and is the next gameplay package, not completed gameplay.
+**Current integration:** #20, #21, #22, #24, #29, #31, #33, #34 and #47 are merged. Foundation issues #8 and #25–#30, documentation issue #32 and save reliability #35 are closed. P2/#36 implements the scenario/player scaffold; P3/#10 is the next gameplay package.
 
-The island/water design #50/#51 is merged at `30e6be5`. On 12 November 2026 Klaus approved extracting **G1/#53, canonical bathymetry and its presentation**, from P3a. G1 can be delivered before combat because it adds no boats or water movement; P2 remains the next gameplay package.
+The island/water design #50/#51 is merged at `30e6be5`. On 12 November 2026 Klaus approved extracting **G1/#53, canonical bathymetry and its presentation**, from P3a. G1 adds no boats or water movement; P2/#36 now implements the shared-landmass scaffold, and P3/#10 is next.
 
 The following GitHub relationships were configured during maintenance #35, read back after #47 merged, then updated for the approved G1 extraction after #51 on 12 November 2026. Parent #5's obsolete brief-number waves were synchronized with this map; its original native child links remain historical traceability, not delivery order. The parent stays open for unfinished gameplay. Check live state again before starting:
 
@@ -95,7 +95,7 @@ Acceptance: complete four tribes/common rules; historical main separated from th
 
 **Prerequisites:** P0 and the real six-PR chain. On main, prerequisite issues must actually be closed; alternatively use an expressly approved stacked basis.
 
-The foundation and save reliability #35/#47 are integrated on main at `c6c4cad`, with the prerequisite issues closed. Before new gameplay, reread then-current hex/city/messenger/storage/render contracts and run the existing checks. [Current screenshots and verification](../README.md#current-verification-and-screenshot-provenance) document the foundation, not P2+ gameplay. This completed gate is not permission to merge future work without review.
+The foundation and save reliability #35/#47 are integrated on main at `c6c4cad`, with the prerequisite issues closed. Before new gameplay, reread then-current hex/city/messenger/storage/render contracts and run the existing checks. [Current screenshots and verification](../README.md#current-verification-and-screenshot-provenance) document the foundation, not later combat/crossing gameplay. This completed gate is not permission to merge future work without review.
 
 Acceptance: selected basis has those contracts; two devices exchange valid current turns; incompatible saves survive; no square-grid assumptions in new packages. Resolve conflicts with any later predecessor changes.
 
@@ -107,23 +107,25 @@ Generate four stable depth tiers per water hex, irregular shallow-water areas an
 
 Acceptance: seeded repeatability; variable coastal widths and broad connected shallow extensions beyond two hexes, with deep-water gaps; no depth changes when nearby fog clears; hidden coasts and uncharted inspection remain protected; existing rendering/picking/resource bounds and fresh running-app visuals. No boats, Landing/Harbour, water movement or separate playable island starts. Final start/beacon reachability and fairness belong to P2/P3a.
 
-**Implemented:** generator v5, rules v4, required water depth in immutable tiles and the map checksum, four detailed seabed terraces, all four cap/inspection classes even in coarse views, and retained v3/v4 archives. Regression fixtures preserve v4 landforms/elevations/trees/RNG; multi-seed tests require broad connected upper-tier extensions at least three hex steps offshore, variable widths and deep-water gaps. Current messenger factions still start on one connected landmass and all water is impassable. [Fresh captures and verified evidence](../README.md#current-verification-and-screenshot-provenance) document G1, not completed P3a.
+**G1 implemented:** generator v5, rules v4, required water depth in immutable tiles and the map checksum, four detailed seabed terraces, all four cap/inspection classes even in coarse views, and retained v3/v4 archives. Regression fixtures preserve v4 landforms/elevations/trees/RNG; multi-seed tests require broad connected upper-tier extensions at least three hex steps offshore, variable widths and deep-water gaps. P2 adds validated starts and beacons on one connected landmass under rules v5; all water remains impassable. [Fresh captures and verified evidence](../README.md#current-verification-and-screenshot-provenance) document G1 and P2, not completed P3a.
 
 ### P2 — Scenario, player slots and content scaffold
 
-**Prerequisites:** P1.
+**Prerequisites:** P1. **Implemented as rules v5 / scenario v1.**
 
-Separate player/tribe IDs; define a small map with two validated starts, three reserved public beacons and six-direction topology. Use common class profiles first, without pretending full tribal content exists.
+Separate player slots from tribe choices; define a deterministically validated shared-landmass layout with two starts, three reserved public beacons and six-direction topology. Keep tribes presentation-only and use the existing common unit/economy rules; this is not the full tribal content or a complete match.
 
 Acceptance:
 
-- Host/first player not tribe-bound; free independent choice, including mirrors. Ownership, commands/research remain player-specific; exports contain matching scenario data.
-- One free initial founder/scout, equal disclosed stocks, no completed army; later founders are production decisions.
-- Start geography (E15): P2 delivers validated **shared-landmass** layouts: land paths start↔start and start↔beacon, room for at least two further city sites, at least two free land tiles beside each beacon and travel turns within 1 between mirrored targets. Reject failing maps instead of bridging them; other islands hold nothing required. Home-island and beacon-island layouts follow in P3a with the same validator extended by coastal-water legs.
-- Measure weighted routes and start resources; mirrored appearance alone proves no fairness.
+- Host/first player is not tribe-bound; each player chooses independently, including mirrors. Faction/player ownership remains distinct from tribe IDs. Turn packages carry the scenario version and both tribe choices; starts and beacons are reconstructed from the map seed.
+- One free initial founder and scout per player, no completed army. The current prototype has no faction-level stockpile, so neither player receives one; the existing city-local food/material economy starts only after founding. Later founders are production decisions, gated by remaining city capacity.
+- Start geography (E15): validated **shared-landmass** layouts have land paths between starts and every beacon, room for at least two further legal city sites per player after reserved scenario tiles, at least two free land tiles beside each beacon and weighted travel turns within 1 between mirrored targets. Reject failing maps instead of bridging them; other islands hold nothing required. Home-island and beacon-island layouts follow in P3a with the same validator extended by coastal-water legs.
+- Measure weighted routes and compare the available start package. Resource fairness cannot yet be measured: map resource markers are presentation-only and faction inventories are not implemented. Do not treat mirrored appearance or absent resource data as evidence of future economic fairness.
 - Validate IDs/references/class definitions; do not reinterpret Meridian/Lantern saves.
 
 Version impact: content/schema for player/tribe selection; generator only for canonical generation/placement change, not merely a curated fixture with its own scenario version.
+
+**Implemented:** deterministic starts on the largest connected landmass, one adjacent founder per player, three public non-settlement beacons, a route-fairness validator using current movement costs, reserved settlement space, independent tribe choices and the first additional-founder production decision. Rules v5 records the changed command outcomes; scenario v1 identifies the placement contract without changing generator v5. Beacons are public map objectives only: activation, combat and victory remain later packages. Tests cover mirrored tribes, repeatable placements, weighted routes, reserved land, rejection of unsuitable seeds and replay/package tampering.
 
 ### P3 — Visibility-safe combat foundation
 

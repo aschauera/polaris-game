@@ -7,6 +7,7 @@ import {
 import { HEX_RADIUS, HEX_ROW, hexCenter } from '../game/hex'
 import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
+import type { ScenarioBeacon } from '../game/scenario'
 import { figureMesh, type FigureKind } from './figures'
 import { chunkKey, detailWindow } from './detail'
 import { RESOURCES, type ResourceKind } from './resources'
@@ -48,6 +49,7 @@ export interface ExplorationView {
   readonly settlements?: readonly SettlementView[]
   /** Units the viewer may see; defaults to the viewer's gold scout. */
   readonly units?: readonly UnitView[]
+  readonly beacons?: readonly ScenarioBeacon[]
 }
 
 export interface RenderStats {
@@ -85,6 +87,7 @@ const VIEW = new Vector3(Math.cos(YAW) * Math.cos(PITCH), Math.sin(PITCH), Math.
 /** World height above a tile surface where a city's name plate floats, over its keep. */
 const PLATE_HEIGHT = 0.95
 const MAX_RESOURCE_MARKERS = 128
+const BEACON_MARKER_HEIGHT = 1.5
 /** Water glints redraw at this interval rather than every display frame, which bounds GPU and battery use. */
 const GLINT_FRAME_MS = 80
 /** Glint cells start at one finest voxel and double until each covers this many framebuffer pixels. */
@@ -377,8 +380,10 @@ export class WorldRenderer {
   private exploration?: ExplorationView
   private figures: Mesh[] = []
   private plates: { element: HTMLElement; tileId: number }[] = []
+  private beaconMarkers: { element: HTMLElement; tileId: number }[] = []
   private unitTargets: { element: HTMLButtonElement; position: Vector3 }[] = []
   private readonly resourceMarkers = new Map<number, HTMLElement>()
+  private beaconTiles = new Set<number>()
   private fogUpdates = 0
   private map?: WorldMap
   private target = Vector3.Zero()
@@ -574,6 +579,8 @@ export class WorldRenderer {
     this.exploration = undefined
     this.clearFigures()
     this.clearPlates()
+    this.clearBeacons()
+    this.beaconTiles.clear()
     this.clearResourceMarkers()
     this.pointer = undefined
     this.touches.clear()
@@ -705,6 +712,7 @@ export class WorldRenderer {
     if (!map || !world || !tileState) return
     const previous = this.exploration
     this.exploration = view
+    this.beaconTiles = new Set(view?.beacons?.map(beacon => beacon.tileId))
     const ids = dirtyTiles && previous && view
       ? new Set([...dirtyTiles, ...previous.reachable, ...view.reachable])
       : new Set(map.tiles.map(tile => tile.id))
@@ -749,6 +757,7 @@ export class WorldRenderer {
     this.fogUpdates += ids.size
     this.buildFigures(view)
     this.buildPlates(view)
+    this.buildBeacons(view?.beacons)
     this.updateGlint()
     this.shadowsStale = true
     this.invalidate()
@@ -876,12 +885,40 @@ export class WorldRenderer {
       element.style.left = `${this.canvas.offsetLeft + point.x}px`
       element.style.top = `${this.canvas.offsetTop + point.y}px`
     }
+    for (const { element, tileId } of this.beaconMarkers) {
+      const tile = map.tiles[tileId]!
+      const [x, z] = hexCenter(tile.x, tile.z)
+      const point = Vector3.Project(new Vector3(x, BEACON_MARKER_HEIGHT, z), Matrix.Identity(), transform, viewport)
+      element.hidden = point.x < 0 || point.y < 0 || point.x > width || point.y > height
+      element.style.left = `${this.canvas.offsetLeft + point.x}px`
+      element.style.top = `${this.canvas.offsetTop + point.y}px`
+    }
     this.placeResourceMarkers(transform, viewport)
+  }
+
+  private buildBeacons(beacons?: readonly ScenarioBeacon[]): void {
+    this.clearBeacons()
+    for (const [index, beacon] of (beacons ?? []).entries()) {
+      const element = document.createElement('div')
+      element.className = 'beacon-marker'
+      element.setAttribute('role', 'img')
+      element.setAttribute('aria-label', `Public beacon ${index + 1} · ${beacon.role.replace('-', ' ')}`)
+      element.textContent = `✦ ${index + 1}`
+      this.plateLayer.append(element)
+      this.beaconMarkers.push({ element, tileId: beacon.tileId })
+    }
+    this.placePlates()
+  }
+
+  private clearBeacons(): void {
+    for (const { element } of this.beaconMarkers) element.remove()
+    this.beaconMarkers = []
   }
 
   resource(id: number): ResourceKind | undefined {
     const tile = this.map?.tiles[id]
-    return tile && this.world && this.known[id] === 1 ? resourceAt(this.world, tile) : undefined
+    return tile && this.world && this.known[id] === 1 && !this.beaconTiles.has(id)
+      ? resourceAt(this.world, tile) : undefined
   }
 
   private clearResourceMarkers(): void {
@@ -1188,6 +1225,8 @@ export class WorldRenderer {
     this.engine.stopRenderLoop()
     this.instrumentation.dispose()
     this.clearPlates()
+    this.clearBeacons()
+    this.beaconTiles.clear()
     this.clearResourceMarkers()
     this.plateLayer.remove()
     this.figures = []

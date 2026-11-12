@@ -19,6 +19,7 @@ export interface ExpeditionSummary {
   scoutSelected: boolean
   unitSelected: boolean
   unitName?: string
+  scenarioPlayer?: string
   canOrder: boolean
   // Messenger matches lock the controls while the opponent is on turn; a solo expedition always may act.
   canAct?: boolean
@@ -61,6 +62,7 @@ export function createHud() {
         <section id="expedition" class="expedition" aria-label="Expedition controls" hidden>
           <div class="section-label">EXPEDITION</div>
           <p id="turn-info" aria-live="polite" aria-atomic="true"></p>
+          <p id="scenario-player"></p>
           <p id="scout-info"></p>
           <p id="exploration-info"></p>
           <button id="select-scout" aria-pressed="false">Select scout</button>
@@ -137,13 +139,16 @@ export function createHud() {
   }))
   const directions = Object.fromEntries(SCREEN_DIRECTIONS.map(direction =>
     [direction, get<HTMLButtonElement>(`move-${direction}`)])) as Record<ScreenDirection, HTMLButtonElement>
-  const selection = (tile?: Tile, resource?: string) => {
-    get('selection').textContent = tile ? `(${tile.x}, ${tile.z}) · ${terrainName(tile)} · Tile ${tile.id}` : 'No tile selected'
+  const selection = (tile?: Tile, resource?: string, beacon?: string) => {
+    get('selection').textContent = tile
+      ? `(${tile.x}, ${tile.z}) · ${terrainName(tile)} · Tile ${tile.id}${beacon ? ` · ${beacon}` : ''}`
+      : 'No tile selected'
     get('resource-info').hidden = !tile || !resource
     get('resource-info').textContent = tile && resource ? `${resource} · Visual occurrence; harvesting is not available yet.` : ''
   }
-  const hover = (tile?: Tile, resource?: string) => {
-    get('hover').textContent = tile ? `Surveying (${tile.x}, ${tile.z}) · ${terrainName(tile)}${resource ? ` · ${resource}` : ''}`
+  const hover = (tile?: Tile, resource?: string, beacon?: string) => {
+    get('hover').textContent = tile
+      ? `Surveying (${tile.x}, ${tile.z}) · ${terrainName(tile)}${resource ? ` · ${resource}` : ''}${beacon ? ` · ${beacon}` : ''}`
       : 'Hover over the map to survey a tile.'
   }
   return {
@@ -202,6 +207,8 @@ export function createHud() {
       }
       const canAct = summary.canAct !== false
       get('turn-info').textContent = `Turn ${summary.round} · ${summary.faction}${summary.status ? ` · ${summary.status}` : ''}`
+      get('scenario-player').textContent = summary.scenarioPlayer ?? ''
+      get('scenario-player').hidden = !summary.scenarioPlayer
       const name = summary.unitName && summary.unitName[0]!.toUpperCase() + summary.unitName.slice(1)
       get('scout-info').textContent = name ? `${name} · ${summary.movement}/${summary.maxMovement} movement` : 'No unit selected'
       get('exploration-info').textContent = `${summary.discovered}/${summary.total} tiles charted`

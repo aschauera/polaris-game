@@ -124,11 +124,12 @@ describe('match storage', () => {
     expect(currentMatchId(storage)).toBe(OTHER_ID)
   })
 
-  it('keeps older-rule saves unchanged and listed without replaying them under new movement rules', () => {
-    const raw = JSON.stringify({ faction: 'meridian', match: { ...exportMatch(MATCH_ID, match()), rules: 3 } })
+  it.each([3, 4])('keeps rules-v%s saves unchanged and listed without replaying them under new rules', rules => {
+    const raw = JSON.stringify({ faction: 'meridian',
+      match: { ...exportMatch(MATCH_ID, match()), rules, scenario: undefined } })
     const storage = memoryStorage({ [PREFIX + MATCH_ID]: raw, [CURRENT]: MATCH_ID })
     expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
-      ok: false, reason: expect.stringMatching(/has been kept.*game rules 3.*uses 4/),
+      ok: false, reason: expect.stringMatching(new RegExp(`has been kept.*game rules ${rules}.*uses 5`)),
     })
     expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
     expect(currentMatchId(storage)).toBeUndefined()

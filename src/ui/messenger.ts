@@ -1,5 +1,7 @@
+import { TRIBES, TRIBE_IDS, type TribeId } from '../game/scenario'
+
 export interface MessengerHandlers {
-  start(): void
+  start(tribes: readonly [TribeId, TribeId]): void
   open(text: string): void
   openFile(file: File): void
   resume(matchId: string): void
@@ -68,6 +70,12 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
     <div id="messenger-intro">
       <p>Two players, no server: finish your turn, send it through any messenger, and your opponent answers the same way.
         Run as many matches as you like; each one is kept on this device.</p>
+      <label for="messenger-player-one-tribe">Player 1 tribe</label>
+      <select id="messenger-player-one-tribe"></select>
+      <label for="messenger-player-two-tribe">Player 2 tribe</label>
+      <select id="messenger-player-two-tribe"></select>
+      <p>Each player starts with one free scout and founder; there is no starting army or global stockpile.
+        Tribes are presentation-only. Choose independently; mirror matches are allowed.</p>
       <button id="messenger-start" type="button" disabled>Start messenger match</button>
     </div>
     <div id="messenger-saved" hidden>
@@ -121,6 +129,19 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
   const status = get('messenger-status')
   const intro = get('messenger-intro')
   const start = get<HTMLButtonElement>('messenger-start')
+  const tribeChoices = [
+    get<HTMLSelectElement>('messenger-player-one-tribe'),
+    get<HTMLSelectElement>('messenger-player-two-tribe'),
+  ] as const
+  for (const choice of tribeChoices) {
+    choice.replaceChildren(...TRIBE_IDS.map(id => {
+      const option = document.createElement('option')
+      option.value = id
+      option.textContent = TRIBES[id]
+      return option
+    }))
+  }
+  tribeChoices[1].value = 'raccoons'
   const outboxGroup = get('messenger-outbox')
   const outboxText = get('messenger-outbox-text')
   const share = get<HTMLButtonElement>('messenger-share')
@@ -170,7 +191,11 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
   }
 
   share.hidden = typeof navigator.share !== 'function'
-  start.addEventListener('click', () => handlers.start())
+  start.addEventListener('click', () => {
+    const first = TRIBE_IDS.find(id => id === tribeChoices[0].value)
+    const second = TRIBE_IDS.find(id => id === tribeChoices[1].value)
+    if (first && second) handlers.start([first, second])
+  })
   get('messenger-open').addEventListener('click', () => handlers.open(inbox.value))
   get('messenger-open-file').addEventListener('click', () => file.click())
   file.addEventListener('change', () => {

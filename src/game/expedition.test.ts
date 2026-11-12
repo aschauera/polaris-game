@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { GENERATOR_VERSION, generateMap, type Terrain, type WorldMap } from './map'
 import {
-  applyCommand, cityYields, createExpedition, findPath, knownTile, movementRange, neighbors, SCOUT, unitsOf, visibilityAt,
+  applyCommand, cityYields, createExpedition, findPath, knownTile, movementRange, neighbors, SCOUT, UNIT_RULES, unitsOf,
+  visibilityAt,
   type Command, type Expedition,
 } from './expedition'
 
@@ -368,6 +369,30 @@ describe('city founding, economy and production', () => {
       .toMatchObject({ ok: false, state, reason: 'This city already has a storehouse.' })
     state = accepted(state, { type: 'end-turn', factionId: 'meridian', sequence: 6 })
     expect(state.cities[0]!.materials).toBe(18)
+  })
+
+  it('produces a later founder only when another city can still be founded', () => {
+    const initial = foundingFixture()
+    const founded = applyCommand(initial, found(initial))
+    expect(founded.ok).toBe(true)
+    if (!founded.ok) return
+    const city = founded.state.cities[0]!
+    const stocked = Object.freeze({ ...founded.state,
+      cities: Object.freeze([Object.freeze({ ...city, materials: 11 })]),
+    })
+    let state = accepted(stocked, { type: 'queue-production', cityId: city.id,
+      itemId: 'founder', factionId: 'meridian', sequence: 2 })
+    expect(state.cities[0]!.production).toEqual({ itemId: 'founder', progress: 0 })
+    state = accepted(state, { type: 'end-turn', factionId: 'meridian', sequence: 3 })
+    expect(state.founders).toEqual([expect.objectContaining({
+      id: 'founder-meridian-1', factionId: 'meridian', movement: UNIT_RULES.founder.movement,
+    })])
+    expect(neighbors(state.map, city.tileId)).toContain(state.founders[0]!.tileId)
+    expect(state.cities[0]!.production).toBeUndefined()
+    expect(state.nextUnitId).toBe(2)
+    expect(applyCommand(state, { type: 'queue-production', cityId: city.id,
+      itemId: 'founder', factionId: 'meridian', sequence: 4 }))
+      .toMatchObject({ ok: false, reason: 'This faction has no remaining city site for another founder.' })
   })
 })
 
