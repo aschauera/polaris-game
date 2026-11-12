@@ -2,7 +2,7 @@
 
 **Canonical delivery plan, status checked 12 November 2026:** this document owns the full target packages, dependencies, acceptance and test strategy. [Game design](game-design.md#target-status-and-baseline) owns complete rules, lore, catalogs and decision status; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical version/save contracts. Foundation PRs #20 → #21 → #22 → #24 → #29 → #31, design #33/#34 and save reliability #47 are integrated into main at `c6c4cad`; their prerequisite issues are closed. The target gameplay remains planned.
 
-**New delivery order:** existing hex/city/messenger/graphics foundation → complete two-human match with three common classes, three beacons, city capture and end conditions → six-resource/worker/city economy with the chosen small common research tree → first four-tribe slice with one characteristic ability each → six mixed plus four mirror pairings with swapped starts → further documented tribal catalogs. Diplomacy, policies and AI are optional later. Research is not required before the isolated first combat/victory slice, but its unlocks govern the complete economy. This supersedes the historical future sequencing below, not implemented regression contracts or real GitHub blockers.
+**New delivery order:** existing hex/city/messenger/graphics foundation → complete two-human match with three common classes, common coastal crossing for island maps, three beacons, city capture and end conditions → six-resource/worker/city economy with the chosen small common research tree → first four-tribe slice with one characteristic ability each → six mixed plus four mirror pairings with swapped starts → further documented tribal catalogs. Diplomacy, policies and AI are optional later. Research is not required before the isolated first combat/victory slice, but its unlocks govern the complete economy. This supersedes the historical future sequencing below, not implemented regression contracts or real GitHub blockers.
 
 Confirmed directions and numeric caveats are recorded once in the [design decision register](game-design.md#target-decision-register). Acceptance below exercises those rules; it does not turn provisional values into measured balance.
 
@@ -31,8 +31,9 @@ The following GitHub relationships were configured during maintenance #35 and re
 | Save reliability (completed via #47) | [#35](https://github.com/aschauera/polaris-game/issues/35) | #30 (closed) |
 | P2 scenario/player scaffold | [#36](https://github.com/aschauera/polaris-game/issues/36) | #30, #32, #35 (all closed) |
 | P3 visibility-safe combat | [#10](https://github.com/aschauera/polaris-game/issues/10) | #36 |
+| P3a water crossing/island scenarios | [#52](https://github.com/aschauera/polaris-game/issues/52) | #10 |
 | P4 city capture/occupation | [#37](https://github.com/aschauera/polaris-game/issues/37) | #10 |
-| P5 beacons/results | [#15](https://github.com/aschauera/polaris-game/issues/15) | #37 |
+| P5 beacons/results | [#15](https://github.com/aschauera/polaris-game/issues/15) | #37, #52 |
 | P6 complete two-human match | [#38](https://github.com/aschauera/polaris-game/issues/38) | #15 |
 | P7 resources/worker jobs | [#9](https://github.com/aschauera/polaris-game/issues/9) | #38 |
 | F1 small common research | [#11](https://github.com/aschauera/polaris-game/issues/11) | #9 |
@@ -47,7 +48,7 @@ The following GitHub relationships were configured during maintenance #35 and re
 | F3 optional diplomacy | [#13](https://github.com/aschauera/polaris-game/issues/13) | #38, #46 |
 | F4 optional AI | [#14](https://github.com/aschauera/polaris-game/issues/14) | #44; F1 too if its mode uses research |
 
-Before P13 starts, record whether deliveries are included and add #41 as an actual blocker when they are. #12 is closed as superseded, **not implemented**: its remaining information-safe combat acceptance belongs to P3/#10. The research part of old #11 is F1; policies are separately tracked in #45. Old #14's faction content belongs to #42/#43; #14 now tracks later AI. No mandatory AI/diplomacy edge remains before core victory.
+Before P13 starts, record whether deliveries are included and add #41 as an actual blocker when they are. P3a/#52 was added on 12 November 2026 for island maps (E15/E17); it is blocked by #10 and blocks #15. #12 is closed as superseded, **not implemented**: its remaining information-safe combat acceptance belongs to P3/#10. The research part of old #11 is F1; policies are separately tracked in #45. Old #14's faction content belongs to #42/#43; #14 now tracks later AI. No mandatory AI/diplomacy edge remains before core victory.
 
 <details>
 <summary>Historical pre-integration snapshot from the original documentation</summary>
@@ -73,7 +74,7 @@ The intended integration was **#20 → #21 → #22 → #24 → #29 → #31 → #
 | --- | --- | --- |
 | M0 concept | Saved target, baseline, decisions and order | Gameplay code |
 | M1 integrated foundation | Hex cities, deterministic messenger, compatible storage | New economy/tribes |
-| M2 complete core | Two humans, small fair map, three classes/beacons, conquest and explicit result | Full tribal buildings, research, diplomacy, AI |
+| M2 complete core | Two humans, small fair map on one landmass or separate islands, common coastal crossing, three classes/beacons, conquest and explicit result | Full tribal buildings, research, diplomacy, AI |
 | M3 viable economy | Six resources, work, unlimited city expansion, hunger, supply and small common research tree | Full special effects |
 | M4 initial four tribes | Common classes/civilians and one characteristic ability each, free choice/mirrors | Entire three-tier buildings/all abilities |
 | M5 verified matches | Six mixed/four mirror pairings, swapped starts, measured resource/counter/duration problems | Final balance claim |
@@ -105,7 +106,7 @@ Acceptance:
 
 - Host/first player not tribe-bound; free independent choice, including mirrors. Ownership, commands/research remain player-specific; exports contain matching scenario data.
 - One free initial founder/scout, equal disclosed stocks, no completed army; later founders are production decisions.
-- Every beacon on legal reachable land, no required water crossing or impassable bottleneck.
+- Start geography (E15): P2 delivers validated **shared-landmass** layouts: land paths start↔start and start↔beacon, room for at least two further city sites, at least two free land tiles beside each beacon and travel turns within 1 between mirrored targets. Reject failing maps instead of bridging them; other islands hold nothing required. Home-island and beacon-island layouts follow in P3a with the same validator extended by coastal-water legs.
 - Measure weighted routes and start resources; mirrored appearance alone proves no fairness.
 - Validate IDs/references/class definitions; do not reinterpret Meridian/Lantern saves.
 
@@ -127,6 +128,23 @@ Acceptance:
 
 Version impact: rules and command/transport shape where needed; hashes include health/all budgets.
 
+### P3a — Water crossing and island scenarios
+
+**Prerequisites:** P3. Use E15/E17 from the [decision register](game-design.md#target-decision-register) and the [water crossing rules](game-design.md#water-crossing); E18 tribal water styles stay in P12.
+
+Generate stable per-water-hex bathymetry classes over the four broad underwater terraces; add the common Landing project, embark/disembark commands, boats at sea, land attacks on boats and Bulwark zones over water; extend scenario placement/validation to home-island and beacon-island layouts; add voxel boat and Landing pier presentation.
+
+Acceptance:
+
+- Each water hex has one deterministic navigation tier matching its terrain: shallow and shoal allow ordinary boats; shelf and deep require a deep-water-capable boat. The tier field follows warped coasts and broad underwater sandbanks, not a fixed distance from land. Sandbank water is navigable but never walkable or a landing surface; sub-hex decoration cannot change a tile's class.
+- Shallow-water routes may extend irregularly away from shore along sandbanks. Validate that both starts and every beacon are connected by land plus shallow water through the common Landing; maps that fail room, contestability or mirrored travel-turn fairness are rejected, never repaired. Verify swapped starts and deep-water-only expansion islands.
+- Build a Landing only in a city beside shallow water. Initial embark requires a Landing in the owning city's territory and movement left; once equipped, a unit retains its vessel ashore and can re-embark from any land tile beside free water its vessel can enter, with no second city required. Embarking and disembarking each end movement and attack. Never disembark into an enemy city centre; a landing never attacks, captures or activates a beacon that turn.
+- Ordinary boats move 3 per turn in shallow water and cannot enter deep water. Harbour-equipped boats enter deep water at 2 movement per hex and retain that capability after landing and re-embarking. Boats occupy one tile, traverse own boats, are blocked by enemies and stop on entering a Bulwark zone. They cannot attack, entrench, rest, found, work, capture or activate; land attacks deal a neutral 4 without counter. No boat-versus-boat combat.
+- Boats are hidden and revealed like land units; previews, paths and rejection reasons leak no hidden boats.
+- Fresh running-app captures of boats and piers, delivered separately as Visual overview.
+
+Version impact: rules (depth classes, commands, retained vessel capability), content (Landing), scenario/generator for bathymetry and island placement; bump the generator version if canonical generated depths/routes change; schema for water class and vessel state.
+
 ### P4 — City attacks, capture and occupation
 
 **Prerequisites:** P3. Use E8 civilian direction; M2 retains existing material economy.
@@ -144,7 +162,7 @@ Acceptance:
 
 ### P5 — Beacon victory and final result
 
-**Prerequisites:** P4. Use E1 confirmed war start and documented round boundaries.
+**Prerequisites:** P4 and P3a. Use E1 confirmed war start and documented round boundaries.
 
 Activation spends attack for any combat class; implement public ownership, immediate reset, victory/defeat/draw and result lock.
 
@@ -162,7 +180,7 @@ Acceptance:
 
 Two humans complete a link/code/file match. Narrow integration gate, not a new feature collection.
 
-Acceptance: reproducible setup, complete turns, combat, capture, beacon recapture, result and resume. Duplicate/late/corrupt/wrong packages do not mutate a match. Test long logs/storage limits with new commands. UI explains the intermediate mode without promising absent economy/tribal bonuses. Fresh running-app captures for any visual changes, separately delivered as Visual overview.
+Acceptance: reproducible setup, complete turns, combat, capture, beacon recapture, result and resume, on one shared-landmass map and one map with home islands and a beacon island. Duplicate/late/corrupt/wrong packages do not mutate a match. Test long logs/storage limits with new commands. UI explains the intermediate mode without promising absent economy/tribal bonuses. Fresh running-app captures for any visual changes, separately delivered as Visual overview.
 
 ### P7 — Six resources and worker jobs
 
@@ -194,6 +212,7 @@ Acceptance:
 - Unstaffed starting centre prevents economic deadlock.
 - Population 4/7 plus administration enables radius 2/3, never free full rings.
 - Connected unambiguous coastal claims/fisheries without walking on water.
+- Common Harbour as a paid Landing upgrade without research; boats first embarked there may enter shelf/deep water at 2 movement per hex and retain that vessel capability after landing (E17).
 - No city cap: third/later cities foundable/capturable. Spacing 3 illegal, 4 legal otherwise; overlapping catchments retain unique ownership.
 - Test founder 36 work vs basic soldier 12, plus wood/stone/12 local food. Provisions, death, cancellation and blocked output neither create food nor silently remove population.
 - Housing 6 through Cultivation Methods before population 4, administration/radius 2 afterward; housing 9 before population 7. No per-city free research or cyclic unlock.
@@ -244,13 +263,15 @@ Choose **exactly one initial characteristic ability per tribe** from the catalog
 
 Acceptance: correct wood/crystal prices, single charges, movement/attack budgets. No protection/healing stacks, fog teleports, zone bypass, free repair or city-switch recharging. No blanket Engineer superiority; Raccoons viable without ruins; Amazons pay alternative connection through building opportunity cost; Sorceresses retain basic counters without crystals.
 
+Tribal water styles (E18) belong here only after both maintainers approve them: Amazon canoes (faster in shallow water), Raccoon drift rafts (cheap initial embark, shallow water only), Engineer bridges (shallow-water hexes, usable by enemies and removable) and Sorceress star navigation (deep water without a Harbour), each with the bounds in the [design](game-design.md#water-crossing). They never change map validation, never let boats attack and never remove the response turn after a landing.
+
 ### P13 — M5 pairings, resources and first-player advantage
 
 **Prerequisites:** P12; also P10 if the tested mode includes deliveries.
 
 Ten unordered pairings: Amazons–Raccoons, Amazons–Engineers, Amazons–Sorceresses, Raccoons–Engineers, Raccoons–Sorceresses, Engineers–Sorceresses, plus Amazons–Amazons, Raccoons–Raccoons, Engineers–Engineers and Sorceresses–Sorceresses. Repeat each with starts/first player swapped. Twenty matches give initial full coverage, **not statistical balance validation**. Also independently cross position and first player if the scenario permits them to vary separately. Mirrors must prove separate ownership/research despite the same tribe.
 
-Acceptance: publish seeds, versions, starts, logs and evaluation. Measure first beacon contact, victory time, counter access, shortages, hunger/debt, class shares, blockades and first-player win rate. Agree measurable ranges beforehand, never select thresholds after favorable results. Justify balance changes separately and repeat swapped conditions.
+Acceptance: publish seeds, versions, starts, logs and evaluation. Run pairings on shared-landmass and island maps when the release map set contains both, and record first landing, crossing times and tribal water-style effects. Measure first beacon contact, victory time, counter access, shortages, hunger/debt, class shares, blockades and first-player win rate. Agree measurable ranges beforehand, never select thresholds after favorable results. Justify balance changes separately and repeat swapped conditions.
 
 ### Additional and later packages
 
@@ -260,11 +281,11 @@ Acceptance: publish seeds, versions, starts, logs and evaluation. Measure first 
 | F2 society/policies | P9, F1 | Few meaningful choices; stability/unrest not mere numerical burden or double occupation punishment |
 | F3 diplomacy | P6 and separate peace/beacon decision | Consistent peace/war/pacts serialization without retroactively blocking core mode |
 | F4 AI | P13; optional F1 only if playing research | Same commands/fog, deterministic bounded search, no hidden bonuses; measure worst-case work |
-| F5 further resources/world rules | P13 and specific approval | Clear-cutting, depletion, ships, bridges or victories individually, never introduced incidentally by graphics |
+| F5 further resources/world rules | P13 and specific approval | Clear-cutting, depletion, naval combat/warships, rivers with river bridges or further victories individually, never introduced incidentally by graphics; common water crossing is P3a and the Harbour P8, not F5 |
 | F6 distribution/platforms | M5 and separate product decision | No unapproved replacement of browser/messenger; evaluate native packaging separately |
 | F7 complete tribal expansion | P13, F1 and approval of next catalog stage | Further documented unit/building tiers/abilities individually; retest ten pairings and recycling/protection limits each increment |
 
-**F1 detailed acceptance:** all eight technologies/applications accessible without gating basic supply/counters. Fixture baseline 1/faction, staffed workplace +1, costs 5/8; first unspecialized technology in 5 own endings within test target 4–6. Switching preserves technology-specific points without transferable credit; capture copies no research. Housing 6 before population 4 and housing 9 before 7 prevent deadlock.
+**F1 detailed acceptance:** all eight technologies/applications accessible without gating basic supply/counters. No movement technology: hill and water movement are not research-gated (E16); Landing and Harbour need no research. Fixture baseline 1/faction, staffed workplace +1, costs 5/8; first unspecialized technology in 5 own endings within test target 4–6. Switching preserves technology-specific points without transferable credit; capture copies no research. Housing 6 before population 4 and housing 9 before 7 prevent deadlock.
 
 F1 does **not** depend on P8 or P11. Implement/test its baseline and minimal knowledge workplace against P7 definitions/explicit assignment fixtures; complete general workforce/territory integration in P8. No dependency on future tribal buildings is needed.
 
@@ -273,7 +294,9 @@ F1 does **not** depend on P8 or P11. Implement/test its baseline and minimal kno
 Required package edges (not an ordering inferred from numbering):
 
 ```text
-P0 -> P1 -> P2 -> P3 -> P4 -> P5 -> P6 -> P7 -> F1
+P0 -> P1 -> P2 -> P3 -> P4
+P3 -> P3a
+P4 + P3a -> P5 -> P6 -> P7 -> F1
 P7 + F1 -> P8 -> P9
 P9 + F1 -> P10
 P9 + F1 -> P11 -> P12 -> P13
