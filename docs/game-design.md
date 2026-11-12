@@ -56,7 +56,7 @@ A static glow marks own units with at least one legal destination. Exhausted or 
 
 ### Implemented: play by messenger
 
-Two people can play **Meridian Union** (host, moves first) and **Lantern Compact** (guest) on the same seeded world without a server. On their own turn a player gives legal orders, then ends the turn. The finished turn travels as a link, a code or a file through any chat, and the opponent's device replays it and takes over. Turns strictly alternate; the round counter increases after both factions have played. Nothing resolves simultaneously, and an opponent's message can never contain orders for the receiving player's side. A player can run several matches with different people at once; each received turn opens its own match after the current one is safely saved, and a list shows where it is their turn.
+Two people can play **Meridian Union** (host, moves first) and **Lantern Compact** (guest) on the same seeded world without a server. Both start on the largest connected landmass: the host on its land hex nearest the map centre, the guest on its land hex at the greatest hex distance from the host (ties use the lower tile ID), so the rivals can always meet over land. On their own turn a player gives legal orders, then ends the turn. The finished turn travels as a link, a code or a file through any chat, and the opponent's device replays it and takes over. Turns strictly alternate; the round counter increases after both factions have played. Nothing resolves simultaneously, and an opponent's message can never contain orders for the receiving player's side. A player can run several matches with different people at once; each received turn opens its own match after the current one is safely saved, and a list shows where it is their turn.
 
 The messenger transport retains at most 10,000 orders per match, with the final slot reserved for End turn. At capacity, no further orders are accepted; this is not victory/defeat/draw and does not change solo rules. Readable already-over-limit archives stay stored and listed without replay. Storage failures show a persistent warning and keep an unsaved match open when shelving or switching; explicit Leave is the discard path. Keep the page open and save/send a completed turn before leaving if local storage is unavailable.
 
@@ -128,6 +128,8 @@ Use the fixed six-neighbour order east, south-east, south-west, west, north-west
 Each starting region needs food, reachable wood/stone and a reliable early metal path, not necessarily all inside the first city. Crystals and ruins may be contested. Random placement must never deny a tribe its three basic counters.
 
 Three neutral beacons occupy reserved legal land: one nearer each start and one contested central site. All are reachable without ships. Compare **weighted path cost**, choke points, arrival time and supply access, not just geometric distance. Fair routes need not look identical. Beacons cannot double as city or resource sites.
+
+**Chosen: shared start landmass.** Both starts and all three beacons lie on **one connected landmass**, so the rivals always meet over land, possibly along coasts or around bays. Scenario validation proves a land path from each start to the other start and to every beacon. When no landmass offers both starts at a fair distance, room for further cities at the minimum spacing and three beacons, reject that seed or fixture and use another validated map; never repair it with land bridges, ships or a teleport. Other islands may exist and be seen from the coast, but land units cannot reach them, and nothing needed for victory or the three basic counters lies only there. Crossing water through embarkation, ships or bridges remains the separately approved later package F5; it must never become a prerequisite of the core match.
 
 ### Visibility and public objectives
 
@@ -558,6 +560,8 @@ No mind control, whole lost enemy turns, infinite summons, unlimited healing/pro
 
 Basic food, wood, stone, simple metal, all three basic classes and beacon activation are available **from the start**. No basic class or essential healing/supply is gated behind research, crystals or ruins. Local first-ring yields need no Roadbuilding; outlying facilities and intercity deliveries need their stated unlocks.
 
+**Confirmed: no movement research.** Every land unit may enter hills from the start at movement cost 2; water stays impassable to land units. No technology unlocks or cheapens hill or water movement. A request to gate hill/water movement behind research (#11) was rejected on 12 November 2026. Water crossing belongs to F5, not this tree.
+
 One active project per **player faction**, not tribe/city. A small fixed faction baseline exists once even with many cities: no free research per new city. Staffed knowledge buildings add output at population/slot cost. Switching preserves progress **on each technology**, neither deleting nor transferring points. No selected project means no unallocated banked research.
 
 Conquest transfers neither technologies, partial progress nor active projects. After common occupation/staffing rules, a captured knowledge building may generate future own research, never steal past knowledge. Mirrors retain separate research. An ending invests only in its selected project, with no overwrite of prior points or automatic overflow into another.
@@ -666,6 +670,8 @@ Confirmed product decisions, provisional rules and actual open choices are separ
 | E12 | Target identities; provisional names/assets | No gender-dependent stats; cultural dress as above | **Open:** final names and actual art |
 | E13 | **Test rules:** visibility-safe actions | No hidden state via previews/reasons | Contact stop, line of fire, bounded reconnaissance |
 | E14 | **Unmeasured:** scenario/first player | Weighted routes, victory 2 of 3 through 3 endings; test round cap 40 | Set release maps and measurable balance acceptance before M5 |
+| E15 | **Chosen:** shared start landmass | Both starts and all three beacons on one connected landmass; players always meet over land; unsuitable maps are rejected, not bridged | P2 validates land paths start↔start and start↔beacon; water crossing stays F5 |
+| E16 | **Confirmed:** no movement research | Hills cost 2 movement from the start; water impassable to land units; #11 request rejected | No movement technology in F1; water crossing only through approved F5 |
 
 Each implemented package updates this register, implemented rule sections and agent guidance together. A test value is binding for replay **in its test-rules version**, not a permanent balance claim. Changes need traceable rules/content version boundaries.
 

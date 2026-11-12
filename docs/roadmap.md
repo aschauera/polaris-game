@@ -105,7 +105,7 @@ Acceptance:
 
 - Host/first player not tribe-bound; free independent choice, including mirrors. Ownership, commands/research remain player-specific; exports contain matching scenario data.
 - One free initial founder/scout, equal disclosed stocks, no completed army; later founders are production decisions.
-- Every beacon on legal reachable land, no required water crossing or impassable bottleneck.
+- Both starts and all three beacons on one connected landmass (E15): proven land paths start↔start and start↔beacon, no required water crossing or impassable bottleneck; reject maps that cannot meet this instead of bridging them. Other islands hold nothing required.
 - Measure weighted routes and start resources; mirrored appearance alone proves no fairness.
 - Validate IDs/references/class definitions; do not reinterpret Meridian/Lantern saves.
 
@@ -260,11 +260,11 @@ Acceptance: publish seeds, versions, starts, logs and evaluation. Measure first 
 | F2 society/policies | P9, F1 | Few meaningful choices; stability/unrest not mere numerical burden or double occupation punishment |
 | F3 diplomacy | P6 and separate peace/beacon decision | Consistent peace/war/pacts serialization without retroactively blocking core mode |
 | F4 AI | P13; optional F1 only if playing research | Same commands/fog, deterministic bounded search, no hidden bonuses; measure worst-case work |
-| F5 further resources/world rules | P13 and specific approval | Clear-cutting, depletion, ships, bridges or victories individually, never introduced incidentally by graphics |
+| F5 further resources/world rules | P13 and specific approval | Clear-cutting, depletion, ships/embarkation to reach other islands, bridges or victories individually, never introduced incidentally by graphics; the core match keeps its shared start landmass (E15) |
 | F6 distribution/platforms | M5 and separate product decision | No unapproved replacement of browser/messenger; evaluate native packaging separately |
 | F7 complete tribal expansion | P13, F1 and approval of next catalog stage | Further documented unit/building tiers/abilities individually; retest ten pairings and recycling/protection limits each increment |
 
-**F1 detailed acceptance:** all eight technologies/applications accessible without gating basic supply/counters. Fixture baseline 1/faction, staffed workplace +1, costs 5/8; first unspecialized technology in 5 own endings within test target 4–6. Switching preserves technology-specific points without transferable credit; capture copies no research. Housing 6 before population 4 and housing 9 before 7 prevent deadlock.
+**F1 detailed acceptance:** all eight technologies/applications accessible without gating basic supply/counters. No movement technology: hill and water movement are not research-gated (E16). Fixture baseline 1/faction, staffed workplace +1, costs 5/8; first unspecialized technology in 5 own endings within test target 4–6. Switching preserves technology-specific points without transferable credit; capture copies no research. Housing 6 before population 4 and housing 9 before 7 prevent deadlock.
 
 F1 does **not** depend on P8 or P11. Implement/test its baseline and minimal knowledge workplace against P7 definitions/explicit assignment fixtures; complete general workforce/territory integration in P8. No dependency on future tribal buildings is needed.
 
