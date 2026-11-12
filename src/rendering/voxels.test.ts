@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
 import { CreateBoxVertexData } from '@babylonjs/core/Meshes/Builders/boxBuilder'
-import { HEX_ROW, hexAt, hexCenter, hexOffsets } from '../game/hex'
+import { HEX_ROW, hexAt, hexCenter, hexDistance, hexOffsets } from '../game/hex'
 import { GENERATOR_VERSION, generateMap, type Tile, type WorldMap } from '../game/map'
 import { CAMERA_PITCH, CAMERA_YAW } from './view'
 import {
@@ -16,10 +16,20 @@ function meshAll(world: VoxelWorld, known: Uint8Array): ChunkMesh[] {
 }
 
 function flatMap(width: number, height: number, overrides: Record<number, Partial<Tile>> = {}): WorldMap {
-  const tiles = Array.from({ length: width * height }, (_, id): Tile => ({
-    id, x: id % width, z: Math.floor(id / width), terrain: 'grassland', elevation: 1, trees: 0, ...overrides[id],
-  }))
+  const tiles = Array.from({ length: width * height }, (_, id): Tile => {
+    const { terrain = 'grassland', waterDepth, ...rest } = overrides[id] ?? {}
+    const fields = { id, x: id % width, z: Math.floor(id / width), elevation: 1, trees: 0, ...rest }
+    return terrain === 'water' ? { ...fields, terrain, waterDepth: waterDepth ?? 'deep' } : { ...fields, terrain }
+  })
   return { seed: 'flat', width, height, generatorVersion: GENERATOR_VERSION, rngState: 1, tiles }
+}
+
+function terraceMap(width: number, height: number): WorldMap {
+  return flatMap(width, height, Object.fromEntries(Array.from({ length: width * height }, (_, id) => {
+    const distance = hexDistance(id % width, Math.floor(id / width), 4, 4)
+    return [id, distance === 0 ? {} : { terrain: 'water', elevation: 0,
+      waterDepth: distance === 1 ? 'shallow' : distance === 2 ? 'shoal' : distance === 3 ? 'shelf' : 'deep' }]
+  })))
 }
 
 /** Visible surface per direction and exact vertex colour set, independent of how faces were merged. */
@@ -121,8 +131,11 @@ describe('hex voxel terrain', () => {
       [0.25, 0.75, 0.75, 1, 1], [0.5, 1, 1, 1, 1]]
     for (const [index, size] of [32, 64, 128, 256].entries()) {
       const world = createVoxelWorld(flatMap(size, size))
-      const tile = (terrain: Tile['terrain'], elevation: number) =>
-        tileSurface(world, { id: 0, x: 0, z: 0, terrain, elevation, trees: 0 }, true) * world.size
+      const tile = (terrain: Tile['terrain'], elevation: number) => {
+        const fields = { id: 0, x: 0, z: 0, elevation, trees: 0 }
+        return tileSurface(world, terrain === 'water'
+          ? { ...fields, terrain, waterDepth: 'deep' } : { ...fields, terrain }, true) * world.size
+      }
       const levels = [tile('water', 0), tile('grassland', 1), tile('grassland', 2), tile('hills', 3), tile('hills', 4)]
       expect(levels).toEqual(expected[index])
     }
@@ -179,7 +192,7 @@ describe('hex voxel terrain', () => {
   })
 
   it('flags water separately from ground, decoration and fog for the shader', () => {
-    const map = flatMap(6, 6, { 14: { trees: 3 }, 15: { terrain: 'water', elevation: 0 } })
+    const map = flatMap(6, 6, { 14: { trees: 3 }, 15: { terrain: 'water', elevation: 0, waterDepth: 'shallow' } })
     const known = allKnown(map)
     known[0] = 0
     const flags = new Set<number>()
@@ -192,8 +205,7 @@ describe('hex voxel terrain', () => {
   })
 
   it('meshes actual submerged steps beneath a separate level water surface', () => {
-    const map = flatMap(9, 9, Object.fromEntries(Array.from({ length: 81 }, (_, id) =>
-      [id, id === 40 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+    const map = terraceMap(9, 9)
     const world = createVoxelWorld(map)
     const meshes = meshAll(world, allKnown(map))
     const waterTop = tileSurface(world, map.tiles[0]!, true) * world.size
@@ -307,8 +319,7 @@ describe('hex voxel terrain', () => {
   it('keeps four main terraces at both detailed scales and merges only unrepresentable coarse levels', () => {
     for (const [width, levels] of [[32, [-0.625, -0.375, -0.125, 0.125]], [64, [-0.625, -0.375, -0.125, 0.125]],
       [128, [-0.5, -0.25, 0]], [256, [-0.5]]] as const) {
-      const map = flatMap(width, 8, Object.fromEntries(Array.from({ length: width * 8 }, (_, id) =>
-        [id, id === 4 * width + 4 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+      const map = terraceMap(width, 8)
       const world = createVoxelWorld(map)
       const heights = new Set<number>()
       for (const mesh of meshAll(world, allKnown(map))) for (let v = 0; v < mesh.faceFlags.length; v += 4) {
@@ -529,35 +540,38 @@ describe('hex voxel terrain', () => {
     expect(roots).toBeGreaterThan(10)
   })
 
-  it('layers charted coasts from shallow water through shoal and shelf to deep water', () => {
-    // A lone island in open water at the finest scale.
-    const map = flatMap(9, 9, Object.fromEntries(Array.from({ length: 81 }, (_, id) =>
-      [id, id === 40 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+  it('keeps canonical water depths when neighbours are hidden and at coarse scales', () => {
+    const map = terraceMap(9, 9)
     const known = allKnown(map)
     const fine = meshAll(createVoxelWorld(map), known)
     expect(shows(fine, VOXEL.waterSurface)).toBe(true)
-    const coastCaps = [VOXEL.waterShallow, VOXEL.waterShoal, VOXEL.waterShelf, VOXEL.waterEdge]
+    const coastCaps = [VOXEL.waterShallow, VOXEL.waterShoal, VOXEL.waterShelf]
     for (const kind of coastCaps) expect(shows(fine, kind), `Coastal cap ${kind}`).toBe(true)
+    expect(shows(fine, VOXEL.waterEdge)).toBe(true)
     expect(shows(fine, VOXEL.seabedSand)).toBe(true)
     expect(shows(fine, VOXEL.seabedStone)).toBe(true)
     expect(shows(fine, VOXEL.seabedDeep)).toBe(true)
     expect(shows(fine, VOXEL.water)).toBe(true)
-    // Hidden, the island leaves only plain open water around its fog.
     known[40] = 0
     const hidden = meshAll(createVoxelWorld(map), known)
-    for (const kind of coastCaps) expect(shows(hidden, kind), `Hidden coast cap ${kind}`).toBe(false)
-    expect(shows(hidden, VOXEL.seabedSand)).toBe(false)
-    expect(shows(hidden, VOXEL.seabedStone)).toBe(false)
+    for (const kind of coastCaps) expect(shows(hidden, kind), `Known depth beside hidden coast ${kind}`).toBe(true)
+    expect(shows(hidden, VOXEL.waterEdge)).toBe(false)
+    expect(shows(hidden, VOXEL.seabedSand)).toBe(true)
+    expect(shows(hidden, VOXEL.seabedStone)).toBe(true)
     expect(shows(hidden, VOXEL.seabedDeep)).toBe(true)
-    // The coarsest scale keeps plain water so large maps stay within their vertex budget.
-    const large = flatMap(260, 4, Object.fromEntries(Array.from({ length: 1040 }, (_, id) =>
-      [id, id % 260 === 130 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+    const heights = new Set<number>()
+    for (const mesh of hidden) for (let v = 0; v < mesh.faceFlags.length; v += 4) {
+      if (mesh.faceFlags[v] === FACE_FLAG.waterFloor && mesh.normals[v * 3 + 1] === 1) heights.add(mesh.positions[v * 3 + 1]!)
+    }
+    expect([...heights].sort((a, b) => a - b)).toEqual([-0.625, -0.375, -0.125, 0.125])
+    const large = terraceMap(256, 8)
     const coarse = createVoxelWorld(large)
     expect(coarse.scale).toBe(2)
     const coarseMeshes = meshAll(coarse, allKnown(large))
-    for (const kind of coastCaps) expect(shows(coarseMeshes, kind), `Coarse coast cap ${kind}`).toBe(false)
-    expect(shows(coarseMeshes, VOXEL.seabedSand)).toBe(false)
-    expect(shows(coarseMeshes, VOXEL.seabedStone)).toBe(false)
+    for (const kind of coastCaps) expect(shows(coarseMeshes, kind), `Coarse depth cap ${kind}`).toBe(true)
+    expect(shows(coarseMeshes, VOXEL.waterEdge)).toBe(false)
+    expect(shows(coarseMeshes, VOXEL.seabedSand)).toBe(true)
+    expect(shows(coarseMeshes, VOXEL.seabedStone)).toBe(true)
     expect(shows(coarseMeshes, VOXEL.seabedDeep)).toBe(true)
   })
 
@@ -737,8 +751,13 @@ describe('hex voxel terrain', () => {
     for (const tile of map.tiles) known[tile.id] = tile.x < 14 && tile.z < 18 ? 1 : 0
     const altered: WorldMap = {
       ...map,
-      tiles: map.tiles.map(tile => known[tile.id] ? tile : { ...tile, terrain: tile.terrain === 'water' ? 'hills' : 'water',
-        elevation: tile.terrain === 'water' ? 4 : 0, trees: tile.terrain === 'water' ? 3 : 0 }),
+      tiles: map.tiles.map(tile => {
+        if (known[tile.id]) return tile
+        const fields = { id: tile.id, x: tile.x, z: tile.z }
+        return tile.terrain === 'water'
+          ? { ...fields, terrain: 'hills', elevation: 4, trees: 3 }
+          : { ...fields, terrain: 'water', elevation: 0, trees: 0, waterDepth: 'deep' }
+      }),
     }
     const original = meshAll(createVoxelWorld(map), known)
     meshAll(createVoxelWorld(altered), known).forEach((mesh, chunk) => {
@@ -817,13 +836,13 @@ describe('hex voxel terrain', () => {
     expect(touched).toBeGreaterThan(20)
   }, 60_000)
 
-  it.each([8, 13])('updates the outer shelf when an island is revealed across %i-column chunks', chunkColumns => {
-    const map = flatMap(9, 9, Object.fromEntries(Array.from({ length: 81 }, (_, id) =>
-      [id, id === 40 ? {} : { terrain: 'water' as const, elevation: 0 }])))
+  it.each([8, 13])('updates charted coastal decoration when an island is revealed across %i-column chunks', chunkColumns => {
+    const map = terraceMap(9, 9)
     const world = createVoxelWorld(map, chunkColumns)
     const known = allKnown(map)
     known[40] = 0
     const before = meshAll(world, known)
+    expect(shows(before, VOXEL.waterEdge)).toBe(false)
     known[40] = 1
     const after = meshAll(world, known)
     const affected = affectedChunks(world, [40])

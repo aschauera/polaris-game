@@ -8,9 +8,13 @@ import {
 function plainMap(width = 8, height = 12, terrain: Record<number, Terrain> = {}): WorldMap {
   return Object.freeze({
     seed: 'fixture', width, height, generatorVersion: GENERATOR_VERSION, rngState: 42,
-    tiles: Object.freeze(Array.from({ length: width * height }, (_, id) => Object.freeze({
-      id, x: id % width, z: Math.floor(id / width), terrain: terrain[id] ?? 'grassland', elevation: 1, trees: 0,
-    }))),
+    tiles: Object.freeze(Array.from({ length: width * height }, (_, id) => {
+      const kind = terrain[id] ?? 'grassland'
+      const fields = { id, x: id % width, z: Math.floor(id / width), elevation: 1, trees: 0 }
+      return Object.freeze(kind === 'water'
+        ? { ...fields, terrain: kind, waterDepth: 'deep' as const }
+        : { ...fields, terrain: kind })
+    })),
   })
 }
 

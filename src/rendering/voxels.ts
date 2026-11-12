@@ -1,5 +1,5 @@
 import { HEX_RADIUS, HEX_ROW, hexAt, hexCenter, hexOffsets } from '../game/hex'
-import { TERRAIN, seedState, type Tile, type WorldMap } from '../game/map'
+import { TERRAIN, seedState, type Tile, type WaterDepth, type WorldMap } from '../game/map'
 import { SCREEN_DOWN, SCREEN_RIGHT } from './view'
 import type { ResourceKind } from './resources'
 
@@ -58,6 +58,12 @@ const WATER_SURFACES = new Set<number>([
   VOXEL.waterSurface, VOXEL.waterShallow, VOXEL.waterShoal, VOXEL.waterShelf, VOXEL.waterEdge,
 ])
 const isWaterSurface = (kind: number | undefined) => kind !== undefined && WATER_SURFACES.has(kind)
+const WATER_TERRACES = {
+  shallow: { surface: VOXEL.shallow, cap: VOXEL.waterShallow, depth: 1 },
+  shoal: { surface: VOXEL.shoal, cap: VOXEL.waterShoal, depth: 3 },
+  shelf: { surface: VOXEL.shelf, cap: VOXEL.waterShelf, depth: 5 },
+  deep: { surface: VOXEL.water, cap: VOXEL.waterSurface, depth: 7 },
+} satisfies Record<WaterDepth, { surface: number; cap: number; depth: number }>
 
 export interface VoxelWorld {
   readonly map: WorldMap
@@ -154,8 +160,8 @@ function treeShape(scale: number): TreeShape {
 }
 
 export function waterLevel(scale: number): number { return Math.max(1, Math.round(0.25 * scale)) }
-/** Columns of turquoise shoal water around charted land, beyond the shallow rim; none at the coarsest scale. */
-function shoalReach(scale: number): number { return scale >= 4 ? scale / 2 : 0 }
+/** Charted-coast decoration radius in columns, never a depth or navigation boundary. */
+function coastalReach(scale: number): number { return scale >= 4 ? scale : 0 }
 function sandbankReach(scale: number): number { return scale >= 4 ? Math.ceil(scale * 0.9) : 0 }
 function fogLevel(scale: number): number { return Math.max(1, Math.round(0.65 * scale)) }
 function landLevel(scale: number, terrain: 'grassland' | 'hills', elevation: number): number {
@@ -333,21 +339,16 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
   const tile = map.tiles[id]!
   if (known[id] !== 1) return { top: fogLevel(scale), surface: VOXEL.fog, body: 'fog', tile, known: false }
   if (tile.terrain === 'water') {
-    const reach = shoalReach(scale)
-    const nearestLand = reach > 0 ? chartedCoastDistance(world, known, id, gx, gz, 2 * reach + 1, isLand) : Infinity
-    const coastWarp = reach > 0
-      ? (noise(seed, 88, nx, nz, scale * 3) - 0.5) * scale * 0.85
-        + (noise(seed, 90, nx, nz, scale) - 0.5) * scale * 0.3
-      : 0
-    const coastDistance = Number.isFinite(nearestLand) ? Math.max(0, nearestLand + coastWarp) : Infinity
-    let surface = VOXEL.water
-    if (coastDistance <= 1.5 * detail) surface = VOXEL.shallow
-    else if (coastDistance <= reach) surface = VOXEL.shoal
-    else if (coastDistance <= 2 * reach) surface = VOXEL.shelf
+    const terrace = WATER_TERRACES[tile.waterDepth]
+    const surface = terrace.surface
+    const reach = coastalReach(scale)
+    const rocks = hasCoastalRocks(world, tile)
+    // Charted coasts affect decoration only. Revealing a neighbour must never change this hex's depth.
+    const nearestLand = reach > 0 && (rocks || tile.waterDepth === 'shallow')
+      ? chartedCoastDistance(world, known, id, gx, gz, reach + 1, isLand) : Infinity
     const top = waterLevel(scale)
     // Four world-space terraces, not one depth step per fine voxel; coarse grids merge unrepresentable levels.
-    const depth = Math.max(1, Math.round((surface === VOXEL.shallow ? 1 : surface === VOXEL.shoal ? 3
-      : surface === VOXEL.shelf ? 5 : 7) * scale / 8))
+    const depth = scale < 4 ? top + 1 : Math.max(1, Math.round(terrace.depth * scale / 8))
     const floor = Math.max(1 - world.base, top - depth)
     const bottomTexture = noise(seed, 87, nx, nz, scale * 0.75)
     const floorSurface = surface === VOXEL.shallow
@@ -357,11 +358,10 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
         : surface === VOXEL.shelf
           ? bottomTexture > 0.86 ? VOXEL.seabedStone : VOXEL.seabedDeep
           : VOXEL.seabedDeep
-    const capSurface = surface === VOXEL.shallow && hash(seed, nx, 89, nz) > 0.72
-      ? VOXEL.waterEdge : surface === VOXEL.shallow ? VOXEL.waterShallow
-        : surface === VOXEL.shoal ? VOXEL.waterShoal : surface === VOXEL.shelf ? VOXEL.waterShelf : VOXEL.waterSurface
+    const capSurface = surface === VOXEL.shallow && nearestLand <= 1.5 * detail && hash(seed, nx, 89, nz) > 0.72
+      ? VOXEL.waterEdge : terrace.cap
     let rockTop = floor
-    if (hasCoastalRocks(world, tile) && Number.isFinite(nearestLand)) {
+    if (rocks && Number.isFinite(nearestLand)) {
       const [cx, cz] = centreColumn(world, tile)
       const turn = Math.floor(hash(seed, tile.x, 85, tile.z) * 4)
       const dx = gx - cx, dz = gz - cz
@@ -904,9 +904,9 @@ export function meshVolume(volume: Volume, size: number, corner: readonly [numbe
 export function affectedChunks(world: VoxelWorld, tileIds: Iterable<number>): Set<number> {
   const { map, scale, reach, chunkColumns, chunksX, chunksZ } = world
   const chunks = new Set<number>()
-  // A changed tile moves its own columns, its trees, coastal bands next to it and adjacent ambient occlusion.
+  // A changed tile moves its columns, trees, coastal decoration and adjacent ambient occlusion.
   // A settlement also clears back-row trees of the hexes east, south-east and south-west of it, half a hex further in x.
-  const margin = Math.max(reach + 3, 2 * shoalReach(scale) + 2, sandbankReach(scale) + reach + 1)
+  const margin = Math.max(reach + 3, coastalReach(scale) + 2, sandbankReach(scale) + reach + 1)
   const halfX = scale / 2 + Math.ceil(scale / 2)
   const halfZ = Math.ceil(HEX_RADIUS * scale)
   for (const id of tileIds) {

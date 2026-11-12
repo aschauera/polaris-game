@@ -110,6 +110,10 @@ describe('match checksums', () => {
     expect(stateHash({ ...state, round: state.round + 1 })).not.toBe(stateHash(state))
     expect(stateHash({ ...state, nextUnitId: state.nextUnitId + 1 })).not.toBe(stateHash(state))
     expect(mapHash(raised)).not.toBe(mapHash(state.map))
+    const water = state.map.tiles.find(tile => tile.terrain === 'water')!
+    const deepened = { ...state.map, tiles: state.map.tiles.map(tile => tile.id === water.id && tile.terrain === 'water'
+      ? { ...tile, waterDepth: tile.waterDepth === 'deep' ? 'shoal' as const : 'deep' as const } : tile) }
+    expect(mapHash(deepened)).not.toBe(mapHash(state.map))
   })
 })
 
@@ -212,7 +216,9 @@ describe('rejecting turns that cannot be trusted', () => {
   it('rejects another version of the rules or of the world generator', () => {
     expect(failure(edit({ rules: pkg.rules - 1 }))).toMatch(/game rules .* same version/)
     expect(failure(edit({ generator: pkg.generator + 1 }))).toMatch(/world generator .* same version/)
-    expect(failure(edit({ generator: 3 }))).toMatch(/world generator 3, but your copy uses 4/)
+    for (const generator of [3, 4]) {
+      expect(failure(edit({ generator }))).toContain(`world generator ${generator}, but your copy uses 5`)
+    }
   })
 
   it('rejects a world this device does not generate identically', () => {

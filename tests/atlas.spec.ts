@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
-import { generateMap, type Tile } from '../src/game/map'
+import { WATER_DEPTH, generateMap, type Tile } from '../src/game/map'
 import { applyCommand, createExpedition, movementRange, neighbors } from '../src/game/expedition'
-import { HEX_ROW, hexCenter } from '../src/game/hex'
+import { HEX_ROW, hexCenter, hexDistance } from '../src/game/hex'
 import { createVoxelWorld, centreColumn, groundHeight, pickTile, resourceAt, tileSurface, type VoxelWorld } from '../src/rendering/voxels'
 import { RESOURCES } from '../src/rendering/resources'
 
@@ -69,11 +69,13 @@ test('water glints animate sparse cap pixels with bounded frames and respect red
 function flatSurfaceTile(world: VoxelWorld, terrain: Tile['terrain']) {
   const { map } = world
   const tile = map.tiles.filter(tile => tile.terrain === terrain
+    && (tile.terrain !== 'water' || tile.waterDepth === 'deep')
     && tile.x > 2 && tile.x < 29 && tile.z > 2 && tile.z < 29
     && map.tiles.every(other => {
       const [x, z] = hexCenter(tile.x, tile.z), [ox, oz] = hexCenter(other.x, other.z)
       return Math.hypot(ox - x, oz - z) > 1.8
-        || (other.terrain === terrain && other.elevation === tile.elevation && other.trees === 0 && !resourceAt(world, other))
+        || (other.terrain === terrain && other.elevation === tile.elevation && other.waterDepth === tile.waterDepth
+          && other.trees === 0 && !resourceAt(world, other))
     }))
     .sort((a, b) => Math.hypot(a.x - 16, a.z - 16) - Math.hypot(b.x - 16, b.z - 16))[0]
   if (!tile) throw new Error(`No flat, tree-free ${terrain} sample`)
@@ -135,6 +137,11 @@ function pickableTile(world: VoxelWorld, tiles: Tile[]): Tile {
   })
   if (!tile) throw new Error('No unobstructed tile centre in the visual fixture')
   return tile
+}
+
+function waterSelection(tile: Tile): string {
+  if (tile.terrain !== 'water') throw new Error('Expected a water fixture')
+  return `(${tile.x}, ${tile.z}) · Water · ${WATER_DEPTH[tile.waterDepth].name} · Tile ${tile.id}`
 }
 
 async function selectTile(page: Page, width = 32, height = width) {
@@ -253,8 +260,33 @@ test('renders submerged water detail while picking the unchanged level surface',
   expect(Math.max(...tones) - Math.min(...tones)).toBeGreaterThan(3)
   expect(totalGreen).toBeGreaterThan(totalRed)
   await page.mouse.click(origin!.x, origin!.y)
-  await expect(page.getByRole('status')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
+  await expect(page.getByRole('status')).toHaveText(waterSelection(tile))
   expect((await stats(page)).waterSurfaceQuads).toBeGreaterThan(0)
+})
+
+test('inspects all canonical water depths, including a submerged shoal beyond two coastal hexes', async ({ page }, testInfo) => {
+  test.slow()
+  const map = generateMap({ seed: 'polaris', width: 32, height: 32 }), world = createVoxelWorld(map)
+  const bank = pickableTile(world, map.tiles.filter(tile => tile.terrain === 'water' && tile.waterDepth === 'shoal'
+    && map.tiles.every(other => other.terrain === 'water' || hexDistance(tile.x, tile.z, other.x, other.z) >= 3)))
+  await page.goto('/?diagnostics=1')
+  await expect(page.locator('#map-status')).toContainText('GENERATOR 05')
+  for (const depth of ['shallow', 'shelf', 'deep', 'shoal'] as const) {
+    const tile = depth === 'shoal' ? bank : pickableTile(world,
+      map.tiles.filter(tile => tile.terrain === 'water' && tile.waterDepth === depth))
+    await inspectSurface(page, tile)
+    const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
+    await page.mouse.move(point.x, point.y)
+    await expect(page.locator('#hover')).toContainText(`Water · ${WATER_DEPTH[depth].name}`)
+    await page.mouse.click(point.x, point.y)
+    await expect(page.locator('#selection')).toHaveText(waterSelection(tile))
+  }
+  await page.screenshot({ path: testInfo.outputPath('canonical-shoal.png') })
+  await page.getByRole('button', { name: 'Reset view' }).click()
+  const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, bank.id)
+  await page.mouse.click(point.x, point.y)
+  await expect(page.locator('#selection')).toHaveText(waterSelection(bank))
+  await page.screenshot({ path: testInfo.outputPath('canonical-bathymetry.png') })
 })
 
 test('shows an incised bay as real selectable water, not a painted gap on land', async ({ page }, testInfo) => {
@@ -264,11 +296,11 @@ test('shows an incised bay as real selectable water, not a painted gap on land',
   expect(tile.terrain).toBe('water')
   expect(neighbors(map, tile.id).filter(id => map.tiles[id]!.terrain === 'water').length).toBeGreaterThanOrEqual(4)
   await page.goto('/?diagnostics=1')
-  await expect(page.locator('#map-status')).toContainText('GENERATOR 04')
+  await expect(page.locator('#map-status')).toContainText('GENERATOR 05')
   await inspectSurface(page, tile)
   const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
   await page.mouse.click(point.x, point.y)
-  await expect(page.locator('#selection')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
+  await expect(page.locator('#selection')).toHaveText(waterSelection(tile))
   await settled(page)
   const colour = await page.locator('canvas').evaluate((canvas, point) => {
     const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!, rect = canvas.getBoundingClientRect()
@@ -370,7 +402,7 @@ test('emerged coastal rocks are opaque above the cap and still select their wate
   }, point)
   expect(rockPixels, 'An actual grey rock, not just blue underwater relief').toBeGreaterThan(20)
   await page.mouse.click(point.x, point.y)
-  await expect(page.locator('#selection')).toHaveText(`(${tile.x}, ${tile.z}) · Water · Tile ${tile.id}`)
+  await expect(page.locator('#selection')).toHaveText(waterSelection(tile))
   await expect(page.locator('#resource-info')).toBeHidden()
   await page.locator('canvas').screenshot({ path: testInfo.outputPath('coastal-rock-selection.png') })
 })

@@ -1,4 +1,4 @@
-import { HEX_ROW, hexCenter } from './hex'
+import { HEX_ROW, hexCenter, hexOffsets } from './hex'
 
 export const TERRAIN = {
   grassland: { name: 'Grassland', height: 0.65 },
@@ -7,8 +7,15 @@ export const TERRAIN = {
 } as const
 
 export type Terrain = keyof typeof TERRAIN
+export const WATER_DEPTH = {
+  shallow: { name: 'Shallows' },
+  shoal: { name: 'Shoal' },
+  shelf: { name: 'Shelf' },
+  deep: { name: 'Deep water' },
+} as const
+export type WaterDepth = keyof typeof WATER_DEPTH
 export interface MapConfig { seed: string; width: number; height: number }
-export interface Tile {
+interface TerrainTile {
   readonly id: number
   readonly x: number
   readonly z: number
@@ -16,7 +23,11 @@ export interface Tile {
   readonly elevation: number
   readonly trees: number
 }
-export const GENERATOR_VERSION = 4
+export type Tile = TerrainTile & (
+  { readonly terrain: 'water'; readonly waterDepth: WaterDepth }
+  | { readonly terrain: 'grassland' | 'hills'; readonly waterDepth?: never }
+)
+export const GENERATOR_VERSION = 5
 export interface WorldMap extends MapConfig {
   readonly generatorVersion: typeof GENERATOR_VERSION
   readonly rngState: number
@@ -83,6 +94,43 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+function addBathymetry(config: MapConfig, tiles: readonly TerrainTile[], seed: number): readonly Tile[] {
+  const { width, height } = config
+  const distance = new Uint16Array(tiles.length).fill(0xffff)
+  const queue = new Uint32Array(tiles.length)
+  let end = 0
+  for (const tile of tiles) if (tile.terrain !== 'water') {
+    distance[tile.id] = 0
+    queue[end++] = tile.id
+  }
+  for (let next = 0; next < end; next++) {
+    const tile = tiles[queue[next]!]!
+    for (const [dx, dz] of hexOffsets(tile.z)) {
+      const x = tile.x + dx, z = tile.z + dz
+      if (x < 0 || z < 0 || x >= width || z >= height) continue
+      const id = z * width + x
+      if (distance[id] !== 0xffff) continue
+      distance[id] = distance[tile.id]! + 1
+      queue[end++] = id
+    }
+  }
+  const scale = clamp(Math.min(width, height) / 64, 1, 3)
+  const angle = hash(seed ^ 0x517cc1b7, 0, 0) * Math.PI
+  const cos = Math.cos(angle), sin = Math.sin(angle)
+  return Object.freeze(tiles.map((tile): Tile => {
+    if (tile.terrain !== 'water') return Object.freeze({ ...tile, terrain: tile.terrain })
+    const [x, z] = hexCenter(tile.x, tile.z)
+    const shelfWidth = (0.55 + noise(seed ^ 0x6da73b41, x, z, 4 * scale) * 1.1) * scale
+    // Broad elongated lobes extend the seabed offshore; no paths are repaired or RNG steps consumed.
+    const bank = Math.max(0, noise(seed ^ 0x3e91c67b, (x * cos + z * sin) * 0.4,
+      z * cos - x * sin, 3 * scale) - 0.5) * 6 * scale
+    const ripple = (noise(seed ^ 0x71a532d9, x, z, 1.8 * scale) - 0.5) * 0.8 * scale
+    const depth = (distance[tile.id]! + ripple - bank) / shelfWidth
+    const waterDepth: WaterDepth = depth <= 0.9 ? 'shallow' : depth <= 2 ? 'shoal' : depth <= 3.5 ? 'shelf' : 'deep'
+    return Object.freeze({ ...tile, terrain: tile.terrain, waterDepth })
+  }))
+}
+
 export function tileAt(map: WorldMap, x: number, z: number): Tile | undefined {
   if (!Number.isInteger(x) || !Number.isInteger(z) || x < 0 || z < 0 || x >= map.width || z >= map.height) return
   return map.tiles[z * map.width + x]
@@ -133,7 +181,7 @@ export function generateMap(config: MapConfig): WorldMap {
     ? { x: extentX * (0.2 + random() * 0.6), z: extentZ * (0.2 + random() * 0.6),
       radius: landScale * (0.045 + random() * 0.04) }
     : undefined
-  const tiles: Tile[] = []
+  const tiles: TerrainTile[] = []
   const broadScale = minDimension * 0.19
   const detailScale = Math.max(2, minDimension * 0.07)
   for (const [index, form] of continents.entries()) {
@@ -184,8 +232,8 @@ export function generateMap(config: MapConfig): WorldMap {
         ? 1 + Math.floor(hash(state ^ 0x27d4eb2f, x, z) * 3)
         : 0
       const terrain: Terrain = !isLand ? 'water' : elevation >= 3 ? 'hills' : 'grassland'
-      tiles.push(Object.freeze({ id: z * config.width + x, x, z, terrain, elevation, trees }))
+      tiles.push({ id: z * config.width + x, x, z, terrain, elevation, trees })
     }
   }
-  return Object.freeze({ ...config, generatorVersion: GENERATOR_VERSION, rngState: state, tiles: Object.freeze(tiles) })
+  return Object.freeze({ ...config, generatorVersion: GENERATOR_VERSION, rngState: state, tiles: addBathymetry(config, tiles, state) })
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { generateMap, randomStep, seedState, tileAt, type WorldMap } from './map'
+import { WATER_DEPTH, generateMap, randomStep, seedState, tileAt, type WorldMap } from './map'
 import { neighbors } from './expedition'
 import { HEX_ROW, hexCenter } from './hex'
 
@@ -65,16 +65,36 @@ function bayDepth(map: WorldMap, mass: number[]): number {
 }
 
 describe('deterministic domain map', () => {
-  it('locks complete generator-v4 fixtures across multiple seeds', () => {
+  it('preserves inherited landforms, elevations, trees and RNG progression', () => {
+    const fixtures = [
+      { seed: 'polaris', width: 32, height: 32 },
+      { seed: 'aurora', width: 64, height: 48 },
+      { seed: '0', width: 256, height: 256 },
+    ].map(config => {
+      const map = generateMap(config)
+      const inherited = { rng: map.rngState, tiles: map.tiles.map(tile =>
+        [tile.id, tile.x, tile.z, tile.terrain, tile.elevation, tile.trees]) }
+      return createHash('sha256').update(JSON.stringify(inherited)).digest('hex')
+    })
+    expect(fixtures).toMatchInlineSnapshot(`
+      [
+        "66348f95dd04e846de75545e81da71e0d2c325662e8b758a54cc4242cf870a4b",
+        "1e699bd8523801aa9c573189212bff2634c01bdf4fa946d70f75025113d727d0",
+        "f935ff74723e16ab7a09ae022e030aaae1a55fe0ebefdeeb5b1962d87821b860",
+      ]
+    `)
+  })
+
+  it('locks complete generator-v5 fixtures across multiple seeds', () => {
     const fingerprints = ['polaris', 'aurora', '0', 'North_Star-7'].map(seed =>
       createHash('sha256').update(JSON.stringify(generateMap({ seed, width: 8, height: 8 }))).digest('hex'),
     )
     expect(fingerprints).toMatchInlineSnapshot(`
       [
-        "d1d1e86fd010793e173901a68ecf4da0f50557af1df136a6fe7277478ece86fd",
-        "cb69e8d84ad470b5f2953dd73829ced3a32f71df17db26751f6260c3130501a0",
-        "fe1ab80ec01a59ca5e880bbc86e1335d07bb29ce17702fe05375afecea669329",
-        "89f06b8c5aec60020afb9499eb6be6cb615e7fd862daaca2f76cc0cc649c3a83",
+        "d4f07a34a48150b1d3977b0abfb9cb31154c52077a03620170c10a916f899e8a",
+        "06cfe7802ee4348d00d50d382c112239d4a37acbe649edae0c918a8e08304aba",
+        "9f754da15ea42a44754a90c95ab0911b30abafd8ffafe45a7af24ee330477966",
+        "e1bcf2356e488fb375dd98259a5ebba299488812da6cafca5107bc53c92380a2",
       ]
     `)
   })
@@ -94,6 +114,50 @@ describe('deterministic domain map', () => {
         ? tile.elevation === 0 && tile.trees === 0
         : tile.elevation >= 1 && tile.elevation <= 4 && tile.trees >= 0 && tile.trees <= 3)).toBe(true)
       expect(map.tiles.some(tile => tile.trees > 0)).toBe(true)
+    }
+  })
+
+  it('generates broad offshore shallows and variable coastal widths while retaining deep-water gaps', () => {
+    for (const seed of ['polaris', 'aurora', '0']) for (const [width, height] of [[32, 32], [64, 48], [128, 128]]) {
+      const map = generateMap({ seed, width: width!, height: height! })
+      const label = `${seed} ${width}x${height}`
+      const water = map.tiles.filter(tile => tile.terrain === 'water')
+      expect(new Set(water.map(tile => tile.waterDepth)), label).toEqual(new Set(Object.keys(WATER_DEPTH)))
+      expect(map.tiles.every(tile => tile.terrain === 'water'
+        ? Object.hasOwn(WATER_DEPTH, tile.waterDepth)
+        : tile.waterDepth === undefined), label).toBe(true)
+      const distance = new Map<number, number>()
+      const coast = map.tiles.filter(tile => tile.terrain !== 'water').map(tile => tile.id)
+      for (const id of coast) distance.set(id, 0)
+      for (let index = 0; index < coast.length; index++) for (const id of neighbors(map, coast[index]!)) {
+        if (distance.has(id)) continue
+        distance.set(id, distance.get(coast[index]!)! + 1)
+        coast.push(id)
+      }
+      const shallow = new Set(water.filter(tile => tile.waterDepth === 'shallow' || tile.waterDepth === 'shoal')
+        .map(tile => tile.id))
+      const connected = [...shallow].filter(id => distance.get(id) === 1)
+      const reached = new Set(connected)
+      for (let index = 0; index < connected.length; index++) for (const id of neighbors(map, connected[index]!)) {
+        if (!shallow.has(id) || reached.has(id)) continue
+        reached.add(id)
+        connected.push(id)
+      }
+      expect(connected.filter(id => distance.get(id)! >= 3
+        && neighbors(map, id).filter(other => shallow.has(other)).length >= 3).length,
+      `${label}: broad connected banks beyond two hexes`).toBeGreaterThanOrEqual(2)
+      const byDistance = new Map<number, Set<boolean>>()
+      for (const tile of water) {
+        const steps = distance.get(tile.id)!
+        const classes = byDistance.get(steps) ?? new Set<boolean>()
+        classes.add(shallow.has(tile.id))
+        byDistance.set(steps, classes)
+      }
+      expect([...byDistance.values()].some(classes => classes.size === 2),
+        `${label}: distance alone must not determine shallow access`).toBe(true)
+      const deepShare = water.filter(tile => tile.waterDepth === 'deep').length / water.length
+      expect(deepShare, `${label}: retained deep water`).toBeGreaterThan(0.25)
+      expect(deepShare, `${label}: useful coastal shelf`).toBeLessThan(0.95)
     }
   })
 
