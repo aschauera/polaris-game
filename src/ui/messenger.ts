@@ -101,6 +101,7 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
       </div>
       <input id="messenger-file" type="file" accept=".txt,.polaris,text/plain" hidden />
     </details>
+    <p id="messenger-storage-status" class="messenger-notice rejected" aria-live="polite" aria-atomic="true" hidden></p>
     <p id="messenger-notice" class="messenger-notice" aria-live="polite" aria-atomic="true" hidden></p>
     <div id="messenger-leave-group" hidden>
       <div id="messenger-exit" class="messenger-actions">
@@ -274,6 +275,11 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
       }
       hint.textContent = hints.join(' ')
       hint.hidden = !hints.length
+    },
+    storage(text: string) {
+      const line = get('messenger-storage-status')
+      line.textContent = text
+      line.hidden = !text
     },
     notice,
     // Text stays visible for correction after a failed attempt; clearing folds the box away again.

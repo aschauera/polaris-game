@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyCommand, type Expedition } from '../game/expedition'
-import { createMatch, exportMatch, stateHash } from '../game/match'
+import { createMatch, exportMatch, MATCH_LIMITS, stateHash } from '../game/match'
 import {
   currentMatchId, forgetMatch, listMatches, MATCH_NAME_LIMIT, migrateLegacyMatch, restoreMatch, saveMatch, setCurrentMatch,
   type MatchStore,
@@ -57,7 +57,7 @@ describe('match storage', () => {
         { matchId: OTHER_ID, faction: 'lantern', name: '', savedAt: 2000, round: 3, active: 'meridian', ...world },
         { matchId: MATCH_ID, faction: 'meridian', name: 'Andreas', savedAt: 1000, round: 1, active: 'lantern', ...world },
       ],
-      discarded: [],
+      discarded: [], errors: [],
     })
     saveMatch(storage, { faction: 'meridian', match: exportMatch(MATCH_ID, match(2)), name: 'Andreas' }, 3000)
     expect(listMatches(storage).matches.map(item => [item.matchId, item.round, item.active]))
@@ -139,6 +139,56 @@ describe('match storage', () => {
     expect(currentMatchId(storage)).toBe(OTHER_ID)
   })
 
+  it('keeps a readable over-limit archive byte-for-byte, listed but not replayed', () => {
+    const pkg = { ...exportMatch(MATCH_ID, match()),
+      commands: Array.from({ length: MATCH_LIMITS.commands + 1 }, () => ['e'] as const) }
+    const raw = JSON.stringify({ faction: 'meridian', match: pkg })
+    const storage = memoryStorage({ [PREFIX + MATCH_ID]: raw, [CURRENT]: MATCH_ID })
+    expect(listMatches(storage).matches.map(item => item.matchId)).toEqual([MATCH_ID])
+    expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
+      ok: false, kept: true, reason: expect.stringMatching(/has been kept.*longer than 10000/),
+    })
+    expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
+    expect(currentMatchId(storage)).toBeUndefined()
+    setCurrentMatch(storage, OTHER_ID)
+    expect(restoreMatch(storage, MATCH_ID)).toMatchObject({ ok: false, kept: true })
+    expect(currentMatchId(storage)).toBe(OTHER_ID)
+    expect(listMatches(storage).discarded).toEqual([])
+  })
+
+  it('reports refused writes and removals without claiming the previous save was changed', () => {
+    const storage = memoryStorage()
+    saveMatch(storage, { faction: 'meridian', match: exportMatch(MATCH_ID, match()) })
+    setCurrentMatch(storage, MATCH_ID)
+    const original = storage.items.get(PREFIX + MATCH_ID)
+    storage.setItem = () => { throw new DOMException('Full', 'QuotaExceededError') }
+    expect(saveMatch(storage, { faction: 'meridian', match: exportMatch(MATCH_ID, match(2)) }))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/could not be saved/) })
+    expect(setCurrentMatch(storage, OTHER_ID)).toMatchObject({ ok: false })
+    expect(storage.items.get(PREFIX + MATCH_ID)).toBe(original)
+    expect(currentMatchId(storage)).toBe(MATCH_ID)
+    const removeItem = storage.removeItem
+    storage.removeItem = key => {
+      if (key === CURRENT) throw new DOMException('Blocked', 'SecurityError')
+      removeItem(key)
+    }
+    expect(forgetMatch(storage, MATCH_ID)).toMatchObject({ ok: false, reason: expect.stringMatching(/could not update/) })
+    expect(storage.items.get(PREFIX + MATCH_ID)).toBe(original)
+    expect(currentMatchId(storage)).toBe(MATCH_ID)
+  })
+
+  it('does not report a damaged record as discarded when removal fails', () => {
+    const storage = memoryStorage({ [PREFIX + MATCH_ID]: '{bad json' })
+    storage.removeItem = () => { throw new Error('blocked') }
+    expect(listMatches(storage)).toEqual({
+      matches: [], discarded: [], errors: [expect.stringMatching(/could not remove/)],
+    })
+    expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
+      ok: false, kept: true, reason: expect.not.stringMatching(/has been discarded/),
+    })
+    expect(storage.items.get(PREFIX + MATCH_ID)).toBe('{bad json')
+  })
+
   it('drops unreadable entries from the list and says why, keeping the readable ones', () => {
     const good = { faction: 'meridian', match: exportMatch(MATCH_ID, match()) }
     const cases: [string, RegExp][] = [
@@ -173,8 +223,18 @@ describe('match storage', () => {
     // A full storage keeps the old entry until it can be moved.
     const full = memoryStorage({ [LEGACY]: legacy })
     full.setItem = () => { throw new Error('full') }
-    migrateLegacyMatch(full)
+    expect(migrateLegacyMatch(full)).toMatchObject({ ok: false, reason: expect.stringMatching(/original record has been kept/) })
     expect(full.items.get(LEGACY)).toBe(legacy)
+
+    const pointerBlocked = memoryStorage({ [LEGACY]: legacy })
+    const setItem = pointerBlocked.setItem
+    pointerBlocked.setItem = (key, value) => {
+      if (key === CURRENT) throw new Error('blocked')
+      setItem(key, value)
+    }
+    expect(migrateLegacyMatch(pointerBlocked)).toMatchObject({ ok: false })
+    expect(pointerBlocked.items.get(LEGACY)).toBe(legacy)
+    expect(pointerBlocked.items.get(PREFIX + MATCH_ID)).toBe(legacy)
   })
 
   it('keeps playing when the browser refuses to store anything', () => {
@@ -183,12 +243,12 @@ describe('match storage', () => {
       get length(): number { return refuse() },
       key: refuse, getItem: refuse, setItem: refuse, removeItem: refuse,
     }
-    expect(() => saveMatch(refusing, { faction: 'meridian', match: exportMatch(MATCH_ID, match()) })).not.toThrow()
-    expect(() => setCurrentMatch(refusing, MATCH_ID)).not.toThrow()
-    expect(() => forgetMatch(refusing, MATCH_ID)).not.toThrow()
+    expect(saveMatch(refusing, { faction: 'meridian', match: exportMatch(MATCH_ID, match()) })).toMatchObject({ ok: false })
+    expect(setCurrentMatch(refusing, MATCH_ID)).toMatchObject({ ok: false })
+    expect(forgetMatch(refusing, MATCH_ID)).toMatchObject({ ok: false })
     expect(() => migrateLegacyMatch(refusing)).not.toThrow()
     expect(currentMatchId(refusing)).toBeUndefined()
     expect(restoreMatch(refusing, MATCH_ID)).toBeUndefined()
-    expect(listMatches(refusing)).toEqual({ matches: [], discarded: [] })
+    expect(listMatches(refusing)).toEqual({ matches: [], discarded: [], errors: [] })
   })
 })

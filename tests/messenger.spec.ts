@@ -2,7 +2,7 @@ import { expect, test, type Browser, type Page, type TestInfo } from '@playwrigh
 import { applyCommand, createExpedition, type Expedition } from '../src/game/expedition'
 import { hexOffsets } from '../src/game/hex'
 import { generateMap, tileAt } from '../src/game/map'
-import { exportMatch, MATCH_FACTIONS, stateHash } from '../src/game/match'
+import { exportMatch, MATCH_FACTIONS, MATCH_LIMITS, stateHash } from '../src/game/match'
 import { encodeTurn } from '../src/exchange/turn-code'
 
 const WORLD = { seed: 'polaris', width: 32, height: 32 }
@@ -377,7 +377,7 @@ test('keeps several matches on one device and routes each received turn to its o
   expect(await storedMatchKeys(page)).toEqual([`polaris.matches.v1.${matchB.id}`])
 })
 
-test('without storage, a turn of another match does not replace the open match', async ({ page }) => {
+test('without storage, shelving or another turn cannot discard the open match without explicit leave', async ({ page }) => {
   // Some private modes refuse storage; merely reading the property throws there.
   await page.addInitScript(() => {
     Object.defineProperty(window, 'localStorage', {
@@ -400,13 +400,116 @@ test('without storage, a turn of another match does not replace the open match',
   expect(before).toMatchObject({ stateHash: stateHash(truth) })
 
   await page.getByRole('button', { name: 'All matches' }).click()
-  await expect(notice).toContainText('cannot keep matches')
+  await expect(notice).toContainText('stays open')
+  expect(await matchOf(page)).toEqual(before)
+  await expect(page.locator('#messenger-storage-status')).toContainText('cannot keep matches')
+  await page.locator('#messenger-leave').click()
+  await page.locator('#messenger-leave-yes').click()
+  await expect(notice).toContainText('any previous saved copy may remain')
   await expect(page.locator('#messenger-saved')).toBeHidden()
   await page.locator('summary', { hasText: 'Open a received turn' }).click()
   await page.locator('#messenger-inbox').fill(foreign)
   await page.getByRole('button', { name: 'Open turn' }).click()
   await expect(notice).toContainText('Joined as Lantern Compact')
   expect(await matchOf(page)).toMatchObject({ id: 'othermatch1', faction: 'lantern' })
+})
+
+test('quota failures stay visible and protect unsaved matches from shelving and both switch paths', async ({ page }, testInfo) => {
+  const other = exportMatch('savedother1', finishTurn(newMatch()))
+  const original = JSON.stringify({ faction: 'lantern', match: other })
+  await page.addInitScript(({ original }) => {
+    localStorage.setItem('polaris.matches.v1.savedother1', original)
+    const setItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('polaris.') && sessionStorage.getItem('reject-save') === '1') {
+        throw new DOMException('Storage quota reached', 'QuotaExceededError')
+      }
+      setItem.call(this, key, value)
+    }
+    sessionStorage.setItem('reject-save', '1')
+  }, { original })
+  await page.goto(WORLD_URL)
+  await page.getByRole('button', { name: 'Start messenger match' }).click()
+  const warning = page.locator('#messenger-storage-status')
+  await expect(warning).toContainText('could not be saved')
+  await playTurn(page, newMatch())
+  await expect(warning).toContainText('Keep this page open')
+  const before = (await matchOf(page))!
+  const notice = page.locator('#messenger-notice')
+  await page.getByRole('button', { name: 'All matches' }).click()
+  await expect(notice).toContainText('stays open')
+  expect(await matchOf(page)).toEqual(before)
+
+  for (const pkg of [other, { ...other, matchId: 'unknownother1' }]) {
+    await page.getByRole('button', { name: 'All matches' }).click()
+    await expect(notice).toContainText('The match stays open because')
+    const code = await encodeTurn(pkg)
+    await page.locator('#messenger-inbox').fill(code)
+    await page.getByRole('button', { name: 'Open turn' }).click()
+    await expect(notice).toContainText('current match stays open')
+    await expect(page.locator('#messenger-inbox')).toHaveValue(code)
+    expect(await matchOf(page)).toEqual(before)
+  }
+  expect(await storedMatchKeys(page)).toEqual(['polaris.matches.v1.savedother1'])
+  expect(await page.evaluate(() => localStorage.getItem('polaris.matches.v1.savedother1'))).toBe(original)
+  await capture(page, testInfo, 'messenger-storage-failure')
+
+  await page.evaluate(() => sessionStorage.removeItem('reject-save'))
+  await page.getByRole('button', { name: 'All matches' }).click()
+  await expect(notice).toContainText('The match is saved')
+  await expect(warning).toBeHidden()
+  await expect(page.locator('#messenger-saved-list > li')).toHaveCount(2)
+  await page.getByRole('button', { name: `Continue ${titleOf(before.id)}` }).click()
+  await page.reload()
+  await expect(page.locator('#messenger-status')).toContainText(titleOf(before.id))
+  expect(await matchOf(page)).toEqual(before)
+})
+
+test('the final shareable turn stays within the history cap and oversized archives are not overwritten', async ({ page, browser }, testInfo) => {
+  let state = newMatch()
+  for (let index = 0; index < MATCH_LIMITS.commands - 2; index++) state = finishTurn(state)
+  const pkg = exportMatch('limitmatch1', state)
+  const archive = JSON.stringify({ faction: 'meridian', match: { ...pkg, matchId: 'longarchive1',
+    commands: [...pkg.commands, ['e'], ['e'], ['e']] } })
+  await page.addInitScript(({ pkg, archive }) => {
+    localStorage.setItem('polaris.matches.v1.limitmatch1', JSON.stringify({ faction: 'meridian', match: pkg }))
+    localStorage.setItem('polaris.matches.v1.longarchive1', archive)
+    localStorage.setItem('polaris.current-match.v1', 'limitmatch1')
+  }, { pkg, archive })
+  await page.goto(WORLD_URL)
+  await page.getByRole('button', { name: 'Select scout', exact: true }).click()
+  const step = legalStep(state)
+  await page.getByRole('button', { name: `Move unit ${step.direction}`, exact: true }).click()
+  const before = await matchOf(page)
+  await page.getByRole('button', { name: /^Found city/ }).click()
+  await expect(page.locator('#order-status')).toContainText('Only End turn')
+  expect(await matchOf(page)).toEqual(before)
+  await endTurnButton(page).click()
+  const ended = finishTurn(step.state)
+  expect(await matchOf(page)).toMatchObject({ commandCount: MATCH_LIMITS.commands, stateHash: stateHash(ended) })
+  await expect(page.locator('#messenger-link')).toHaveValue(new RegExp(`${TURN_PREFIX}polaris1[zj]\\.`))
+  const finalCode = codeOf(await page.locator('#messenger-link').inputValue())
+  await page.getByRole('button', { name: 'All matches' }).click()
+  await expect(page.locator('#messenger-saved-list > li')).toHaveCount(2)
+  await page.locator('summary', { hasText: 'Open a received turn' }).click()
+  await page.locator('#messenger-inbox').fill(await encodeTurn(exportMatch('longarchive1', finishTurn(newMatch()))))
+  await page.getByRole('button', { name: 'Open turn' }).click()
+  await expect(page.locator('#messenger-notice')).toContainText('has been kept')
+  expect(await page.evaluate(() => localStorage.getItem('polaris.matches.v1.longarchive1'))).toBe(archive)
+  expect(await matchOf(page)).toBeUndefined()
+
+  const guest = await openDevice(browser, testInfo)
+  try {
+    await guest.page.goto(WORLD_URL)
+    await guest.page.locator('summary', { hasText: 'Open a received turn' }).click()
+    await guest.page.locator('#messenger-inbox').fill(finalCode)
+    await guest.page.getByRole('button', { name: 'Open turn' }).click()
+    await expect(guest.page.locator('#messenger-notice')).toContainText('Joined as Lantern Compact')
+    expect(await matchOf(guest.page)).toMatchObject({ commandCount: MATCH_LIMITS.commands, stateHash: stateHash(ended) })
+    await endTurnButton(guest.page).click()
+    await expect(guest.page.locator('#order-status')).toContainText('10000-order history limit')
+    expect(await matchOf(guest.page)).toMatchObject({ commandCount: MATCH_LIMITS.commands, stateHash: stateHash(ended) })
+  } finally { await guest.context.close() }
 })
 
 test('the messenger panel is offered on the atlas and stays out of the way during a solo expedition', async ({ page }, testInfo) => {

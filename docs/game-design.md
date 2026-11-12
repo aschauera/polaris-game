@@ -6,7 +6,7 @@ An original, browser-first, turn-based 4X game about rival societies rebuilding 
 
 **Implemented scope:** seeded terrain, an interactive camera, tile inspection, scout movement and faction fog, plus the first city founding/economy/production slice (roadmap briefs 6–7) and two-player matches played by exchanging turn messages. Combat, workers, research, diplomacy, AI and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
 
-**Canonical design, updated 11 November 2026:** this document contains both the implemented contracts and the complete target design. [The roadmap](roadmap.md#detailed-target-delivery-plan) owns delivery packages and acceptance; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical compatibility. The entire intended stack #20 → #21 → #22 → #24 → #29 → #31 is the baseline, not a claim that those PRs are merged. Target gameplay remains planned.
+**Canonical design, updated 11 November 2026:** this document contains both the implemented contracts and the complete target design. [The roadmap](roadmap.md#detailed-target-delivery-plan) owns delivery packages and acceptance; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical compatibility. The entire foundation #20 → #21 → #22 → #24 → #29 → #31 and design #33/#34 are integrated into main at `f3f07d4`. Target gameplay remains planned.
 
 ## Map contract
 
@@ -56,9 +56,11 @@ A static glow marks own units with at least one legal destination. Exhausted or 
 
 ### Implemented: play by messenger
 
-Two people can play **Meridian Union** (host, moves first) and **Lantern Compact** (guest) on the same seeded world without a server. On their own turn a player gives any number of orders, then ends the turn. The finished turn travels as a link, a code or a file through any chat, and the opponent's device replays it and takes over. Turns strictly alternate; the round counter increases after both factions have played. Nothing resolves simultaneously, and an opponent's message can never contain orders for the receiving player's side. A player can run several matches with different people at once; each received turn opens its own match, and a list shows where it is their turn.
+Two people can play **Meridian Union** (host, moves first) and **Lantern Compact** (guest) on the same seeded world without a server. On their own turn a player gives legal orders, then ends the turn. The finished turn travels as a link, a code or a file through any chat, and the opponent's device replays it and takes over. Turns strictly alternate; the round counter increases after both factions have played. Nothing resolves simultaneously, and an opponent's message can never contain orders for the receiving player's side. A player can run several matches with different people at once; each received turn opens its own match after the current one is safely saved, and a list shows where it is their turn.
 
-Fog stays per faction: each player sees only their own explored and visible tiles, and the HUD lists only their own cities. Both devices hold the whole match, so this is a courtesy rule rather than a secret, and the mode suits friends rather than ranked play. The map draws every unit as a small voxel figure with its faction colour and each city with a name plate and a coloured territory border; the opponent's cities and units appear only while they are in sight. A match has no victory or defeat condition, so the rivals cannot interact beyond racing each other; combat or diplomacy is the natural next step. The technical design is [ADR-005](architecture.md#adr-005-serverless-play-by-messenger).
+The messenger transport retains at most 10,000 orders per match, with the final slot reserved for End turn. At capacity, no further orders are accepted; this is not victory/defeat/draw and does not change solo rules. Readable already-over-limit archives stay stored and listed without replay. Storage failures show a persistent warning and keep an unsaved match open when shelving or switching; explicit Leave is the discard path. Keep the page open and save/send a completed turn before leaving if local storage is unavailable.
+
+Fog stays per faction: each player sees only their own explored and visible tiles, and the HUD lists only their own cities. Both devices hold the whole match, so this is a courtesy rule rather than a secret, and the mode suits friends rather than ranked play. The map draws every unit as a small voxel figure with its faction colour and each city with a name plate and a coloured territory border; the opponent's cities and units appear only while they are in sight. A match has no victory or defeat condition, so the rivals cannot interact beyond racing each other; scenario setup and visibility-safe combat are next, with diplomacy optional later. The technical design is [ADR-005](architecture.md#adr-005-serverless-play-by-messenger).
 
 ## Target status and baseline
 
@@ -70,12 +72,12 @@ The following is the complete planned game, not a description of executable game
 | **Target** | Intended gameplay, not implemented behavior |
 | **Test rules / test value** | Coherent provisional implementation/playtest fixture, not verified balance |
 | **Proposal** | Recommended edge-case resolution to confirm before implementation |
-| **Implemented baseline** | Present in the cumulative development commit, not necessarily main |
+| **Implemented baseline** | Present in main from `f3f07d4`; not a claim of completed target gameplay |
 | **Later** | Not a prerequisite for the first complete two-human match |
 
 Unless explicitly described as implemented, **all target numbers are test values**. Tribe, unit and building names are working names; their English names below are the canonical documentation vocabulary, not a migration of stored content IDs. Confirmation of a direction does not validate its balance.
 
-The historical main commit `6aa2dbe8d45ccea58def5054ff32a55295a22b04` had a four-neighbour square atlas, generator 2, rules 1, scout movement, faction visibility and turns. It is not the functional basis of this plan. The chosen baseline is `klaus/graphics-polish` at `834ffc491fa4932e3c719191db837b3fea639445`, cumulatively including #20, #21, #22, #24, #29 and #31.
+The historical main commit `6aa2dbe8d45ccea58def5054ff32a55295a22b04` had a four-neighbour square atlas, generator 2, rules 1, scout movement, faction visibility and turns. It is not the functional basis of this plan. The design was prepared against `klaus/graphics-polish` at `834ffc491fa4932e3c719191db837b3fea639445`, cumulatively including #20, #21, #22, #24, #29 and #31. That foundation and the complete design are now integrated on main at `f3f07d4`.
 
 | Baseline area | Development contract to preserve | Target change |
 | --- | --- | --- |
@@ -88,7 +90,7 @@ The historical main commit `6aa2dbe8d45ccea58def5054ff32a55295a22b04` had a four
 | Storage | Incompatible rules/generators are not replayed; readable saves remain stored | Preserve explicit version boundaries |
 | Missing gameplay | Combat, worker jobs, research, diplomacy, AI and victory | Documentation must not present them as finished |
 
-This baseline was checked against `src/game/expedition.ts`, `src/game/map.ts` on historical main and `src/game/hex.ts`, `src/game/expedition.ts`, `src/game/match.ts`, `src/exchange/match-storage.ts` and documentation in the cumulative commit. All six PRs are intended groundwork, including graphics polish, not optional work to discard. Their integration remains an organizational gate, not permission to merge or retarget them. Do not copy isolated files out of the stack or alter the main checkout. Real blockers and integration order live in the [roadmap](roadmap.md#existing-dependencies-and-legacy-issues).
+This baseline was checked against `src/game/expedition.ts`, `src/game/map.ts` on historical main and `src/game/hex.ts`, `src/game/expedition.ts`, `src/game/match.ts`, `src/exchange/match-storage.ts` and documentation in the cumulative commit. All six PRs, including graphics polish, are integrated groundwork to preserve. The documentation issue #32 is complete; its target gameplay is not. Current package issues and actual blocked-by relationships are recorded in the [roadmap](roadmap.md#existing-dependencies-and-legacy-issues); do not infer new implementation or merge approval from this historical baseline.
 
 ## Target world and player promise
 

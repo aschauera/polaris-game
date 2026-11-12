@@ -5,7 +5,7 @@ import {
   applyCommand, CITY_RULES, cityYields, createExpedition, FACTIONS, findPath, movementRange, PRODUCTION_ITEMS,
   UNIT_RULES, unitsOf, type Command, type Expedition, type FactionId, type ProductionItemId,
 } from './game/expedition'
-import { compactCommand, exportMatch, MATCH_FACTIONS, matchIdOf, receiveTurn, stateHash } from './game/match'
+import { applyMatchCommand, compactCommand, exportMatch, MATCH_FACTIONS, matchIdOf, receiveTurn, stateHash } from './game/match'
 import { decodeTurn, encodeTurn, linkedTurn, turnLink } from './exchange/turn-code'
 import {
   currentMatchId, forgetMatch, listMatches, MATCH_NAME_LIMIT, migrateLegacyMatch, restoreMatch, saveMatch, setCurrentMatch,
@@ -169,11 +169,18 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
 }
 
 // Saving also makes the match the one that reopens after a reload.
-function persist(): void {
+function persist(): boolean {
+  if (!match || !expedition) return true
   const storage = browserStorage()
-  if (!storage || !match || !expedition) return
-  saveMatch(storage, { faction: match.faction, name: match.name, match: exportMatch(match.id, expedition) })
-  setCurrentMatch(storage, match.id)
+  const saved = storage && saveMatch(storage, { faction: match.faction, name: match.name, match: exportMatch(match.id, expedition) })
+  if (!storage || !saved?.ok) {
+    const reason = saved && !saved.ok ? saved.reason : 'This browser cannot keep matches.'
+    messenger.storage(`${reason} Keep this page open. Finish the turn and save its file or send it before leaving.`)
+    return false
+  }
+  const current = setCurrentMatch(storage, match.id)
+  messenger.storage(current.ok ? '' : `The match is saved in Your matches. ${current.reason}`)
+  return true
 }
 
 function order(command: Command): void {
@@ -183,7 +190,7 @@ function order(command: Command): void {
     hud.order(`It is ${FACTIONS[state.activeFaction]}'s turn. Open their turn from your messenger first.`, true)
     return
   }
-  const result = applyCommand(state, command)
+  const result = match ? applyMatchCommand(state, command) : applyCommand(state, command)
   if (!result.ok) { hud.order(result.reason, true); return }
   expedition = result.state
   if (command.type === 'found-city') {
@@ -290,7 +297,9 @@ function syncMessenger(): void {
   const state = expedition
   if (!state) {
     const storage = browserStorage()
-    messenger.idle(!!map, storage ? listMatches(storage).matches.map(describeMatch) : [])
+    const saved = storage ? listMatches(storage) : undefined
+    messenger.idle(!!map, saved?.matches.map(describeMatch) ?? [])
+    if (saved?.errors.length) messenger.storage(saved.errors.join(' '))
     return
   }
   if (!match) { messenger.hide(); return }
@@ -310,7 +319,7 @@ function syncMessenger(): void {
       messenger.match({ ...view, outbox: { code, link: turnLink(code, location), fileName: `polaris-turn-${turnsEnded(state)}.txt` } })
     },
     () => {
-      if (token === outboxToken) messenger.notice('Your turn could not be packed for sending. Reload the page and try again.', true)
+      if (token === outboxToken) messenger.notice('Your turn could not be packed for sending. Keep this page open until the match can be saved, then reload to retry.', true)
     },
   )
 }
@@ -348,24 +357,31 @@ function closeMatch(): void {
   renderExpedition()
   renderer?.reset()
   messenger.fill('')
+  messenger.storage('')
   syncMessenger()
 }
 
 function shelveMatch(): void {
   if (!match) return
+  if (!persist()) {
+    messenger.notice('The match stays open because it has not been saved. Retry after freeing browser storage, or choose Leave match to discard it.', true)
+    return
+  }
   const storage = browserStorage()
-  if (storage) setCurrentMatch(storage)
+  const closed = storage ? setCurrentMatch(storage) : { ok: false, reason: 'This browser cannot keep matches.' }
+  if (!closed.ok) { messenger.storage(closed.reason); return }
   closeMatch()
-  messenger.notice(storage ? 'The match is saved. Continue it from Your matches, or open your opponent\'s next turn.'
-    : 'This browser cannot keep matches. Open the latest turn from your messenger to continue this one.')
+  messenger.notice('The match is saved. Continue it from Your matches, or open your opponent\'s next turn.')
 }
 
 function leaveMatch(): void {
   if (!match) return
   const storage = browserStorage()
-  if (storage) forgetMatch(storage, match.id)
+  const removed = storage ? forgetMatch(storage, match.id) : { ok: true } as const
+  if (!removed.ok) { messenger.storage(removed.reason); return }
   closeMatch()
-  messenger.notice('You left the match. This device forgot it; your opponent still has their copy.')
+  messenger.notice(storage ? 'You left the match. This device forgot it; your opponent still has their copy.'
+    : 'You left the open match. This browser cannot access saved matches; any previous saved copy may remain.', !storage)
 }
 
 function renameMatch(name: string): void {
@@ -375,19 +391,18 @@ function renameMatch(name: string): void {
   syncMessenger()
 }
 
-// Opens a match on its own world. Any match that was open before has been saved after its last order.
+// Switching callers must first save any currently open match.
 function resume(next: OpenMatch, state: Expedition): void {
   match = next
   syncForm(state.map)
   hud.worldLocked(true)
   show(state.map, state)
-  const storage = browserStorage()
-  if (storage) setCurrentMatch(storage, next.id)
   hud.order(canAct(state) ? 'Your move. Select the gold scout to begin.'
     : `Waiting for ${FACTIONS[state.activeFaction]}. Open their turn from your messenger to continue.`)
 }
 
-function storedMatch(matchId: string): { readonly open: OpenMatch; readonly state: Expedition } | { readonly reason: string } | undefined {
+function storedMatch(matchId: string): { readonly open: OpenMatch; readonly state: Expedition }
+  | { readonly reason: string; readonly kept: boolean } | undefined {
   const storage = browserStorage()
   const saved = storage ? restoreMatch(storage, matchId) : undefined
   if (!saved) return
@@ -400,6 +415,7 @@ function continueMatch(matchId: string): void {
   if (saved && 'open' in saved) {
     resume(saved.open, saved.state)
     messenger.notice('')
+    persist()
     return
   }
   syncMessenger()
@@ -426,10 +442,11 @@ async function receive(text: string): Promise<void> {
     return
   }
   // Every turn names its match, so it is checked against that match whether or not it is the open one.
-  // A saved copy that no longer verifies has been discarded, and the turn then opens the match afresh.
+  // Damaged copies may have been discarded; retained archives must never be replaced.
   const matchId = matchIdOf(decoded.value)
   const open = match && state && match.id === matchId ? { open: match, state } : undefined
   const found = open || !matchId ? undefined : storedMatch(matchId)
+  if (found && 'kept' in found && found.kept) { reject(found.reason); return }
   const saved = found && 'open' in found ? found : undefined
   const local = open ?? saved
   let result: ReturnType<typeof receiveTurn>
@@ -441,17 +458,16 @@ async function receive(text: string): Promise<void> {
     reject('This turn could not be opened.')
     return
   }
+  if (match && !open && (result.ok || (result.kind === 'known' && saved)) && !persist()) {
+    reject('This turn belongs to another match. This browser cannot keep matches right now, so the current match stays open. ' +
+      'Save it first, or choose Leave match to discard it explicitly.')
+    return
+  }
   if (!result.ok) {
     if (result.kind !== 'known') { reject(result.reason); return }
     // An old message of another saved match still brings that match up.
-    if (saved) resume(saved.open, saved.state)
+    if (saved) { resume(saved.open, saved.state); persist() }
     messenger.notice(result.reason)
-    return
-  }
-  // Without storage the open match lives only on screen, so it is not silently replaced by another one.
-  if (match && !open && !browserStorage()) {
-    reject('This turn belongs to another match. This browser cannot keep matches, so choose All matches first. ' +
-      'You can bring the current match back later by opening its latest turn.')
     return
   }
   const sender = lastSender(result.state)
@@ -588,8 +604,10 @@ messenger.idle(false)
 const storage = browserStorage()
 const problems: string[] = []
 if (storage) {
-  migrateLegacyMatch(storage)
-  problems.push(...listMatches(storage).discarded.map(reason => `A saved match was discarded. ${reason}`))
+  const migrated = migrateLegacyMatch(storage)
+  if (!migrated.ok) problems.push(migrated.reason)
+  const listed = listMatches(storage)
+  problems.push(...listed.discarded.map(reason => `A saved match was discarded. ${reason}`), ...listed.errors)
 }
 const current = storage ? currentMatchId(storage) : undefined
 const saved = current ? storedMatch(current) : undefined
