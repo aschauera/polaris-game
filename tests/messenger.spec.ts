@@ -139,6 +139,21 @@ test('starts a validated shared-landmass scenario with independent tribe choices
   await expect.poll(async () => (await expeditionOf(page))?.scoutTileId).toBe(to!.id)
   expect((await expeditionOf(page))?.fog[near.id]).toBe('visible')
   expect(await towers()).toBe(1)
+  // Holders are public: markers name them even on uncharted beacons, and the display preview never touches the match.
+  const hash = (await matchOf(page))?.stateHash
+  const markers = page.locator('.beacon-marker')
+  const preview = (holders: ('meridian' | 'lantern' | null)[]) =>
+    page.evaluate(list => window.polarisDiagnostics!.previewBeaconHolders(list), holders)
+  expect(await preview(['lantern', null, 'meridian'])).toBe(true)
+  await expect(markers).toHaveText(['✦ 1 · Lantern', '✦ 2', '✦ 3 · Meridian'])
+  await expect(markers.nth(0)).toHaveClass(/held blue/)
+  await expect(markers.nth(0)).toHaveAttribute('aria-label', /held by Lantern$/)
+  await expect(markers.nth(1)).toHaveAttribute('aria-label', /neutral$/)
+  expect(await page.evaluate(() => window.polarisDiagnostics!.stats())).toMatchObject({ beaconTowers: 1, heldBeaconTowers: 1 })
+  expect(await preview([null, null, null])).toBe(true)
+  await expect(markers).toHaveText(['✦ 1', '✦ 2', '✦ 3'])
+  expect(await page.evaluate(() => window.polarisDiagnostics!.stats())).toMatchObject({ beaconTowers: 1, heldBeaconTowers: 0 })
+  expect((await matchOf(page))?.stateHash).toBe(hash)
   await page.getByRole('button', { name: 'Reset view' }).click()
   await page.getByRole('button', { name: 'Zoom in' }).click()
   await page.getByRole('button', { name: 'Zoom in' }).click()
@@ -147,6 +162,8 @@ test('starts a validated shared-landmass scenario with independent tribe choices
   for (let step = 0; step < 2; step++) await page.keyboard.press('ArrowDown')
   await expect(page.locator('.beacon-marker:visible')).toHaveCount(3)
   await capture(page, testInfo, 'scenario-beacons')
+  await preview(['lantern', null, 'meridian'])
+  await capture(page, testInfo, 'scenario-beacons-held')
 })
 
 test('two devices exchange turns through a link and a pasted code and stay in sync', async ({ browser }, testInfo) => {

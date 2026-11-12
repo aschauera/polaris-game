@@ -7,9 +7,8 @@ import {
 import { HEX_RADIUS, HEX_ROW, hexCenter } from '../game/hex'
 import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
-import type { ScenarioBeacon } from '../game/scenario'
 import { figureMesh, type FigureKind } from './figures'
-import { BEACON_HEIGHT, beaconMeshes } from './beacon'
+import { BEACON_HEIGHT, beaconMeshes, type BeaconOwner } from './beacon'
 import { chunkKey, detailWindow } from './detail'
 import { RESOURCES, type ResourceKind } from './resources'
 import { CAMERA_PITCH as PITCH, CAMERA_YAW as YAW, SCREEN_DOWN as DOWN, SCREEN_RIGHT as RIGHT } from './view'
@@ -50,7 +49,15 @@ export interface ExplorationView {
   readonly settlements?: readonly SettlementView[]
   /** Units the viewer may see; defaults to the viewer's gold scout. */
   readonly units?: readonly UnitView[]
-  readonly beacons?: readonly ScenarioBeacon[]
+  readonly beacons?: readonly BeaconView[]
+}
+
+/** A public beacon; its holder is public too, so it shows even under fog. */
+export interface BeaconView {
+  readonly tileId: number
+  readonly role: string
+  /** Absent while the beacon is neutral. */
+  readonly owner?: { readonly banner: BeaconOwner; readonly name: string }
 }
 
 export interface RenderStats {
@@ -70,6 +77,8 @@ export interface RenderStats {
   settlements: number
   /** Charted public beacons drawn as voxel lighthouses. */
   beaconTowers: number
+  /** Lighthouses that show a holder's banners and light rather than the neutral look. */
+  heldBeaconTowers: number
   resourceMarkers: number
   drawCalls: number
   frameMs: number
@@ -391,6 +400,7 @@ export class WorldRenderer {
   private plates: { element: HTMLElement; tileId: number }[] = []
   private beaconMarkers: { element: HTMLElement; tileId: number }[] = []
   private beaconTowers: Mesh[] = []
+  private heldBeaconTowers = 0
   private beaconMaterials?: { body: StandardMaterial; dimBody: StandardMaterial; light: StandardMaterial; dimLight: StandardMaterial }
   private unitTargets: { element: HTMLButtonElement; position: Vector3 }[] = []
   private readonly resourceMarkers = new Map<number, HTMLElement>()
@@ -912,26 +922,30 @@ export class WorldRenderer {
     this.placeResourceMarkers(transform, viewport)
   }
 
-  private buildBeacons(beacons?: readonly ScenarioBeacon[]): void {
+  private buildBeacons(beacons?: readonly BeaconView[]): void {
     this.clearBeacons()
     const { map, world } = this
     for (const [index, beacon] of (beacons ?? []).entries()) {
+      const { owner } = beacon
       const element = document.createElement('div')
-      element.className = 'beacon-marker'
+      element.className = `beacon-marker${owner ? ` held ${owner.banner ? 'blue' : 'gold'}` : ''}`
       element.setAttribute('role', 'img')
-      element.setAttribute('aria-label', `Public beacon ${index + 1} · ${beacon.role.replace('-', ' ')}`)
-      element.textContent = `✦ ${index + 1}`
+      element.setAttribute('aria-label', `Public beacon ${index + 1} · ${beacon.role.replace('-', ' ')} · ` +
+        (owner ? `held by ${owner.name}` : 'neutral'))
+      element.textContent = owner ? `✦ ${index + 1} · ${owner.name}` : `✦ ${index + 1}`
       this.plateLayer.append(element)
       this.beaconMarkers.push({ element, tileId: beacon.tileId })
       // Uncharted beacons keep only their public marker; fog hides the lighthouse like any other terrain feature.
       const tile = map?.tiles[beacon.tileId]
       if (!tile || !world || !this.known[tile.id] || tile.terrain === 'water') continue
+      // The holder is public, so a remembered tower shows the current one, dimmed like the terrain around it.
       const remembered = this.exploration?.fog[tile.id] === 'explored'
       const materials = this.beaconMaterialSet()
       const [x, z] = beaconFoot(tile)
       // The beacon levels its tile, so the lighthouse stands on the tile surface at the current density.
       const ground = tileSurface(world, tile, true) * world.size
-      const { body, light } = beaconMeshes()
+      const { body, light } = beaconMeshes(owner?.banner)
+      if (owner) this.heldBeaconTowers++
       for (const [part, data, material] of [
         ['body', body, remembered ? materials.dimBody : materials.body],
         ['light', light, remembered ? materials.dimLight : materials.light],
@@ -982,6 +996,7 @@ export class WorldRenderer {
     }
     if (this.beaconTowers.length) this.shadowsStale = true
     this.beaconTowers = []
+    this.heldBeaconTowers = 0
   }
 
   resource(id: number): ResourceKind | undefined {
@@ -1260,7 +1275,7 @@ export class WorldRenderer {
       disposedChunks: this.disposedChunks, remeshedChunks: this.remeshedChunks,
       streamedChunks: this.streamedChunks, residentColumns: this.world?.columnTile.length ?? 0,
       settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code & 1), 0) : 0,
-      beaconTowers: this.beaconTowers.length / 2,
+      beaconTowers: this.beaconTowers.length / 2, heldBeaconTowers: this.heldBeaconTowers,
       resourceMarkers: this.resourceMarkers.size,
       drawCalls: this.engine._drawCalls.current,
       frameMs: this.instrumentation.frameTimeCounter.current, renderedFrames: this.renderedFrames,

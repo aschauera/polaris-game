@@ -127,7 +127,9 @@ Version impact: content/schema for player/tribe selection; generator only for ca
 
 **Implemented:** deterministic starts on the largest connected landmass, one adjacent founder per player, three public non-settlement beacons, a route-fairness validator using current movement costs, reserved settlement space, independent tribe choices and the first additional-founder production decision. Rules v5 records the changed command outcomes; scenario v1 identifies the placement contract without changing generator v5. Beacons are public map objectives only: activation, combat and victory remain later packages. Tests cover mirrored tribes, repeatable placements, weighted routes, reserved land, rejection of unsuitable seeds and replay/package tampering.
 
-**Beacon lighthouses (#56, presentation only):** charted beacons are drawn as neutral voxel lighthouses on levelled plazas; uncharted ones keep only their public marker and remembered ones are dimmed. No faction colour is applied before P5 defines ownership, and P5 must decide how ownership and streaks are shown. The tower changes no placement, movement or rule.
+**Beacon lighthouses (#56, presentation only):** charted beacons are drawn as voxel lighthouses on levelled plazas; uncharted ones keep only their public marker and remembered ones are dimmed. The tower changes no placement, movement or rule.
+
+**Beacon holder display (#58, presentation only):** a lighthouse shows neutral (white lantern, terracotta bands, plain marker) or held (holder-coloured lantern and bands, banners with a faction-specific tail, a named marker plate and “held by …” inspection text). The domain stores no holders yet, so matches show every beacon as neutral; an opt-in diagnostics preview exercises the held look without touching the match. P5 supplies the holders and adds the streak display.
 
 ### P3 — Visibility-safe combat foundation
 
@@ -190,7 +192,7 @@ Acceptance:
 - No cities/founders loses; a founder alone prevents defeat.
 - Defeat before beacon before draw; 40 complete rounds, player two can win at final ending.
 - Completed-result import idempotent; no subsequent gameplay commands.
-- Public ownership and streaks are readable on the map and in the HUD without relying on colour alone; they extend the neutral beacon lighthouse (#56) instead of replacing it.
+- Public ownership and streaks are readable on the map and in the HUD without relying on colour alone. Feed P5 holders into the existing lighthouse holder display (#58) instead of replacing it, and add the streak display.
 
 ### P6 — Accept M2 device to device
 

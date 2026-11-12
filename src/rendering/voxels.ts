@@ -28,7 +28,9 @@ const SOURCE = {
   castle: '#b2aea0', castleDark: '#8d8b81', bannerGold: '#f0c873', bannerBlue: '#5a7fe0',
   goldDark: '#b4842f', blueDark: '#3a58ad', skin: '#f0c49a', hair: '#5a3b24', steel: '#c9ced6', leather: '#7a5230',
   depositStone: '#b6b2a7', depositStoneDark: '#8e938c', appleRed: '#d83b28', appleLight: '#ef6840',
-  patina: '#5fa58f', patinaDark: '#3e7d6c', beaconGlow: '#ffc24a', beaconCore: '#fff2c2',
+  // A neutral lantern burns pale white; a held one glows in its owner's colour.
+  patina: '#5fa58f', patinaDark: '#3e7d6c', beaconGlow: '#f3efe3', beaconCore: '#fffefa',
+  beaconGold: '#ffc24a', beaconGoldCore: '#fff2c2', beaconBlue: '#7fa8ff', beaconBlueCore: '#dde8ff',
 } as const
 
 export type VoxelKind = keyof typeof SOURCE
