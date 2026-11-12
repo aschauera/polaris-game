@@ -132,18 +132,18 @@ Version impact: rules and command/transport shape where needed; hashes include h
 
 **Prerequisites:** P3. Use E15/E17 from the [decision register](game-design.md#target-decision-register) and the [water crossing rules](game-design.md#water-crossing); E18 tribal water styles stay in P12.
 
-Derive coastal water and open sea; add the common Landing project, embark/disembark commands, boats at sea, land attacks on boats and Bulwark zones over water; extend scenario placement/validation to home-island and beacon-island layouts; add voxel boat and Landing pier presentation.
+Generate stable per-water-hex bathymetry classes over the four broad underwater terraces; add the common Landing project, embark/disembark commands, boats at sea, land attacks on boats and Bulwark zones over water; extend scenario placement/validation to home-island and beacon-island layouts; add voxel boat and Landing pier presentation.
 
 Acceptance:
 
-- Coastal water is exactly hex distance ≤ 2 from land (test value; compare 3), derived from canonical terrain; open sea stays impassable for ordinary boats.
-- Embark only from a coastal land tile in the territory of an own city with a Landing, with movement left; units landed on another island re-embark only from such territory. Embarking and disembarking each end movement and attack. Never disembark into an enemy city centre; a landing never attacks, captures or activates a beacon in the same turn.
-- Boats move 3 per turn in coastal water, occupy one tile, traverse own boats, are blocked by enemies and stop on entering a Bulwark zone. They cannot attack, entrench, rest, found, work, capture or activate; land attacks deal a neutral 4 without counter. No boat-versus-boat combat.
-- Validation accepts shared-landmass, home-island and beacon-island layouts only with baseline reachability, room, contestable beacons and travel turns within 1 between mirrored targets; failing maps are rejected, never repaired. Test with swapped starts.
+- Each water hex has one deterministic navigation tier matching its terrain: shallow and shoal allow ordinary boats; shelf and deep require a deep-water-capable boat. The tier field follows warped coasts and broad underwater sandbanks, not a fixed distance from land. Sandbank water is navigable but never walkable or a landing surface; sub-hex decoration cannot change a tile's class.
+- Shallow-water routes may extend irregularly away from shore along sandbanks. Validate that both starts and every beacon are connected by land plus shallow water through the common Landing; maps that fail room, contestability or mirrored travel-turn fairness are rejected, never repaired. Verify swapped starts and deep-water-only expansion islands.
+- Build a Landing only in a city beside shallow water. Initial embark requires a Landing in the owning city's territory and movement left; once equipped, a unit retains its vessel ashore and can re-embark from any land tile beside free water its vessel can enter, with no second city required. Embarking and disembarking each end movement and attack. Never disembark into an enemy city centre; a landing never attacks, captures or activates a beacon that turn.
+- Ordinary boats move 3 per turn in shallow water and cannot enter deep water. Harbour-equipped boats enter deep water at 2 movement per hex and retain that capability after landing and re-embarking. Boats occupy one tile, traverse own boats, are blocked by enemies and stop on entering a Bulwark zone. They cannot attack, entrench, rest, found, work, capture or activate; land attacks deal a neutral 4 without counter. No boat-versus-boat combat.
 - Boats are hidden and revealed like land units; previews, paths and rejection reasons leak no hidden boats.
 - Fresh running-app captures of boats and piers, delivered separately as Visual overview.
 
-Version impact: rules (water classes, commands, embarked state with vessel kind), content (Landing), scenario/generator for island placement; schema for embarked state and commands.
+Version impact: rules (depth classes, commands, retained vessel capability), content (Landing), scenario/generator for bathymetry and island placement; bump the generator version if canonical generated depths/routes change; schema for water class and vessel state.
 
 ### P4 — City attacks, capture and occupation
 
@@ -212,7 +212,7 @@ Acceptance:
 - Unstaffed starting centre prevents economic deadlock.
 - Population 4/7 plus administration enables radius 2/3, never free full rings.
 - Connected unambiguous coastal claims/fisheries without walking on water.
-- Common Harbour as a paid Landing upgrade without research; boats launched there may enter open sea at 2 movement per hex (E17).
+- Common Harbour as a paid Landing upgrade without research; boats first embarked there may enter shelf/deep water at 2 movement per hex and retain that vessel capability after landing (E17).
 - No city cap: third/later cities foundable/capturable. Spacing 3 illegal, 4 legal otherwise; overlapping catchments retain unique ownership.
 - Test founder 36 work vs basic soldier 12, plus wood/stone/12 local food. Provisions, death, cancellation and blocked output neither create food nor silently remove population.
 - Housing 6 through Cultivation Methods before population 4, administration/radius 2 afterward; housing 9 before population 7. No per-city free research or cyclic unlock.
@@ -263,7 +263,7 @@ Choose **exactly one initial characteristic ability per tribe** from the catalog
 
 Acceptance: correct wood/crystal prices, single charges, movement/attack budgets. No protection/healing stacks, fog teleports, zone bypass, free repair or city-switch recharging. No blanket Engineer superiority; Raccoons viable without ruins; Amazons pay alternative connection through building opportunity cost; Sorceresses retain basic counters without crystals.
 
-Tribal water styles (E18) belong here only after both maintainers approve them: Amazon canoes, Raccoon drift rafts, Engineer bridges and Sorceress star navigation, each with the bounds in the [design](game-design.md#water-crossing). They never change map validation, never let boats attack and never remove the response turn after a landing; Engineer bridges are usable by enemies and removable.
+Tribal water styles (E18) belong here only after both maintainers approve them: Amazon canoes (faster in shallow water), Raccoon drift rafts (cheap initial embark, shallow water only), Engineer bridges (shallow-water hexes, usable by enemies and removable) and Sorceress star navigation (deep water without a Harbour), each with the bounds in the [design](game-design.md#water-crossing). They never change map validation, never let boats attack and never remove the response turn after a landing.
 
 ### P13 — M5 pairings, resources and first-player advantage
 
