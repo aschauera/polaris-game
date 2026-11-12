@@ -78,7 +78,9 @@ export function mapHash(map: WorldMap): string {
   const known = mapHashes.get(map)
   if (known) return known
   let text = `${map.generatorVersion}:${map.seed}:${map.width}x${map.height}:${map.rngState}|`
-  for (const tile of map.tiles) text += `${tile.terrain[0]}${tile.elevation}${tile.trees},`
+  for (const tile of map.tiles) {
+    text += `${tile.terrain[0]}${tile.elevation}${tile.trees}:${tile.terrain === 'water' ? tile.waterDepth : '-'},`
+  }
   const hash = checksum(text)
   mapHashes.set(map, hash)
   return hash

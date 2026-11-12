@@ -1,5 +1,9 @@
 import { PRODUCTION_ITEMS } from '../game/expedition'
-import { TERRAIN, type MapConfig, type Tile, type WorldMap } from '../game/map'
+import { TERRAIN, WATER_DEPTH, type MapConfig, type Tile, type WorldMap } from '../game/map'
+
+function terrainName(tile: Tile): string {
+  return tile.terrain === 'water' ? `${TERRAIN.water.name} · ${WATER_DEPTH[tile.waterDepth].name}` : TERRAIN[tile.terrain].name
+}
 
 /** Direction-pad buttons, named by where the neighbouring hex appears on screen. */
 export const SCREEN_DIRECTIONS = ['up-left', 'up', 'up-right', 'down-left', 'down', 'down-right'] as const
@@ -106,7 +110,7 @@ export function createHud() {
         </section>
         <section class="legend" aria-label="Terrain legend">
           <div><i class="grass"></i> Grassland <small>low plateau</small></div>
-          <div><i class="water"></i> Water <small>blue shelf</small></div>
+          <div><i class="water"></i> Water <small>four depths</small></div>
           <div><i class="hills"></i> Hills <small>low upland</small></div>
         </section>
         <p class="scope">PROCEDURAL PLACEHOLDERS<br>Scout exploration and the first city economy are playable. Combat &amp; AI remain planned.</p>
@@ -134,12 +138,12 @@ export function createHud() {
   const directions = Object.fromEntries(SCREEN_DIRECTIONS.map(direction =>
     [direction, get<HTMLButtonElement>(`move-${direction}`)])) as Record<ScreenDirection, HTMLButtonElement>
   const selection = (tile?: Tile, resource?: string) => {
-    get('selection').textContent = tile ? `(${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name} · Tile ${tile.id}` : 'No tile selected'
+    get('selection').textContent = tile ? `(${tile.x}, ${tile.z}) · ${terrainName(tile)} · Tile ${tile.id}` : 'No tile selected'
     get('resource-info').hidden = !tile || !resource
     get('resource-info').textContent = tile && resource ? `${resource} · Visual occurrence; harvesting is not available yet.` : ''
   }
   const hover = (tile?: Tile, resource?: string) => {
-    get('hover').textContent = tile ? `Surveying (${tile.x}, ${tile.z}) · ${TERRAIN[tile.terrain].name}${resource ? ` · ${resource}` : ''}`
+    get('hover').textContent = tile ? `Surveying (${tile.x}, ${tile.z}) · ${terrainName(tile)}${resource ? ` · ${resource}` : ''}`
       : 'Hover over the map to survey a tile.'
   }
   return {

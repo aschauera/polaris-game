@@ -106,12 +106,12 @@ describe('match storage', () => {
     }
   })
 
-  it('keeps generator-v3 saves unchanged and stops auto-resuming them rather than rebuilding or deleting them', () => {
-    const old = { faction: 'meridian', name: 'Earlier world', match: { ...exportMatch(MATCH_ID, match()), generator: 3 } }
+  it.each([3, 4])('keeps generator-v%s saves unchanged and stops auto-resuming them rather than rebuilding or deleting them', generator => {
+    const old = { faction: 'meridian', name: 'Earlier world', match: { ...exportMatch(MATCH_ID, match()), generator } }
     const raw = JSON.stringify(old)
     const storage = memoryStorage({ [PREFIX + MATCH_ID]: raw, [CURRENT]: MATCH_ID })
     expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
-      ok: false, reason: expect.stringMatching(/has been kept.*world generator 3, but your copy uses 4/),
+      ok: false, reason: expect.stringMatching(new RegExp(`has been kept.*world generator ${generator}, but your copy uses 5`)),
     })
 
     expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)

@@ -222,11 +222,11 @@ test('a running match survives a reload and is forgotten when the player leaves'
   expect(await expeditionOf(page)).toBeUndefined()
 })
 
-test('keeps a generator-v3 saved match and explains incompatibility without rebuilding or deleting it', async ({ page }) => {
-  const id = 'older-world-03'
+test('keeps a generator-v4 saved match and explains incompatibility without rebuilding or deleting it', async ({ page }) => {
+  const id = 'older-world-04'
   const key = `polaris.matches.v1.${id}`
   const raw = JSON.stringify({ faction: 'meridian', name: 'Earlier world',
-    match: { ...exportMatch(id, newMatch()), generator: 3 } })
+    match: { ...exportMatch(id, newMatch()), generator: 4 } })
   await page.addInitScript(({ id, key, raw }) => {
     if (!localStorage.getItem(key)) {
       localStorage.setItem(key, raw)
@@ -235,7 +235,7 @@ test('keeps a generator-v3 saved match and explains incompatibility without rebu
   }, { id, key, raw })
   await page.goto(WORLD_URL)
   await expect(page.locator('#messenger-notice')).toContainText('The saved match has been kept')
-  await expect(page.locator('#messenger-notice')).toContainText('world generator 3, but your copy uses 4')
+  await expect(page.locator('#messenger-notice')).toContainText('world generator 4, but your copy uses 5')
   expect(await matchOf(page)).toBeUndefined()
   expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw)
   expect(await page.evaluate(() => localStorage.getItem('polaris.current-match.v1'))).toBeNull()
@@ -265,7 +265,7 @@ test('rejects damaged, unfinished, tampered and repeated turns, and opens a fore
     [await encodeTurn(unfinished), 'finished turn'],
     [await encodeTurn({ ...finished, stateHash: '0'.repeat(14) }), 'ended differently'],
     [await encodeTurn({ ...finished, mapHash: '0'.repeat(14) }), 'different world'],
-    [await encodeTurn({ ...finished, generator: 3 }), 'world generator 3, but your copy uses 4'],
+    [await encodeTurn({ ...finished, generator: 3 }), 'world generator 3, but your copy uses 5'],
   ]
   for (const [text, reason] of rejections) {
     await open(text)
