@@ -15,7 +15,7 @@ Dependencies point toward `src/game`. A small composition entry point wires adap
 
 ## Planned target domain and compatibility
 
-The [complete design](game-design.md#target-status-and-baseline) and [delivery plan](roadmap.md#detailed-target-delivery-plan) preserve the whole #20 → #21 → #22 → #24 → #29 → #31 foundation, including browser, hex voxels and messenger, now integrated with #33/#34 on main at `f3f07d4`. The ADRs below describe implemented foundation contracts, not completed target gameplay. This section owns technical contracts only; rules, catalogs and balance status belong in game design.
+The [complete design](game-design.md#target-status-and-baseline) and [delivery plan](roadmap.md#detailed-target-delivery-plan) preserve the whole #20 → #21 → #22 → #24 → #29 → #31 foundation, including browser, hex voxels and messenger, integrated with #33/#34 and save reliability #47 on main at `c6c4cad`. The ADRs below describe implemented foundation contracts, not completed target gameplay. This section owns technical contracts only; rules, catalogs and balance status belong in game design. [Current application captures and verification](../README.md#current-verification-and-screenshot-provenance) identify their exact source and environment; they do not replace the historical performance benchmark or validate target gameplay.
 
 ### Authoritative state and commands
 

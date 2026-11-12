@@ -6,7 +6,7 @@ An original, browser-first, turn-based 4X game about rival societies rebuilding 
 
 **Implemented scope:** seeded terrain, an interactive camera, tile inspection, scout movement and faction fog, plus the first city founding/economy/production slice (roadmap briefs 6–7) and two-player matches played by exchanging turn messages. Combat, workers, research, diplomacy, AI and victory remain planned. The [visual mockup](visual-mockup.svg) is an original labeled concept, not a screenshot or implementation commitment.
 
-**Canonical design, updated 11 November 2026:** this document contains both the implemented contracts and the complete target design. [The roadmap](roadmap.md#detailed-target-delivery-plan) owns delivery packages and acceptance; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical compatibility. The entire foundation #20 → #21 → #22 → #24 → #29 → #31 and design #33/#34 are integrated into main at `f3f07d4`. Target gameplay remains planned.
+**Canonical design, status checked 12 November 2026:** this document contains both the implemented contracts and the complete target design. [The roadmap](roadmap.md#detailed-target-delivery-plan) owns delivery packages and acceptance; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical compatibility. The entire foundation #20 → #21 → #22 → #24 → #29 → #31, design #33/#34 and save reliability #47 are integrated into main at `c6c4cad`. Target gameplay remains planned. [Current running-application screenshots](../README.md#current-verification-and-screenshot-provenance) show only the implemented foundation; the reference images remain unchanged.
 
 ## Map contract
 
@@ -72,12 +72,12 @@ The following is the complete planned game, not a description of executable game
 | **Target** | Intended gameplay, not implemented behavior |
 | **Test rules / test value** | Coherent provisional implementation/playtest fixture, not verified balance |
 | **Proposal** | Recommended edge-case resolution to confirm before implementation |
-| **Implemented baseline** | Present in main from `f3f07d4`; not a claim of completed target gameplay |
+| **Implemented baseline** | Present in main at `c6c4cad`, including save maintenance; not a claim of completed target gameplay |
 | **Later** | Not a prerequisite for the first complete two-human match |
 
 Unless explicitly described as implemented, **all target numbers are test values**. Tribe, unit and building names are working names; their English names below are the canonical documentation vocabulary, not a migration of stored content IDs. Confirmation of a direction does not validate its balance.
 
-The historical main commit `6aa2dbe8d45ccea58def5054ff32a55295a22b04` had a four-neighbour square atlas, generator 2, rules 1, scout movement, faction visibility and turns. It is not the functional basis of this plan. The design was prepared against `klaus/graphics-polish` at `834ffc491fa4932e3c719191db837b3fea639445`, cumulatively including #20, #21, #22, #24, #29 and #31. That foundation and the complete design are now integrated on main at `f3f07d4`.
+The historical main commit `6aa2dbe8d45ccea58def5054ff32a55295a22b04` had a four-neighbour square atlas, generator 2, rules 1, scout movement, faction visibility and turns. It is not the functional basis of this plan. The design was prepared against `klaus/graphics-polish` at `834ffc491fa4932e3c719191db837b3fea639445`, cumulatively including #20, #21, #22, #24, #29 and #31. That foundation and the complete design integrated on main at `f3f07d4`; save reliability #47 followed at `c6c4cad`, without changing the versioned game rules.
 
 | Baseline area | Development contract to preserve | Target change |
 | --- | --- | --- |
