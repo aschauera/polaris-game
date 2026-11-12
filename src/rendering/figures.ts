@@ -6,7 +6,13 @@ export type FigureKind = 'scout' | 'founder' | 'guard' | 'worker'
 export const FIGURE_VOXEL = 1 / 24
 const WIDTH = 7
 const DEPTH = 5
-const HEIGHT = 17
+/** Figures without the star keep their original volume; the scout's pennant, the tallest accessory, ends at layer 15. */
+const BODY_HEIGHT = 17
+/** The availability star's arms reach this many voxels from its centre along each cube axis. */
+const STAR_ARM = 3
+/** Centre layer of the availability star, whose lowest arm floats one voxel above the tallest accessory. */
+const STAR_CENTRE = 16 + 1 + STAR_ARM
+const HEIGHT = STAR_CENTRE + STAR_ARM + 1
 
 interface Team { cloth: number; trim: number }
 const TEAMS: readonly Team[] = [
@@ -71,16 +77,35 @@ function stampFigure(volume: Volume, kind: FigureKind, team: Team): void {
   box(volume, 4, 4, 2, 3, 1, 2, VOXEL.leather)
 }
 
+/**
+ * A gold Polaris star above a unit that can still move. Its arms follow the three cube axes, which the isometric
+ * camera projects 60 degrees apart, so it reads as an even six-pointed star with a pale heart. Being part of the
+ * figure's own voxel mesh, it needs no extra mesh, material or animation.
+ */
+function stampStar(volume: Volume): void {
+  const [cx, cz] = [(WIDTH - 1) / 2, (DEPTH - 1) / 2]
+  placeVoxel(volume, cx, STAR_CENTRE, cz, VOXEL.beaconGoldCore)
+  for (const [ax, ay, az] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const) {
+    for (let step = 1; step <= STAR_ARM; step++) {
+      placeVoxel(volume, cx + ax * step, STAR_CENTRE + ay * step, cz + az * step,
+        step === 1 ? VOXEL.beaconGoldCore : VOXEL.beaconGold)
+    }
+  }
+}
+
 const cache = new Map<string, ChunkMesh>()
 
-/** Mesh of a figure whose feet are centred on the local origin. */
-export function figureMesh(kind: FigureKind, banner: 0 | 1): ChunkMesh {
-  const key = `${kind}:${banner}`
+/** Mesh of a figure whose feet are centred on the local origin; available units carry the star above the head. */
+export function figureMesh(kind: FigureKind, banner: 0 | 1, available = false): ChunkMesh {
+  const key = `${kind}:${banner}:${available}`
   let mesh = cache.get(key)
   if (!mesh) {
-    const volume = createVolume(0, 0, WIDTH, DEPTH, HEIGHT)
+    // The star's depth arms reach past the body, so available figures get extra columns in front and behind.
+    const pad = available ? Math.max(0, STAR_ARM - (DEPTH - 1) / 2) : 0
+    const volume = createVolume(0, -pad, WIDTH, DEPTH + 2 * pad, available ? HEIGHT : BODY_HEIGHT)
     stampFigure(volume, kind, TEAMS[banner]!)
-    mesh = meshVolume(volume, FIGURE_VOXEL, [-WIDTH / 2 * FIGURE_VOXEL, 0, -DEPTH / 2 * FIGURE_VOXEL])
+    if (available) stampStar(volume)
+    mesh = meshVolume(volume, FIGURE_VOXEL, [-WIDTH / 2 * FIGURE_VOXEL, 0, -(DEPTH / 2 + pad) * FIGURE_VOXEL])
     cache.set(key, mesh)
   }
   return mesh

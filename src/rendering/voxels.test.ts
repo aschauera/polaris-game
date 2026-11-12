@@ -5,6 +5,7 @@ import { HEX_ROW, hexAt, hexCenter, hexDistance, hexOffsets } from '../game/hex'
 import { GENERATOR_VERSION, generateMap, type Tile, type WorldMap } from '../game/map'
 import { CAMERA_PITCH, CAMERA_YAW } from './view'
 import { BEACON_HEIGHT, BEACON_VOXEL, beaconMeshes } from './beacon'
+import { figureMesh } from './figures'
 import {
   AO_LIGHT, BEACON_SITE, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, beaconFoot, centreColumn, columnTileAt,
   createVoxelWorld, groundHeight, meshChunk, pickTile, resourceAt, siteCode, territoryCode, tileSurface, voxelScale,
@@ -881,6 +882,30 @@ describe('hex voxel terrain', () => {
     known[7] = 0
     expect(at(1, 1)).toBe(tileSurface(world, map.tiles[7]!, false) * world.size)
     expect(groundHeight(world, known, -3, -3)).toBeUndefined()
+  })
+
+  it('crowns only available figures with a six-pointed gold star above an unchanged body', () => {
+    const star = new Set<number>([VOXEL.beaconGold, VOXEL.beaconGoldCore])
+    // Figures are centred on half voxels, so compare positions in half-voxel units.
+    const points = (mesh: ChunkMesh, keep: (kind: number) => boolean) =>
+      Array.from({ length: mesh.quads * 4 }, (_, vertex) => vertex).filter(vertex => keep(kindAt(mesh, vertex)))
+        .map(vertex => [0, 1, 2].map(axis => Math.round(mesh.positions[vertex * 3 + axis]! * 48)) as [number, number, number])
+    const span = (list: readonly (readonly number[])[], axis: number) =>
+      Math.max(...list.map(point => point[axis]!)) - Math.min(...list.map(point => point[axis]!))
+    for (const kind of ['scout', 'founder', 'guard', 'worker'] as const) for (const banner of [0, 1] as const) {
+      const idle = figureMesh(kind, banner)
+      const ready = figureMesh(kind, banner, true)
+      expect(points(idle, value => star.has(value))).toEqual([])
+      const body = points(ready, value => !star.has(value))
+      expect(body.map(String).sort()).toEqual(points(idle, () => true).map(String).sort())
+      const crown = points(ready, value => star.has(value))
+      expect(Math.min(...crown.map(point => point[1]))).toBeGreaterThan(Math.max(...body.map(point => point[1])))
+      // Equal arms on every cube axis, centred over the body, so the isometric view shows an even star.
+      expect([0, 1, 2].map(axis => span(crown, axis))).toEqual([14, 14, 14])
+      for (const axis of [0, 2]) {
+        expect(Math.min(...crown.map(point => point[axis]!)) + Math.max(...crown.map(point => point[axis]!))).toBe(0)
+      }
+    }
   })
 
   it('remeshes only chunks near a changed tile', () => {

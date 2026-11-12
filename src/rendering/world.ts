@@ -405,6 +405,8 @@ export class WorldRenderer {
   private unitTargets: { element: HTMLButtonElement; position: Vector3 }[] = []
   private readonly resourceMarkers = new Map<number, HTMLElement>()
   private beaconTiles = new Set<number>()
+  /** Neutral beacons the atlas shows while no expedition is open. */
+  private atlasBeacons: readonly BeaconView[] = []
   private fogUpdates = 0
   private map?: WorldMap
   private target = Vector3.Zero()
@@ -596,12 +598,14 @@ export class WorldRenderer {
     return mesh
   }
 
-  setMap(map: WorldMap): void {
+  /** `beacons` are the neutral public beacons the atlas previews while no expedition is open. */
+  setMap(map: WorldMap, beacons: readonly BeaconView[] = []): void {
     this.exploration = undefined
     this.clearFigures()
     this.clearPlates()
     this.clearBeacons()
-    this.beaconTiles.clear()
+    this.atlasBeacons = beacons
+    this.beaconTiles = new Set(beacons.map(beacon => beacon.tileId))
     this.clearResourceMarkers()
     this.pointer = undefined
     this.touches.clear()
@@ -620,6 +624,7 @@ export class WorldRenderer {
     this.map = map
     const world = createVoxelWorld(map)
     this.world = world
+    for (const beacon of beacons) world.sites[beacon.tileId] = BEACON_SITE
     this.known = new Uint8Array(map.tiles.length).fill(1)
     this.tileStateData = new Uint8Array(map.tiles.length * 4)
     for (let id = 0; id < map.tiles.length; id++) this.tileStateData[id * 4 + 3] = 255
@@ -636,6 +641,7 @@ export class WorldRenderer {
       waterTop: waterLevel(world.scale) * world.size,
     })
     for (let index = 0; index < world.chunksX * world.chunksZ; index++) this.buildChunk(index)
+    this.buildBeacons(beacons)
     const centre = new Vector3((map.width - 0.5) / 2, 0, (map.height - 1) * HEX_ROW / 2)
     this.sun.position = centre.subtract(SUN.scale(Math.max(map.width, map.height) * 2))
     this.shadowsStale = true
@@ -675,7 +681,7 @@ export class WorldRenderer {
     }
     this.buildFigures(this.exploration)
     // Ground levels can shift between voxel densities, so the lighthouses are placed again.
-    this.buildBeacons(this.exploration?.beacons)
+    this.buildBeacons(this.shownBeacons())
     this.placeMarker(this.selection, this.selectedTile)
     this.showHover()
     this.shadowsStale = true
@@ -735,7 +741,8 @@ export class WorldRenderer {
     if (!map || !world || !tileState) return
     const previous = this.exploration
     this.exploration = view
-    this.beaconTiles = new Set(view?.beacons?.map(beacon => beacon.tileId))
+    const beacons = this.shownBeacons()
+    this.beaconTiles = new Set(beacons?.map(beacon => beacon.tileId))
     const ids = dirtyTiles && previous && view
       ? new Set([...dirtyTiles, ...previous.reachable, ...view.reachable])
       : new Set(map.tiles.map(tile => tile.id))
@@ -766,7 +773,7 @@ export class WorldRenderer {
     this.copyColumnState()
     this.columns?.update(this.columnStateData)
     const sites = new Map<number, number>()
-    for (const beacon of view?.beacons ?? []) sites.set(beacon.tileId, BEACON_SITE)
+    for (const beacon of beacons ?? []) sites.set(beacon.tileId, BEACON_SITE)
     for (const settlement of view?.settlements ?? []) sites.set(settlement.tileId, siteCode(settlement))
     const settled: number[] = []
     for (let id = 0; id < world.sites.length; id++) {
@@ -781,7 +788,7 @@ export class WorldRenderer {
     this.fogUpdates += ids.size
     this.buildFigures(view)
     this.buildPlates(view)
-    this.buildBeacons(view?.beacons)
+    this.buildBeacons(beacons)
     this.updateGlint()
     this.shadowsStale = true
     this.invalidate()
@@ -813,7 +820,7 @@ export class WorldRenderer {
       // Figures stand on the visible voxel under their feet, including hills and lowered sandbanks.
       const ground = groundHeight(world, this.known, x, z) ?? this.tileHeight(tile)
       const figure = new Mesh(`figure-${unit.kind}-${index}`, this.scene)
-      applyMesh(figure, figureMesh(unit.kind, unit.banner))
+      applyMesh(figure, figureMesh(unit.kind, unit.banner, !unit.rival && !!unit.available))
       figure.material = this.figureMaterial
       figure.position.set(x, ground, z)
       figure.rotation.y = FIGURE_YAW
@@ -920,6 +927,11 @@ export class WorldRenderer {
       element.style.top = `${this.canvas.offsetTop + point.y}px`
     }
     this.placeResourceMarkers(transform, viewport)
+  }
+
+  /** An open expedition shows its own beacons, if any; the atlas shows its neutral preview. */
+  private shownBeacons(): readonly BeaconView[] | undefined {
+    return this.exploration ? this.exploration.beacons : this.atlasBeacons
   }
 
   private buildBeacons(beacons?: readonly BeaconView[]): void {

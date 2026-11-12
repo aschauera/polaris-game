@@ -147,6 +147,8 @@ test('starts a validated shared-landmass scenario with independent tribe choices
   expect(await preview(['lantern', null, 'meridian'])).toBe(true)
   await expect(markers).toHaveText(['✦ 1 · Lantern', '✦ 2', '✦ 3 · Meridian'])
   await expect(markers.nth(0)).toHaveClass(/held blue/)
+  // Held beacon plates share the compact size of city plates.
+  expect((await markers.nth(0).boundingBox())!.height).toBeCloseTo(20, 0)
   await expect(markers.nth(0)).toHaveAttribute('aria-label', /held by Lantern$/)
   await expect(markers.nth(1)).toHaveAttribute('aria-label', /neutral$/)
   expect(await page.evaluate(() => window.polarisDiagnostics!.stats())).toMatchObject({ beaconTowers: 1, heldBeaconTowers: 1 })

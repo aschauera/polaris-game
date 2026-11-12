@@ -260,8 +260,11 @@ test('regeneration restarts exploration and leaving releases the scout without r
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     expect(await snapshot(page)).toEqual(expedition)
     const playing = await page.evaluate(() => window.polarisDiagnostics!.stats())
-    // Every unit adds one figure mesh with its own geometry; figures share preallocated materials.
-    expect(playing.meshes).toBeGreaterThan(initial.meshes!)
+    // A solo expedition has no scenario, so the atlas lighthouses (two meshes each) leave the scene. Every unit adds
+    // one figure mesh with its own geometry; figures and beacons share preallocated materials.
+    expect(initial.beaconTowers).toBe(3)
+    expect(playing.beaconTowers).toBe(0)
+    expect(playing.meshes).toBeGreaterThan(initial.meshes! - 2 * initial.beaconTowers!)
     expect(playing).toMatchObject({ materials: initial.materials, geometries: initial.geometries! - initial.meshes! + playing.meshes! })
     await page.getByRole('button', { name: 'Return to atlas (discard expedition)', exact: true }).click()
     expect(await snapshot(page)).toBeUndefined()

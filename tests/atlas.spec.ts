@@ -13,6 +13,14 @@ async function stats(page: Page) {
   return page.evaluate(() => window.polarisDiagnostics!.stats())
 }
 
+/**
+ * Overview budget of the 32² and 256² atlases: 56 terrain chunks, two shared scene meshes and a body plus a light mesh
+ * for each of the three neutral lighthouses the atlas previews; beacon materials are shared by all towers.
+ */
+const ATLAS = { chunks: 56, meshes: 64, geometries: 64, materials: 10 }
+/** Two meshes per previewed lighthouse sit outside the terrain chunks in every detail window. */
+const BEACON_MESHES = 6
+
 test('water glints animate sparse cap pixels with bounded frames and respect reduced motion', async ({ page }, info) => {
   test.slow()
   await page.goto('/?diagnostics=1')
@@ -178,7 +186,10 @@ test('renders real terrain, maps picks through camera changes, and isolates HUD 
   const initial = await page.evaluate(() => window.polarisDiagnostics!.camera())
   expect(initial?.mode).toBe(1) // Babylon ORTHOGRAPHIC_CAMERA, not perspective.
   const rendering = await stats(page)
-  expect(rendering).toMatchObject({ webGLVersion: 2, chunks: 56, voxelsPerTile: 16, meshes: 58, materials: 6, geometries: 58 })
+  expect(rendering).toMatchObject({ webGLVersion: 2, voxelsPerTile: 16, ...ATLAS, beaconTowers: 3, heldBeaconTowers: 0 })
+  await expect(page.locator('#map-status')).toContainText('3 PUBLIC BEACONS')
+  await expect(page.locator('.beacon-marker')).toHaveCount(3)
+  await expect(page.locator('.beacon-marker.held')).toHaveCount(0)
   expect(rendering.waterSurfaceQuads).toBeGreaterThan(0)
   expect(rendering.vertices).toBeLessThan(900_000)
   expect(rendering.drawCalls).toBeGreaterThan(0)
@@ -487,7 +498,7 @@ test.describe('wide-view resource budget', () => {
     expect(detail).toMatchObject({ resourceMarkers: 128, materials: initial.materials, rngState: initial.rngState })
     expect(detail.voxelsPerTile).toBeGreaterThan(initial.voxelsPerTile!)
     expect(detail.chunks).toBeLessThanOrEqual(144)
-    expect(detail.meshes).toBe(detail.chunks! + 2)
+    expect(detail.meshes).toBe(detail.chunks! + 2 + BEACON_MESHES)
     expect(detail.geometries).toBe(detail.meshes)
     await page.getByRole('button', { name: 'Reset view' }).click()
     await expect(markers).toHaveCount(0)
@@ -557,7 +568,7 @@ test.describe('adaptive terrain detail', () => {
       const moved = await stats(page)
       expect(moved.voxelsPerTile).toBe(16)
       expect(moved.chunks).toBeLessThanOrEqual(144)
-      expect(moved.meshes).toBe(moved.chunks! + 2)
+      expect(moved.meshes).toBe(moved.chunks! + 2 + BEACON_MESHES)
       expect(moved.geometries).toBe(moved.meshes)
       expect(moved.materials).toBe(initial.materials)
     }
@@ -574,7 +585,7 @@ test.describe('adaptive terrain detail', () => {
     await page.locator('canvas').screenshot({ path: 'test-results/adaptive-256-overview.png' })
     await page.getByRole('button', { name: '32² showcase' }).click()
     await expect(page.locator('#map-status')).toContainText('1,024 TILES')
-    expect(await stats(page)).toMatchObject({ voxelsPerTile: 16, meshes: 58, geometries: 58, materials: 6 })
+    expect(await stats(page)).toMatchObject({ voxelsPerTile: 16, ...ATLAS })
   })
 })
 
@@ -762,7 +773,7 @@ test('regenerates repeatably and releases old chunk resources three times', asyn
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     await expect(page.getByRole('status')).toHaveText('No tile selected')
     const current = await stats(page)
-    expect(current).toMatchObject({ chunks: 56, meshes: 58, geometries: 58, materials: 6,
+    expect(current).toMatchObject({ ...ATLAS, beaconTowers: 3,
       disposedChunks: i * 56, rngState: initial.rngState, vertexBufferBytes: initial.vertexBufferBytes })
     expect((await selectTile(page)).tile).toEqual(tile)
   }
@@ -773,7 +784,7 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   await expect(page.locator('#map-status')).toContainText('65,536 TILES')
   await selectTile(page, 256)
   const initial = await stats(page)
-  expect(initial).toMatchObject({ chunks: 56, voxelsPerTile: 2, meshes: 58, geometries: 58, materials: 6 })
+  expect(initial).toMatchObject({ voxelsPerTile: 2, ...ATLAS, beaconTowers: 3 })
   expect(initial.vertices).toBeLessThan(900_000)
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
   await page.locator('canvas').focus()
@@ -782,10 +793,10 @@ test('fixture stays chunk-bounded and supports pan, zoom, picking, regeneration'
   for (let i = 1; i <= 3; i++) {
     await page.getByRole('button', { name: 'Regenerate atlas' }).click()
     expect(await stats(page)).toMatchObject({ chunks: initial.chunks, meshes: initial.meshes,
-      geometries: initial.geometries, materials: 6, disposedChunks: initial.chunks! * i })
+      geometries: initial.geometries, materials: ATLAS.materials, disposedChunks: initial.chunks! * i })
   }
   await page.getByRole('button', { name: '32² showcase' }).click()
-  expect(await stats(page)).toMatchObject({ chunks: 56, meshes: 58, geometries: 58 })
+  expect(await stats(page)).toMatchObject({ chunks: ATLAS.chunks, meshes: ATLAS.meshes, geometries: ATLAS.geometries })
   await selectTile(page)
 })
 
