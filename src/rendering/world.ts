@@ -9,12 +9,13 @@ import type { Tile, WorldMap } from '../game/map'
 import type { Visibility } from '../game/expedition'
 import type { ScenarioBeacon } from '../game/scenario'
 import { figureMesh, type FigureKind } from './figures'
+import { BEACON_HEIGHT, beaconMeshes } from './beacon'
 import { chunkKey, detailWindow } from './detail'
 import { RESOURCES, type ResourceKind } from './resources'
 import { CAMERA_PITCH as PITCH, CAMERA_YAW as YAW, SCREEN_DOWN as DOWN, SCREEN_RIGHT as RIGHT } from './view'
 import {
-  PALETTE, VOXEL, affectedChunks, createVoxelWorld, groundHeight, meshChunk, pickTile, resourceAt, siteCode, territoryCode,
-  waterLevel,
+  BEACON_SITE, PALETTE, VOXEL, affectedChunks, beaconFoot, createVoxelWorld, groundHeight, meshChunk, pickTile, resourceAt,
+  siteCode, territoryCode, tileSurface, waterLevel,
   type ChunkMesh, type Settlement, type VoxelWorld,
 } from './voxels'
 
@@ -67,6 +68,8 @@ export interface RenderStats {
   streamedChunks: number
   residentColumns: number
   settlements: number
+  /** Charted public beacons drawn as voxel lighthouses. */
+  beaconTowers: number
   resourceMarkers: number
   drawCalls: number
   frameMs: number
@@ -87,7 +90,13 @@ const VIEW = new Vector3(Math.cos(YAW) * Math.cos(PITCH), Math.sin(PITCH), Math.
 /** World height above a tile surface where a city's name plate floats, over its keep. */
 const PLATE_HEIGHT = 0.95
 const MAX_RESOURCE_MARKERS = 128
-const BEACON_MARKER_HEIGHT = 1.5
+/** Height of an uncharted beacon's marker above the fog; charted ones float just above their lighthouse. */
+const BEACON_MARKER_FOG = 0.45
+const BEACON_MARKER_GAP = 0.12
+/** Remembered lighthouses dim like remembered terrain. */
+const REMEMBERED_LIGHT = 0.58
+/** Figures on a beacon tile step this far towards the viewer, onto the plaza in front of the lighthouse. */
+const BEACON_FIGURE_STEP = 0.2
 /** Water glints redraw at this interval rather than every display frame, which bounds GPU and battery use. */
 const GLINT_FRAME_MS = 80
 /** Glint cells start at one finest voxel and double until each covers this many framebuffer pixels. */
@@ -381,6 +390,8 @@ export class WorldRenderer {
   private figures: Mesh[] = []
   private plates: { element: HTMLElement; tileId: number }[] = []
   private beaconMarkers: { element: HTMLElement; tileId: number }[] = []
+  private beaconTowers: Mesh[] = []
+  private beaconMaterials?: { body: StandardMaterial; dimBody: StandardMaterial; light: StandardMaterial; dimLight: StandardMaterial }
   private unitTargets: { element: HTMLButtonElement; position: Vector3 }[] = []
   private readonly resourceMarkers = new Map<number, HTMLElement>()
   private beaconTiles = new Set<number>()
@@ -653,6 +664,8 @@ export class WorldRenderer {
       this.disposedChunks++
     }
     this.buildFigures(this.exploration)
+    // Ground levels can shift between voxel densities, so the lighthouses are placed again.
+    this.buildBeacons(this.exploration?.beacons)
     this.placeMarker(this.selection, this.selectedTile)
     this.showHover()
     this.shadowsStale = true
@@ -743,6 +756,7 @@ export class WorldRenderer {
     this.copyColumnState()
     this.columns?.update(this.columnStateData)
     const sites = new Map<number, number>()
+    for (const beacon of view?.beacons ?? []) sites.set(beacon.tileId, BEACON_SITE)
     for (const settlement of view?.settlements ?? []) sites.set(settlement.tileId, siteCode(settlement))
     const settled: number[] = []
     for (let id = 0; id < world.sites.length; id++) {
@@ -783,8 +797,9 @@ export class WorldRenderer {
       const slot = placed.get(unit.tileId) ?? 0
       placed.set(unit.tileId, slot + 1)
       const shift = (slot - (stacks.get(unit.tileId)! - 1) / 2) * 0.3
-      const x = cx + RIGHT[0] * shift
-      const z = cz + RIGHT[1] * shift
+      const step = this.beaconTiles.has(unit.tileId) ? BEACON_FIGURE_STEP : 0
+      const x = cx + RIGHT[0] * shift + DOWN[0] * step
+      const z = cz + RIGHT[1] * shift + DOWN[1] * step
       // Figures stand on the visible voxel under their feet, including hills and lowered sandbanks.
       const ground = groundHeight(world, this.known, x, z) ?? this.tileHeight(tile)
       const figure = new Mesh(`figure-${unit.kind}-${index}`, this.scene)
@@ -887,8 +902,9 @@ export class WorldRenderer {
     }
     for (const { element, tileId } of this.beaconMarkers) {
       const tile = map.tiles[tileId]!
-      const [x, z] = hexCenter(tile.x, tile.z)
-      const point = Vector3.Project(new Vector3(x, BEACON_MARKER_HEIGHT, z), Matrix.Identity(), transform, viewport)
+      const [x, z] = this.known[tileId] ? beaconFoot(tile) : hexCenter(tile.x, tile.z)
+      const y = this.tileHeight(tile) + (this.known[tileId] ? BEACON_HEIGHT + BEACON_MARKER_GAP : BEACON_MARKER_FOG)
+      const point = Vector3.Project(new Vector3(x, y, z), Matrix.Identity(), transform, viewport)
       element.hidden = point.x < 0 || point.y < 0 || point.x > width || point.y > height
       element.style.left = `${this.canvas.offsetLeft + point.x}px`
       element.style.top = `${this.canvas.offsetTop + point.y}px`
@@ -898,6 +914,7 @@ export class WorldRenderer {
 
   private buildBeacons(beacons?: readonly ScenarioBeacon[]): void {
     this.clearBeacons()
+    const { map, world } = this
     for (const [index, beacon] of (beacons ?? []).entries()) {
       const element = document.createElement('div')
       element.className = 'beacon-marker'
@@ -906,13 +923,65 @@ export class WorldRenderer {
       element.textContent = `✦ ${index + 1}`
       this.plateLayer.append(element)
       this.beaconMarkers.push({ element, tileId: beacon.tileId })
+      // Uncharted beacons keep only their public marker; fog hides the lighthouse like any other terrain feature.
+      const tile = map?.tiles[beacon.tileId]
+      if (!tile || !world || !this.known[tile.id] || tile.terrain === 'water') continue
+      const remembered = this.exploration?.fog[tile.id] === 'explored'
+      const materials = this.beaconMaterialSet()
+      const [x, z] = beaconFoot(tile)
+      // The beacon levels its tile, so the lighthouse stands on the tile surface at the current density.
+      const ground = tileSurface(world, tile, true) * world.size
+      const { body, light } = beaconMeshes()
+      for (const [part, data, material] of [
+        ['body', body, remembered ? materials.dimBody : materials.body],
+        ['light', light, remembered ? materials.dimLight : materials.light],
+      ] as const) {
+        const mesh = new Mesh(`beacon-${part}-${index}`, this.scene)
+        applyMesh(mesh, data)
+        mesh.material = material
+        mesh.position.set(x, ground, z)
+        mesh.isPickable = false
+        mesh.freezeWorldMatrix()
+        if (part === 'body') this.shadows.addShadowCaster(mesh, false)
+        this.beaconTowers.push(mesh)
+      }
     }
     this.placePlates()
+  }
+
+  /** Lighthouse materials are created with the first one, so maps without beacons keep their material budget. */
+  private beaconMaterialSet() {
+    if (this.beaconMaterials) return this.beaconMaterials
+    const body = (name: string, shade: number) => {
+      const material = new StandardMaterial(name, this.scene)
+      material.diffuseColor = new Color3(shade, shade, shade)
+      material.specularColor = Color3.Black()
+      material.emissiveColor = new Color3(0.1 * shade, 0.1 * shade, 0.1 * shade)
+      return material
+    }
+    // Unlit lantern voxels show their palette colour at full strength: a static glow without animation.
+    const light = (name: string, shade: number) => {
+      const material = new StandardMaterial(name, this.scene)
+      material.emissiveColor = new Color3(shade, shade, shade)
+      material.disableLighting = true
+      return material
+    }
+    this.beaconMaterials = {
+      body: body('beacon-body', 1), dimBody: body('beacon-body-remembered', REMEMBERED_LIGHT),
+      light: light('beacon-light', 1), dimLight: light('beacon-light-remembered', REMEMBERED_LIGHT),
+    }
+    return this.beaconMaterials
   }
 
   private clearBeacons(): void {
     for (const { element } of this.beaconMarkers) element.remove()
     this.beaconMarkers = []
+    for (const mesh of this.beaconTowers) {
+      this.shadows.removeShadowCaster(mesh, false)
+      mesh.dispose(false, false)
+    }
+    if (this.beaconTowers.length) this.shadowsStale = true
+    this.beaconTowers = []
   }
 
   resource(id: number): ResourceKind | undefined {
@@ -1190,7 +1259,8 @@ export class WorldRenderer {
       vertexBufferBytes: this.chunks.reduce((sum, chunk) => sum + chunk.bytes, 0),
       disposedChunks: this.disposedChunks, remeshedChunks: this.remeshedChunks,
       streamedChunks: this.streamedChunks, residentColumns: this.world?.columnTile.length ?? 0,
-      settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code ? 1 : 0), 0) : 0,
+      settlements: this.world ? this.world.sites.reduce((sum, code) => sum + (code & 1), 0) : 0,
+      beaconTowers: this.beaconTowers.length / 2,
       resourceMarkers: this.resourceMarkers.size,
       drawCalls: this.engine._drawCalls.current,
       frameMs: this.instrumentation.frameTimeCounter.current, renderedFrames: this.renderedFrames,

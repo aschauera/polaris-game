@@ -28,6 +28,7 @@ const SOURCE = {
   castle: '#b2aea0', castleDark: '#8d8b81', bannerGold: '#f0c873', bannerBlue: '#5a7fe0',
   goldDark: '#b4842f', blueDark: '#3a58ad', skin: '#f0c49a', hair: '#5a3b24', steel: '#c9ced6', leather: '#7a5230',
   depositStone: '#b6b2a7', depositStoneDark: '#8e938c', appleRed: '#d83b28', appleLight: '#ef6840',
+  patina: '#5fa58f', patinaDark: '#3e7d6c', beaconGlow: '#ffc24a', beaconCore: '#fff2c2',
 } as const
 
 export type VoxelKind = keyof typeof SOURCE
@@ -90,7 +91,10 @@ export interface VoxelWorld {
   /** Columns a tree may extend beyond its own tile. */
   readonly reach: number
   readonly seed: number
-  /** Per-tile settlement codes from `siteCode`; 0 means none. Callers update them and remesh `affectedChunks`. */
+  /**
+   * Per-tile site codes: settlements from `siteCode` (bit 0 set) or `BEACON_SITE`; 0 means none. Both level the tile and
+   * clear its decoration. Callers update them and remesh `affectedChunks`.
+   */
   readonly sites: Uint8Array
 }
 
@@ -106,6 +110,18 @@ export function siteCode(settlement?: Settlement): number {
   if (!settlement) return 0
   const houses = Math.max(1, Math.min(3, Math.floor(settlement.houses)))
   return 1 | (houses - 1) << 1 | (settlement.storehouse ? 8 : 0) | settlement.banner << 4
+}
+
+/** Site code of a public beacon: bit 0 stays clear, so no keep is stamped; its lighthouse is a separate mesh. */
+export const BEACON_SITE = 64
+/** The lighthouse stands this far towards the back of its hex, so a unit in front of it stays readable. */
+const BEACON_SETBACK = 0.15
+const BEACON_PLAZA = 0.36
+
+/** World x and z of a lighthouse's foot on its tile. */
+export function beaconFoot(tile: Tile): [number, number] {
+  const [x, z] = hexCenter(tile.x, tile.z)
+  return [x - SCREEN_DOWN[0] * BEACON_SETBACK, z - SCREEN_DOWN[1] * BEACON_SETBACK]
 }
 
 /**
@@ -380,12 +396,23 @@ function column(world: VoxelWorld, known: Uint8Array, gx: number, gz: number): C
     return { top, surface, body: 'water', floor, floorSurface, capSurface, rockTop, tile, known: true }
   }
   const level = landLevel(scale, tile.terrain, tile.elevation)
-  if (world.sites[id]) {
-    // A settlement levels its tile; a lane runs from the keep to the front edge with a branch to the west house.
-    const [cx, cz] = centreColumn(world, tile)
-    const u = Math.floor((gx - cx) / detail)
-    const v = Math.floor((gz - cz) / detail)
-    const path = scale >= 8 && ((v >= 0 && (u === -1 || u === 0)) || (v === 1 && u >= -4 && u < 0))
+  const site = world.sites[id]!
+  if (site) {
+    let path = false
+    if (site & 1) {
+      // A settlement levels its tile; a lane runs from the keep to the front edge with a branch to the west house.
+      const [cx, cz] = centreColumn(world, tile)
+      const u = Math.floor((gx - cx) / detail)
+      const v = Math.floor((gz - cz) / detail)
+      path = scale >= 8 && ((v >= 0 && (u === -1 || u === 0)) || (v === 1 && u >= -4 && u < 0))
+    } else if (scale >= 8) {
+      // A beacon stands on a ragged paved plaza with a lane from its door to the front edge.
+      const [fx, fz] = beaconFoot(tile)
+      const dx = world.originX + (gx + 0.5) * world.size - fx
+      const dz = world.originZ + (gz + 0.5) * world.size - fz
+      const radius = BEACON_PLAZA - 0.06 * hash(seed, nx, 97, nz)
+      path = dx * dx + dz * dz <= radius * radius || (dz >= 0 && Math.abs(dx) <= 1 / 16)
+    }
     const hills = tile.terrain === 'hills'
     return { top: level, surface: path ? VOXEL.path : hills ? VOXEL.hillGrass : VOXEL.grass,
       body: hills ? 'cliff' : 'dirt', tile, known: true }
@@ -554,7 +581,7 @@ function stampSettlements(world: VoxelWorld, known: Uint8Array, volume: Volume):
   const detail = Math.max(1, scale / 8)
   for (const tile of tilesNear(world, volume, 0)) {
     const code = sites[tile.id]!
-    if (!code || known[tile.id] !== 1 || tile.terrain === 'water') continue
+    if (!(code & 1) || known[tile.id] !== 1 || tile.terrain === 'water') continue
     const ground = base + landLevel(scale, tile.terrain, tile.elevation)
     const [x, z] = centreColumn(world, tile)
     const banner = code & 16 ? VOXEL.bannerBlue : VOXEL.bannerGold
