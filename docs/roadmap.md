@@ -137,7 +137,7 @@ Derive coastal water and open sea; add the common Landing project, embark/disemb
 Acceptance:
 
 - Coastal water is exactly hex distance ≤ 2 from land (test value; compare 3), derived from canonical terrain; open sea stays impassable for ordinary boats.
-- Embark only from a coastal land tile in the territory of an own city with a Landing, with movement left; embarking and disembarking each end movement and attack. Never disembark into an enemy city centre; a landing never attacks, captures or activates a beacon in the same turn.
+- Embark only from a coastal land tile in the territory of an own city with a Landing, with movement left; units landed on another island re-embark only from such territory. Embarking and disembarking each end movement and attack. Never disembark into an enemy city centre; a landing never attacks, captures or activates a beacon in the same turn.
 - Boats move 3 per turn in coastal water, occupy one tile, traverse own boats, are blocked by enemies and stop on entering a Bulwark zone. They cannot attack, entrench, rest, found, work, capture or activate; land attacks deal a neutral 4 without counter. No boat-versus-boat combat.
 - Validation accepts shared-landmass, home-island and beacon-island layouts only with baseline reachability, room, contestable beacons and travel turns within 1 between mirrored targets; failing maps are rejected, never repaired. Test with swapped starts.
 - Boats are hidden and revealed like land units; previews, paths and rejection reasons leak no hidden boats.
