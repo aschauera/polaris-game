@@ -2,9 +2,9 @@
 
 An original voxel-isometric strategy **foundation**, not a complete 4X game. The deterministic atlas now includes a playable scout expedition and a first city-economy slice: founding, yields, growth and production, with chunked WebGL 2 rendering and an Art Deco HUD. Two players can also play a match **by messenger**, with no server: each finished turn is a link, code or file that you send through any chat.
 
-![Polaris generator 2 showcase, seed polaris, 64 × 48, captured from the production app](docs/showcase.png)
+![Current Polaris generator-v4 atlas: cubic-voxel hex islands and ocean-connected bays, seed polaris, 64 × 48](docs/voxel-organic-islands.png)
 
-*This image predates the voxel renderer and remains the authoritative reference for landforms, composition and map scale. With explicit user approval, the look of the board follows the [hex voxel concept](docs/concept-hex-voxel.jpg): **hex fields built from cubic voxels**, a brighter diorama palette, soft shadows, territory borders, city name plates and voxel unit figures (see the [expedition captures](#visual-overview)). Both references and the binding graphics rules are listed in the [Copilot instructions](.github/copilot-instructions.md#visual-references).*
+*Running production application, captured 12 November 2026 from `c6c4cad`; see [capture provenance](#current-verification-and-screenshot-provenance). This is the implemented foundation, not the planned complete game. The older [landform reference](docs/showcase.png) and approved [hex voxel concept](docs/concept-hex-voxel.jpg) remain unchanged and authoritative for their separate scopes. Both references and the binding graphics rules are listed in the [Copilot instructions](.github/copilot-instructions.md#visual-references).*
 
 ## Plan and visual direction
 
@@ -17,14 +17,14 @@ An original voxel-isometric strategy **foundation**, not a complete 4X game. The
 
 **Implemented:** roadmap briefs 6–7 / issues #7–#8, deterministic commands/turns, movement, exploration, founding, city yields, population growth, and production, plus two-player matches played by exchanging turn messages ([Play by messenger](#play-by-messenger)). Combat, worker actions, research, policies, diplomacy, and opponent AI are deliberately deferred.
 
-**Integrated baseline:** the complete foundation (#20, #21, #22, #24, #29 and #31) and canonical design (#33/#34) are on `main` at `f3f07d4`. The next gameplay package is P2/#36, after save reliability #35: scenario and player slots for a complete **two-human, three-class, three-beacon match**, then the six-resource economy with the small shared research tree and freely selectable four tribes. Exact new costs and balance values remain provisional; the current Meridian/Lantern rules and saves are not silently replaced.
+**Integrated baseline, checked 12 November 2026:** the complete foundation (#20, #21, #22, #24, #29 and #31), canonical design (#33/#34), and save reliability #35/#47 are on `main` at `c6c4cad`. #35 is closed and all prerequisites of the next gameplay package, P2/#36, are closed. P2 remains unimplemented: scenario and player slots for a complete **two-human, three-class, three-beacon match**, then the six-resource economy with the small shared research tree and freely selectable four tribes. Exact new costs and balance values remain provisional; the current Meridian/Lantern rules and saves are not silently replaced.
 
 **Confirmed target decisions, not implemented:** PvP begins at war; mirror tribes are allowed from the start; there is no city-count cap. Minimum spacing (initial test value: 4 hex steps), supply and expensive additional founders limit expansion. The first founder and scout are scenario-provided, with equal disclosed stocks and no starting army. Military food debt is accepted for the first iteration. Civilians can be killed only through an explicit adjacent attack, with no automatic movement kill, loot, conversion or retreat/prisoner subsystem. Research is one shared eight-technology tree with one project and fixed baseline yield per player faction, retained per-technology progress and no research theft by conquest. The first tribal-content slice adds one characteristic ability per tribe; full catalogs remain expansion goals.
 
 ## Requirements and setup
 
 - **Node.js 24 LTS**, npm 11 (Node 24's bundled npm); other Node majors are not supported by this foundation.
-- Desktop-class current Chromium or Microsoft Edge with **WebGL 2** enabled. Windows is the initial target; this PR's automated evidence is Linux Chromium, not a claim of Windows hardware validation.
+- Desktop-class current Chromium or Microsoft Edge with **WebGL 2** enabled. Windows is the initial target; automated suite evidence below is Linux Chromium, not a claim of Windows hardware validation.
 - Phone browsers are an early target: portrait/landscape layout and touch gestures are checked in emulated Chromium only. Real Android/iOS devices are not validated.
 - No editor, account, backend, GPU-equipped workstation, runtime CDN, or asset-authoring tool is required.
 
@@ -63,7 +63,7 @@ is active.
 To try a real phone on the same Wi-Fi, run `npm run dev -- --host` and open the
 printed *Network* URL on the phone.
 
-Mobile captures of the hex voxel world from a local browser-suite run of branch `klaus/hex-voxel-world`, seed `polaris`, Windows Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390):
+Current application captures from the 12 November 2026 `main` browser suite at `c6c4cad`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader with touch emulation (portrait 390 × 844; landscape 844 × 390; DPR 2):
 
 ![Phone portrait atlas: map above the independently scrolling controls](docs/mobile-phone-portrait-atlas.png)
 
@@ -71,7 +71,7 @@ Mobile captures of the hex voxel world from a local browser-suite run of branch 
 
 ![Phone landscape atlas using the desktop-style side-by-side layout](docs/mobile-phone-landscape-atlas.png)
 
-These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. The run passed **116 unit tests** and **21 browser tests**, plus type-check, lint and production build; the pull request's GitHub Actions run repeats them on Linux.
+These are emulated browser captures, not evidence from physical iOS/Android devices or mobile GPUs. [Current verification and screenshot provenance](#current-verification-and-screenshot-provenance) records the source run, environment and validation results.
 
 ### Docker and Azure Container Apps
 
@@ -302,7 +302,7 @@ Regenerating during an expedition starts a fresh expedition on the new world. In
 
 ### Visual overview
 
-Captures of the hex voxel world from a local browser-suite run of branch `klaus/hex-voxel-world`, seed `polaris`, 32 × 32, 1440 × 900 viewport, Windows Chromium/SwiftShader:
+Current application captures from the 12 November 2026 `main` browser suite at `c6c4cad`, seed `polaris`, 32 × 32, 1440 × 900 viewport, Linux Chromium/SwiftShader, DPR 1:
 
 ![Turn 1: the selected scout with its gold hex outline and its sight area of two hexes, next to the founder, surrounded by uniform uncharted terrain](docs/expedition.png)
 
@@ -310,7 +310,7 @@ Captures of the hex voxel world from a local browser-suite run of branch `klaus/
 
 ![The founded city Sonnenfurt as a voxel settlement with its name plate and population 2, a gold border around its territory, after its Guard completed](docs/expedition-city.png)
 
-These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **116 unit tests**, **21 browser tests**, type-check, lint and production build in that run; the pull request's GitHub Actions run repeats them on Linux.
+These are functional UI captures, not concept art or evidence of native-GPU performance. See [current verification and screenshot provenance](#current-verification-and-screenshot-provenance).
 
 ## Play by messenger
 
@@ -343,7 +343,7 @@ How it behaves:
 
 ### Visual overview
 
-Captures of the hex voxel world from a local browser-suite run of branch `klaus/hex-voxel-world`, seed `polaris`, 32 × 32, Windows Chromium/SwiftShader. The idle panel and the match list are 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
+Current application captures from the 12 November 2026 `main` browser suite at `c6c4cad`, seed `polaris`, 32 × 32, Linux Chromium/SwiftShader, DPR 1. The idle panel, match list and storage warning are 1440 × 900; the two device captures are 1100 × 760 and come from two isolated browser contexts of one test:
 
 ![The atlas with the Play by messenger panel before a match: start a match or open a received turn](docs/messenger-idle.png)
 
@@ -353,7 +353,9 @@ Captures of the hex voxel world from a local browser-suite run of branch `klaus/
 
 ![Your matches on one device: the match named Andreas is marked in gold because it is your turn, the other waits for Lantern Compact](docs/messenger-match-list.png)
 
-These are functional UI captures, not concept art or evidence of native-GPU performance. This revision passed **116 unit tests**, **21 browser tests**, type-check, lint and production build in that run; the pull request's GitHub Actions run repeats them on Linux.
+![A simulated full browser store shows a persistent warning and refuses to switch away from the unsaved current match](docs/messenger-storage-failure.png)
+
+The storage picture deliberately simulates a quota failure in an isolated test profile; it is not an error in the normal capture environment. The current match and pasted turn remain available, and the test verifies saving/resuming after storage recovers. All pictures are real UI captures, not concept art or native-GPU benchmarks; see [current verification and screenshot provenance](#current-verification-and-screenshot-provenance).
 
 ## Map inputs and controls
 
@@ -395,9 +397,9 @@ The palette is calibrated against the **rendered framebuffer**, including lighti
 
 ![Closer running-app view: broad lowered sandy areas within land hexes, with intact cliffs beside them](docs/voxel-sandbanks.png)
 
-Application captures recorded for #31, now merged: `polaris`, a 64 × 48 whole-world overview and 32 × 32 canvas details, desktop Chromium/SwiftShader at 1440 × 900, DPR 1. The overview keeps the authoritative reference's map dimensions and broad separated landmasses while showing the new open bays. Low connected highlands replace the per-hex grassy pillars; stone groups have broader caps, varied heights and chipped shoulders. The approved colours, four underwater terraces, sandbanks, smaller trees, isometric camera and voxel densities are retained. These show the implementation, not concept art or a hardware performance benchmark. New regressions measure actual bay depth and connectivity, world-space land heights and coarse merging, rock footprints/caps/centre clearance, canonical bay selection and grey framebuffer geometry. Earlier coast, resource, palette, grid, gameplay and messenger checks remain. The captures document that graphics revision; save-reliability maintenance changes no terrain visuals.
+Refreshed application captures from `c6c4cad` on 12 November 2026: `polaris`, a 64 × 48 whole-world overview and 32 × 32 canvas details. The overview was captured locally on Windows; detail images come from the Linux `main` browser suite. Both use Chromium/SwiftShader at 1440 × 900, DPR 1. The overview retains the reference's map dimensions and broad separated landmasses while showing the open bays. Low connected highlands replace per-hex grassy pillars; stone groups have broader caps, varied heights and chipped shoulders. These show the implementation, not concept art or a hardware benchmark. Save maintenance and this documentation refresh change no terrain visuals; see [capture provenance](#current-verification-and-screenshot-provenance).
 
-Graphics-polish validation (#31): **146 unit tests and 40 browser regressions**, type-check, lint and production build. Coverage includes direct mouse/touch/keyboard unit selection, independent movement budgets, range/glow refresh, city selection/production, waiting-turn locks, replay and older-rule save retention. Water tests measure changing but sparse framebuffer pixels, a maximum temporal colour-channel change of 80/255 in the inspected water fixture, bounded idle frame counts, unchanged geometry/RNG and reduced-motion/overview shutdown. Static palette tests use reduced motion. Adaptive-detail regressions cover 64², 128² and 256² expeditions, all four densities, chunk-window pan/reuse, resource bounds, picking, fog/cities and exact overview restoration. Cropped chunks match full-grid geometry byte-for-byte. The wide-view 256² regression saturates the exact 128-marker limit and verifies cleanup. GitHub Actions runs the complete suite on supported Node 24; local browser verification includes focused reruns after fixture updates.
+Graphics regression coverage includes direct mouse/touch/keyboard unit selection, independent movement budgets, range/glow refresh, city selection/production, waiting-turn locks, replay and older-rule save retention. Water tests measure changing but sparse framebuffer pixels, a maximum temporal colour-channel change of 80/255 in the inspected water fixture, bounded idle frame counts, unchanged geometry/RNG and reduced-motion/overview shutdown. Static palette tests use reduced motion. Adaptive-detail regressions cover 64², 128² and 256² expeditions, all four densities, chunk-window pan/reuse, resource bounds, picking, fog/cities and exact overview restoration. Cropped chunks match full-grid geometry byte-for-byte. The wide-view 256² regression saturates the exact 128-marker limit and verifies cleanup. Current suite totals and the source run are recorded below rather than attached to older graphics branches.
 
 ### Visual overview: water glints and direct orders
 
@@ -405,7 +407,7 @@ Graphics-polish validation (#31): **146 unit tests and 40 browser regressions**,
 
 ![Fresh running expedition: a worker selected after a direct move, reachable hexes and a glowing city awaiting production](docs/voxel-direct-orders.png)
 
-Captured from this implementation on desktop Chromium/SwiftShader, seed `polaris`, 32 × 32. The water picture is one frame of the animation; browser tests verify temporal pixel changes. The glows are static availability indicators. These are not reference artwork or native-device performance measurements.
+Captured by the 12 November 2026 `main` browser suite at `c6c4cad`, Linux Chromium/SwiftShader, seed `polaris`, 32 × 32, 1440 × 900, DPR 1. The water picture is one frame of the animation; browser tests verify temporal pixel changes. The glows are static availability indicators. These are not reference artwork or native-device performance measurements.
 
 **Zoom-dependent detail, up to 256 × 256:** the overview retains the economical 16/8/4/2 voxel densities, but zooming into larger maps now restores 4, 8 and ultimately 16 voxels per hex. Trees, rocks, sandbanks and underwater terraces regain their detailed geometry. The density follows the world-space viewport footprint, including aspect ratio and height clearance, rather than a fixed number of zoom clicks. The renderer keeps one padded, chunk-aligned window at a single density; its cut edges stay outside the view. It never builds the entire 256² world at showcase density. Existing chunks are reused while panning and departing chunks/textures are released. A hysteresis band avoids repeated rebuilds near a zoom threshold.
 
@@ -413,13 +415,27 @@ The canonical map, generator, saved games, visibility and simulation RNG do not 
 
 ### Visual overview: adaptive 256² detail
 
-The same `polaris` 256 × 256 world in the running production build, desktop Chromium/SwiftShader at 1440 × 900. The overview uses density 2; the close view restores density 16, including apple voxels, stone deposits, fine ground shades and coastal terraces. These are fresh application captures, not a reference image or a frame-rate benchmark.
+The same `polaris` 256 × 256 world in the running `c6c4cad` production build, captured by the 12 November 2026 `main` browser suite, Linux Chromium/SwiftShader at 1440 × 900, DPR 1. The overview uses density 2; the close view restores density 16, including stone deposits, fine ground shades and detailed vegetation. These are canvas captures from the actual application, not reference images or a frame-rate benchmark.
 
 ![256-square map in its economical overview](docs/voxel-large-map-overview.png)
 
 ![The same 256-square map zoomed in with full voxel detail](docs/voxel-large-map-detail.png)
 
 ## Validation and benchmark evidence
+
+### Current verification and screenshot provenance
+
+The current screenshot set was captured on **12 November 2026** from merged source [`c6c4cadd19c925c11314f042a39a213b73d7a043`](https://github.com/aschauera/polaris-game/commit/c6c4cadd19c925c11314f042a39a213b73d7a043), including #47. All use seed `polaris`, rules v4 and generator v4. The screenshots are committed here so they remain available after CI artifacts expire.
+
+The [merged-main validation run](https://github.com/aschauera/polaris-game/actions/runs/43162446295) passed on supported **Node 24.22.2**: type-check, lint, **150 unit tests**, **42 browser tests**, **33 Azure setup scenarios plus release-workflow checks**, and the production build. The browser suite took 9.9 minutes. This is dated evidence for the captured source revision; later commits have their own CI checks.
+
+| Capture group | Production-app source and environment |
+| --- | --- |
+| 64 × 48 atlas overview, also shown at the top | Local production build of the same commit, Windows Chromium 156.0.8078.4 / ANGLE SwiftShader, 1440 × 900, DPR 1; reduced motion |
+| Expedition, city, messenger, storage warning, coastal details, glints and 256² detail | [Merged-main browser run](https://github.com/aschauera/polaris-game/actions/runs/43162446295), Linux Chromium / ANGLE SwiftShader, 1440 × 900, DPR 1; host/guest contexts are 1100 × 760 |
+| Phone atlas and messenger | Same CI run, Chromium touch emulation, portrait 390 × 844 / landscape 844 × 390, DPR 2 |
+
+Most stills use reduced motion; the water-glint capture explicitly enables animation. Detail images cropped to the canvas region are 1138 × 768: they omit the sidebar but retain any visible projected labels and camera controls. No image is a measurement of native/mobile GPU performance or proof of the planned combat/economy/tribal gameplay. The local overview build used existing dependencies and Node 26, outside the supported Node 24 range; supported-runtime validation comes from CI. The earlier Windows/Node-26 water-glint timeout remains a documented local limitation in [#47](https://github.com/aschauera/polaris-game/pull/47), not something this docs-only change fixes.
 
 Save-reliability regressions (#35) additionally cover quota/write failures, recovery, explicit discard, both new and known cross-match imports, migration/pointer/removal failures, the exact 10,000-order boundary, and retained over-limit archives. Browser tests exchange the last admissible turn between isolated devices and verify that no 10,001st order or retained-record overwrite is accepted.
 
@@ -471,10 +487,10 @@ For CI-equivalent software measurements, use the Chromium flags documented above
 ## Known limitations
 
 - Only exploration, city founding and a production queue are playable. No combat, worker actions, research, policies, diplomacy, AI, general save/load, live multiplayer, physics, or external services.
-- A solo expedition uses one faction and is lost when the page closes; only messenger matches are stored, in `localStorage` (see [Limits of a serverless match](#limits-of-a-serverless-match)). Drawing founders and units, remembered (last-known) rival cities, hidden enemy units and mutable last-known terrain belong to later milestones.
+- A solo expedition uses one faction and is lost when the page closes; only messenger matches are stored, in `localStorage` (see [Limits of a serverless match](#limits-of-a-serverless-match)). Founders and units are rendered now; remembered (last-known) rival cities and mutable last-known terrain belong to later milestones.
 - Only Chromium is automated; phone viewports and touch input run as Chromium emulation. Windows Edge hardware, Firefox/Safari, real Android/iOS devices and mobile GPUs, long-duration profiling, assistive-technology map navigation, and WebGPU are unvalidated/deferred.
 - Continents and tree clusters are seeded procedural shapes, not a climate or hydrology simulation; rivers and bridges are not yet represented. At full stress-map zoom tiles are intentionally tiny; zoom in to inspect them.
-- Voxel chunk meshing, scene upload and remeshing after exploration run synchronously on the main thread; switching to the 256² fixture takes about 2 seconds under SwiftShader. Large-map interactions must be profiled before promising larger maps. The 256² fixture is not a finished-game performance promise.
+- Voxel chunk meshing, scene upload and remeshing after exploration run synchronously on the main thread. The 256² fixture's load/interaction latency depends on the runner; screenshots do not establish it. Large-map interactions still need device profiling. The 256-per-side cap remains fixed, not a finished-game performance promise.
 - The recorded SwiftShader 256² frame intervals are seconds, not a smooth-play claim; native GPU validation and focused rendering profiling remain open.
 - Babylon's initial bundle is substantial; Vite reports a chunk-size advisory. It is not a build failure. Loading/code-splitting optimization is deferred until measured.
 

@@ -1,6 +1,6 @@
 # Polaris: implementation roadmap
 
-**Canonical delivery plan, updated 11 November 2026:** this document owns the full target packages, dependencies, acceptance and test strategy. [Game design](game-design.md#target-status-and-baseline) owns complete rules, lore, catalogs and decision status; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical version/save contracts. Foundation PRs #20 → #21 → #22 → #24 → #29 → #31 and design #33/#34 are integrated into main at `f3f07d4`; their prerequisite issues are closed. The target gameplay remains planned.
+**Canonical delivery plan, status checked 12 November 2026:** this document owns the full target packages, dependencies, acceptance and test strategy. [Game design](game-design.md#target-status-and-baseline) owns complete rules, lore, catalogs and decision status; [architecture](architecture.md#planned-target-domain-and-compatibility) owns technical version/save contracts. Foundation PRs #20 → #21 → #22 → #24 → #29 → #31, design #33/#34 and save reliability #47 are integrated into main at `c6c4cad`; their prerequisite issues are closed. The target gameplay remains planned.
 
 **New delivery order:** existing hex/city/messenger/graphics foundation → complete two-human match with three common classes, three beacons, city capture and end conditions → six-resource/worker/city economy with the chosen small common research tree → first four-tribe slice with one characteristic ability each → six mixed plus four mirror pairings with swapped starts → further documented tribal catalogs. Diplomacy, policies and AI are optional later. Research is not required before the isolated first combat/victory slice, but its unlocks govern the complete economy. This supersedes the historical future sequencing below, not implemented regression contracts or real GitHub blockers.
 
@@ -12,24 +12,24 @@ Sizes in historical briefs are rough focused-development estimates: **S** 1–2 
 
 ## Detailed target delivery plan
 
-Packages below remain planned. Issue #32 was delivered by #33/#34 and is closed. The separately authorized maintenance #35 fixes save reliability and reconciles the GitHub backlog; it implements no target gameplay and authorizes no merge, release or deployment.
+Packages below remain planned. Issue #32 was delivered by #33/#34 and is closed. Save maintenance #35 was delivered by #47 and is also closed: storage failures and the transport history boundary are covered, and the GitHub backlog is reconciled. It implemented no target gameplay. Documentation/capture refresh #48 records this integrated state without authorizing another merge, release or deployment.
 
 ### Baseline and working order
 
-Use integrated main from `f3f07d4` and then-current compatible maintenance: cities, messenger, hex rules/generator v4, graphics polish and canonical design. Historical main `6aa2dbe8d45ccea58def5054ff32a55295a22b04` lacks those contracts. The original documentation was prepared against cumulative graphics commit `834ffc491fa4932e3c719191db837b3fea639445`; #33/#34 subsequently integrated it. Do not discard inherited foundation work when reviewing a later narrow change.
+Use integrated main from `c6c4cad` and then-current compatible maintenance: cities, messenger, hex rules/generator v4, graphics polish, canonical design and save safeguards. Historical main `6aa2dbe8d45ccea58def5054ff32a55295a22b04` lacks those contracts. The original documentation was prepared against cumulative graphics commit `834ffc491fa4932e3c719191db837b3fea639445`; #33/#34 subsequently integrated it, and #47 added save reliability. Do not discard inherited foundation work when reviewing a later narrow change.
 
 Before any package, reread current code/blockers, fix its test rules and acceptance cases, choose a narrow reviewable increment and appropriate versions, and synchronize affected docs/guidance. Do not reopen confirmed decisions or implement blocked predecessors incidentally. Estimates follow source inspection; package IDs are planning labels mapped to GitHub issues below, not promised dates.
 
 ### Existing dependencies and legacy issues
 
-**Current integration:** #20, #21, #22, #24, #29, #31, #33 and #34 are merged. Foundation issues #8 and #25–#30 and documentation issue #32 are closed. Save reliability #35 is the additional gate before new P2 gameplay.
+**Current integration:** #20, #21, #22, #24, #29, #31, #33, #34 and #47 are merged. Foundation issues #8 and #25–#30, documentation issue #32 and save reliability #35 are closed. P2/#36 has no open blockers and is the next gameplay package, not completed gameplay.
 
-The following GitHub relationships were configured and read back during maintenance #35. Check live state again before starting:
+The following GitHub relationships were configured during maintenance #35 and read back after #47 merged on 12 November 2026. Parent #5's obsolete brief-number waves were synchronized with this map; its original native child links remain historical traceability, not delivery order. The parent stays open for unfinished gameplay. Check live state again before starting:
 
 | Package | Issue | Blocked by |
 | --- | --- | --- |
-| Save reliability | [#35](https://github.com/aschauera/polaris-game/issues/35) | #30 (closed) |
-| P2 scenario/player scaffold | [#36](https://github.com/aschauera/polaris-game/issues/36) | #30, #32 (closed), #35 |
+| Save reliability (completed via #47) | [#35](https://github.com/aschauera/polaris-game/issues/35) | #30 (closed) |
+| P2 scenario/player scaffold | [#36](https://github.com/aschauera/polaris-game/issues/36) | #30, #32, #35 (all closed) |
 | P3 visibility-safe combat | [#10](https://github.com/aschauera/polaris-game/issues/10) | #36 |
 | P4 city capture/occupation | [#37](https://github.com/aschauera/polaris-game/issues/37) | #10 |
 | P5 beacons/results | [#15](https://github.com/aschauera/polaris-game/issues/15) | #37 |
@@ -91,7 +91,7 @@ Acceptance: complete four tribes/common rules; historical main separated from th
 
 **Prerequisites:** P0 and the real six-PR chain. On main, prerequisite issues must actually be closed; alternatively use an expressly approved stacked basis.
 
-The foundation is integrated on main at `f3f07d4`, with the prerequisite issues closed. Before new gameplay, include save reliability #35, reread then-current hex/city/messenger/storage/render contracts and run the existing checks. This completed gate is not permission to merge future work without review.
+The foundation and save reliability #35/#47 are integrated on main at `c6c4cad`, with the prerequisite issues closed. Before new gameplay, reread then-current hex/city/messenger/storage/render contracts and run the existing checks. [Current screenshots and verification](../README.md#current-verification-and-screenshot-provenance) document the foundation, not P2+ gameplay. This completed gate is not permission to merge future work without review.
 
 Acceptance: selected basis has those contracts; two devices exchange valid current turns; incompatible saves survive; no square-grid assumptions in new packages. Resolve conflicts with any later predecessor changes.
 
