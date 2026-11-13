@@ -131,7 +131,7 @@ Version impact: content/schema for player/tribe selection; generator only for ca
 
 **Beacon holder display (#58, presentation only):** a lighthouse shows neutral (white lantern, terracotta bands, plain marker) or held (holder-coloured lantern and bands, banners with a faction-specific tail, a named marker plate and “held by …” inspection text). The domain stores no holders yet, so matches show every beacon as neutral; an opt-in diagnostics preview exercises the held look without touching the match. P5 supplies the holders and adds the streak display.
 
-**Atlas lighthouses and availability polish (#60, presentation only):** the map atlas previews the three beacons of a fair match layout as neutral lighthouses; a gold voxel star replaces the circular unit availability halo; city plates match the compact beacon plates.
+**Atlas lighthouses and availability polish (#60, presentation only):** the map atlas previews the three beacons of a fair match layout as neutral lighthouses; a clear ice-white voxel diamond replaces the circular unit availability halo; city plates match the compact beacon plates.
 
 ### P3 — Visibility-safe combat foundation
 
