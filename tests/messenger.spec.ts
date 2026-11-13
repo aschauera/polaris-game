@@ -1,8 +1,8 @@
 import { expect, test, type Browser, type Page, type TestInfo } from '@playwright/test'
-import { applyCommand, createExpedition, type Expedition } from '../src/game/expedition'
+import { applyCommand, type Expedition } from '../src/game/expedition'
 import { hexOffsets } from '../src/game/hex'
-import { generateMap, tileAt } from '../src/game/map'
-import { exportMatch, MATCH_FACTIONS, MATCH_LIMITS, stateHash } from '../src/game/match'
+import { tileAt } from '../src/game/map'
+import { createMatch, exportMatch, MATCH_LIMITS, stateHash } from '../src/game/match'
 import { encodeTurn } from '../src/exchange/turn-code'
 
 const WORLD = { seed: 'polaris', width: 32, height: 32 }
@@ -44,7 +44,7 @@ const expeditionOf = (page: Page) => page.evaluate(() => window.polarisDiagnosti
 const endTurnButton = (page: Page) => page.getByRole('button', { name: 'End turn', exact: true })
 
 function newMatch(): Expedition {
-  return createExpedition(generateMap(WORLD), MATCH_FACTIONS)
+  return createMatch(WORLD)
 }
 
 // A legal one-hex move for whoever is on turn, together with the screen-direction button that issues it.
@@ -91,6 +91,47 @@ async function capture(page: Page, testInfo: TestInfo, name: string) {
   await page.locator('#messenger').scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath(`${name}.png`) })
 }
+
+test('starts a validated shared-landmass scenario with independent tribe choices and public beacons', async ({ page }, testInfo) => {
+  await page.goto(WORLD_URL)
+  await page.locator('#messenger-player-one-tribe').selectOption('engineers')
+  await page.locator('#messenger-player-two-tribe').selectOption('engineers')
+  await expect(page.getByText(/one free scout and founder/)).toBeVisible()
+  await page.getByRole('button', { name: 'Start messenger match' }).click()
+
+  const state = await matchOf(page)
+  if (!state?.scenario) throw new Error('The started match has no scenario data.')
+  const scenario = state.scenario
+  expect(scenario).toMatchObject({
+    version: 1,
+    topology: 'shared-landmass',
+    players: [
+      { id: 'player-1', factionId: 'meridian', tribe: 'engineers' },
+      { id: 'player-2', factionId: 'lantern', tribe: 'engineers' },
+    ],
+    beacons: [
+      { id: 'beacon-meridian', role: 'near-meridian' },
+      { id: 'beacon-central', role: 'central' },
+      { id: 'beacon-lantern', role: 'near-lantern' },
+    ],
+  })
+  await expect(page.locator('.beacon-marker')).toHaveCount(3)
+  await expect(page.locator('#scenario-player')).toHaveText('Player 1 · Engineers')
+  const expedition = await expeditionOf(page)
+  expect(expedition?.scouts).toHaveLength(2)
+  expect(expedition?.founders).toHaveLength(2)
+  expect(expedition?.units).toHaveLength(0)
+  expect(expedition?.scoutTileId).toBe(scenario.players[0].startTileId)
+  expect(expedition?.founders[0]?.tileId).toBe(scenario.players[0].founderTileId)
+  await page.getByRole('button', { name: 'Reset view' }).click()
+  await page.getByRole('button', { name: 'Zoom in' }).click()
+  await page.getByRole('button', { name: 'Zoom in' }).click()
+  await page.locator('#world').focus()
+  for (let step = 0; step < 3; step++) await page.keyboard.press('ArrowRight')
+  for (let step = 0; step < 2; step++) await page.keyboard.press('ArrowDown')
+  await expect(page.locator('.beacon-marker:visible')).toHaveCount(3)
+  await capture(page, testInfo, 'scenario-beacons')
+})
 
 test('two devices exchange turns through a link and a pasted code and stay in sync', async ({ browser }, testInfo) => {
   const host = await openDevice(browser, testInfo)

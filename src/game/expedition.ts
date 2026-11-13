@@ -1,7 +1,8 @@
 import { hexDistance, hexOffsets } from './hex'
 import type { Terrain, Tile, WorldMap } from './map'
+import type { Scenario } from './scenario'
 
-export const RULES_VERSION = 4
+export const RULES_VERSION = 5
 export const SCOUT = Object.freeze({ movement: 4, sight: 2 })
 export const UNIT_RULES = Object.freeze({
   scout: SCOUT,
@@ -33,6 +34,7 @@ export const PRODUCTION_ITEMS = Object.freeze({
   guard: Object.freeze({ name: 'Guard', cost: 8, kind: 'unit' }),
   worker: Object.freeze({ name: 'Worker', cost: 10, kind: 'unit' }),
   storehouse: Object.freeze({ name: 'Storehouse', cost: 12, kind: 'building' }),
+  founder: Object.freeze({ name: 'Founder', cost: 18, kind: 'unit' }),
 } as const)
 export type ProductionItemId = keyof typeof PRODUCTION_ITEMS
 export type FactionId = keyof typeof FACTIONS
@@ -82,6 +84,7 @@ export type Command = Order & (
 export interface Expedition {
   readonly rulesVersion: typeof RULES_VERSION
   readonly map: WorldMap
+  readonly scenario?: Scenario
   readonly rngState: number
   readonly round: number
   readonly activeFaction: FactionId
@@ -178,15 +181,28 @@ function startingTiles(map: WorldMap, count: number): number[] {
   return starts
 }
 
-export function createExpedition(map: WorldMap, factionIds: readonly FactionId[] = ['meridian']): Expedition {
+export function createExpedition(
+  map: WorldMap,
+  factionIds: readonly FactionId[] = ['meridian'],
+  scenario?: Scenario,
+): Expedition {
   if (!factionIds.length || new Set(factionIds).size !== factionIds.length ||
     factionIds.some(id => !Object.hasOwn(FACTIONS, id))) throw new Error('Choose unique supported factions for the expedition.')
-  const starts = startingTiles(map, factionIds.length)
+  if (scenario && (scenario.players.length !== factionIds.length ||
+    scenario.players.some((player, index) => player.factionId !== factionIds[index]))) {
+    throw new Error('The scenario player slots do not match the expedition factions.')
+  }
+  const starts = scenario
+    ? factionIds.map(id => scenario.players.find(player => player.factionId === id)!.startTileId)
+    : startingTiles(map, factionIds.length)
   const occupied = new Set(starts)
   const founders = factionIds.map((factionId, index) => {
-    const tileId = neighbors(map, starts[index]!).find(id =>
-      map.tiles[id]!.terrain !== 'water' && !occupied.has(id))
+    const tileId = scenario?.players.find(player => player.factionId === factionId)?.founderTileId
+      ?? neighbors(map, starts[index]!).find(id => map.tiles[id]!.terrain !== 'water' && !occupied.has(id))
     if (tileId === undefined) throw new Error('This world has too little connected land for each faction to place a founder.')
+    if (map.tiles[tileId]?.terrain === 'water' || occupied.has(tileId)) {
+      throw new Error('The scenario founder location is not a free land tile.')
+    }
     occupied.add(tileId)
     return Object.freeze({ id: `founder-${factionId}`, factionId, tileId, movement: UNIT_RULES.founder.movement })
   })
@@ -199,7 +215,8 @@ export function createExpedition(map: WorldMap, factionIds: readonly FactionId[]
     return Object.freeze({ id, fog: Object.freeze(fog) })
   })
   return Object.freeze({
-    rulesVersion: RULES_VERSION, map, rngState: map.rngState, round: 1, activeFaction: factionIds[0]!,
+    rulesVersion: RULES_VERSION, map, ...(scenario ? { scenario } : {}),
+    rngState: map.rngState, round: 1, activeFaction: factionIds[0]!,
     factions: Object.freeze(factions), scouts: Object.freeze(scouts), founders: Object.freeze(founders),
     units: Object.freeze([]), cities: Object.freeze([]), nextCityId: 1, nextUnitId: 1,
     commands: Object.freeze([]),
@@ -231,22 +248,32 @@ function productionPlacement(state: Expedition, city: City, occupied: ReadonlySe
     state.map.tiles[id]!.terrain !== 'water' && !occupied.has(id))
 }
 
-function completeProduction(state: Expedition, city: City, units: ProducedUnit[], nextUnitId: number) {
+function completeProduction(
+  state: Expedition, city: City, units: ProducedUnit[], founders: Founder[], nextUnitId: number,
+) {
   const itemId = city.production!.itemId
   if (itemId === 'storehouse') {
     return { city: Object.freeze({ ...city, production: undefined, storehouse: true }),
-      units, nextUnitId, completed: PRODUCTION_ITEMS[itemId].name }
+      units, founders, nextUnitId, completed: PRODUCTION_ITEMS[itemId].name }
   }
-  const tileId = productionPlacement(state, city, occupiedTiles({ ...state, units }))
-  if (tileId === undefined) return { city, units, nextUnitId, completed: undefined }
+  const occupied = occupiedTiles({ ...state, units })
+  for (const founder of founders) occupied.add(founder.tileId)
+  const tileId = productionPlacement(state, city, occupied)
+  if (tileId === undefined) return { city, units, founders, nextUnitId, completed: undefined }
+  if (itemId === 'founder') {
+    founders.push(Object.freeze({ id: `founder-${city.factionId}-${nextUnitId}`,
+      factionId: city.factionId, tileId, movement: UNIT_RULES.founder.movement }))
+    return { city: Object.freeze({ ...city, production: undefined }),
+      units, founders, nextUnitId: nextUnitId + 1, completed: PRODUCTION_ITEMS[itemId].name }
+  }
   const unit = Object.freeze({ id: `unit-${city.factionId}-${nextUnitId}`, factionId: city.factionId,
     type: itemId, tileId, movement: UNIT_RULES[itemId].movement })
   units.push(unit)
   return { city: Object.freeze({ ...city, production: undefined }),
-    units, nextUnitId: nextUnitId + 1, completed: PRODUCTION_ITEMS[itemId].name }
+    units, founders, nextUnitId: nextUnitId + 1, completed: PRODUCTION_ITEMS[itemId].name }
 }
 
-function resolveCity(state: Expedition, city: City, units: ProducedUnit[], nextUnitId: number) {
+function resolveCity(state: Expedition, city: City, units: ProducedUnit[], founders: Founder[], nextUnitId: number) {
   const yields = cityYields(state, city)
   const availableFood = city.food + yields.food
   const requiredFood = city.population * CITY_RULES.foodPerPopulation
@@ -268,7 +295,7 @@ function resolveCity(state: Expedition, city: City, units: ProducedUnit[], nextU
   let updated = Object.freeze({ ...city, food, materials, population, production })
   let completed: string | undefined
   if (production && production.progress >= PRODUCTION_ITEMS[production.itemId].cost) {
-    const result = completeProduction(state, updated, units, nextUnitId)
+    const result = completeProduction(state, updated, units, founders, nextUnitId)
     updated = result.city
     nextUnitId = result.nextUnitId
     completed = result.completed
@@ -395,9 +422,10 @@ export function applyCommand(state: Expedition, command: Command): CommandResult
   const commands = Object.freeze([...state.commands, Object.freeze({ ...command })])
   if (command.type === 'end-turn') {
     const units = [...state.units]
+    const founders = [...state.founders]
     let nextUnitId = state.nextUnitId
     const resolutions = state.cities.filter(city => city.factionId === state.activeFaction).map(city => {
-      const result = resolveCity(state, city, units, nextUnitId)
+      const result = resolveCity(state, city, units, founders, nextUnitId)
       nextUnitId = result.nextUnitId
       return result
     })
@@ -408,11 +436,11 @@ export function applyCommand(state: Expedition, command: Command): CommandResult
     const activeFaction = state.factions[next]!.id
     const scouts = Object.freeze(state.scouts.map(scout => scout.factionId === activeFaction
       ? Object.freeze({ ...scout, movement: SCOUT.movement }) : scout))
-    const founders = Object.freeze(state.founders.map(unit => unit.factionId === activeFaction
+    const refreshedFounders = Object.freeze(founders.map(unit => unit.factionId === activeFaction
       ? Object.freeze({ ...unit, movement: UNIT_RULES.founder.movement }) : unit))
     const refreshedUnits = Object.freeze(units.map(unit => unit.factionId === activeFaction
       ? Object.freeze({ ...unit, movement: UNIT_RULES[unit.type].movement }) : unit))
-    const nextState = { ...state, commands, scouts, founders, cities: Object.freeze(cities),
+    const nextState = { ...state, commands, scouts, founders: refreshedFounders, cities: Object.freeze(cities),
       units: refreshedUnits, nextUnitId, activeFaction, round: state.round + Number(next === 0) }
     const { factions, dirtyTiles } = refreshFog(nextState, state.activeFaction)
     return { ok: true, state: Object.freeze({ ...nextState, factions }), dirtyTiles,
@@ -428,6 +456,9 @@ export function applyCommand(state: Expedition, command: Command): CommandResult
     const tile = state.map.tiles[founder.tileId]!
     if (!knownTile(state, founder.factionId, founder.tileId)) return reject('The founder cannot settle uncharted territory.')
     if (tile.terrain === 'water') return reject('Cities can only be founded on land.')
+    if (state.scenario?.beacons.some(beacon => beacon.tileId === founder.tileId)) {
+      return reject('A city cannot be founded on a reserved public beacon.')
+    }
     if (state.cities.some(city => distance(state.map, city.tileId, founder.tileId) < CITY_RULES.minimumSpacing)) {
       return reject(`Cities must be at least ${CITY_RULES.minimumSpacing} tiles apart.`)
     }
@@ -452,6 +483,12 @@ export function applyCommand(state: Expedition, command: Command): CommandResult
     if (!Object.hasOwn(PRODUCTION_ITEMS, command.itemId)) return reject('Choose a supported production item.')
     if (city.production) return reject('This city already has an item in its production queue.')
     if (command.itemId === 'storehouse' && city.storehouse) return reject('This city already has a storehouse.')
+    if (command.itemId === 'founder' && state.cities.filter(item => item.factionId === command.factionId).length
+      + state.founders.filter(unit => unit.factionId === command.factionId).length
+      + state.cities.filter(item => item.factionId === command.factionId && item.production?.itemId === 'founder').length
+      >= CITY_RULES.maximumPerFaction) {
+      return reject('This faction has no remaining city site for another founder.')
+    }
     const production = Object.freeze({ itemId: command.itemId, progress: 0 })
     const cities = Object.freeze(state.cities.map(item => item === city ? Object.freeze({ ...item, production }) : item))
     return { ok: true, state: Object.freeze({ ...state, commands, cities }), dirtyTiles: [],

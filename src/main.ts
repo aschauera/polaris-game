@@ -6,6 +6,7 @@ import {
   UNIT_RULES, unitsOf, type Command, type Expedition, type FactionId, type ProductionItemId,
 } from './game/expedition'
 import { applyMatchCommand, compactCommand, exportMatch, MATCH_FACTIONS, matchIdOf, receiveTurn, stateHash } from './game/match'
+import { createScenario, TRIBES, type TribeId } from './game/scenario'
 import { decodeTurn, encodeTurn, linkedTurn, turnLink } from './exchange/turn-code'
 import {
   currentMatchId, forgetMatch, listMatches, MATCH_NAME_LIMIT, migrateLegacyMatch, restoreMatch, saveMatch, setCurrentMatch,
@@ -18,7 +19,7 @@ import { createMessengerPanel } from './ui/messenger'
 
 const hud = createHud()
 const messenger = createMessengerPanel(hud.messenger, {
-  start: () => startMatch(),
+  start: tribes => startMatch(tribes),
   open: text => { void receive(text) },
   openFile: file => { void openFile(file) },
   resume: matchId => continueMatch(matchId),
@@ -46,6 +47,16 @@ const selectedUnit = (state: Expedition) => unitsOf(state).find(unit => unit.id 
 const canAct = (state: Expedition) => !match || state.activeFaction === match.faction
 const turnsEnded = (state: Expedition) => state.commands.filter(command => command.type === 'end-turn').length
 const bannerOf = (factionId: FactionId): 0 | 1 => factionId === 'lantern' ? 1 : 0
+const factionName = (_state: Expedition, factionId: FactionId) => FACTIONS[factionId]
+const scenarioPlayerName = (state: Expedition, factionId: FactionId) => {
+  const player = state.scenario?.players.find(item => item.factionId === factionId)
+  return player ? `${player.id === 'player-1' ? 'Player 1' : 'Player 2'} · ${TRIBES[player.tribe]}` : undefined
+}
+function tribeForMatch(state: Expedition, factionId: FactionId): TribeId {
+  const player = state.scenario?.players.find(item => item.factionId === factionId)
+  if (!player) throw new Error(`The match has no tribe assignment for ${factionId}.`)
+  return player.tribe
+}
 
 function browserStorage(): Storage | undefined {
   try {
@@ -69,7 +80,8 @@ function updateExpeditionHud(): void {
   const scoutSelected = unit?.id === scoutOf(state).id
   const faction = state.factions.find(item => item.id === factionId)!
   hud.expedition({
-    faction: FACTIONS[state.activeFaction], round: state.round, movement: unit?.movement ?? 0,
+    faction: factionName(state, state.activeFaction), scenarioPlayer: scenarioPlayerName(state, state.activeFaction),
+    round: state.round, movement: unit?.movement ?? 0,
     maxMovement: unit ? UNIT_RULES[unit.kind].movement : 0, unitName: unit?.kind,
     discovered: Object.keys(faction.fog).length, total: state.map.tiles.length,
     scoutSelected, unitSelected: !!unit, canOrder: acting && !!unit && !!selectedTile && selectedTile.id !== unit.tileId
@@ -103,10 +115,15 @@ function resourceName(tile?: Tile): string | undefined {
   return kind ? RESOURCES[kind].name : undefined
 }
 
+function beaconName(state: Expedition | undefined, tile?: Tile): string | undefined {
+  const index = tile && state?.scenario?.beacons.findIndex(beacon => beacon.tileId === tile.id)
+  return index !== undefined && index >= 0 ? `Public beacon ${index + 1}` : undefined
+}
+
 function select(tile?: Tile, unitId?: string, citySelected = false): void {
   selectedTile = tile
-  hud.selection(tile, resourceName(tile))
   const state = expedition
+  hud.selection(tile, resourceName(tile), beaconName(state, tile))
   if (!state) return
   const ownUnit = unitsOf(state).find(unit => unit.factionId === viewerOf(state)
     && (unitId ? unit.id === unitId : unit.tileId === tile?.id))
@@ -134,7 +151,7 @@ function select(tile?: Tile, unitId?: string, citySelected = false): void {
       : 'Tap one of your units or cities to select it.')
   }
   if (!canAct(state)) {
-    hud.order(`Waiting for ${FACTIONS[state.activeFaction]}. Open their turn from your messenger to continue.`)
+    hud.order(`Waiting for ${factionName(state, state.activeFaction)}. Open their turn from your messenger to continue.`)
   }
   renderExpedition([])
   if (city && selectedCityId === city.id) hud.revealCity()
@@ -148,8 +165,10 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
   const unit = selectedUnit(state)
   const acting = canAct(state)
   const fog = state.factions.find(item => item.id === viewer)!.fog
+  const beacons = state.scenario?.beacons
   renderer?.setExploration({
     fog, scoutTileId: scout.tileId,
+    beacons,
     // Only the active faction can move, so this stays empty while the opponent is on turn.
     reachable: acting && unit ? [...movementRange(state, unit.id).keys()].filter(id => id !== unit.tileId) : [],
     // Rival cities show only while in sight; remembering them belongs to last-known-state rendering.
@@ -164,7 +183,7 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
         rival: unit.factionId !== viewer, selected: unit.id === selectedUnitId,
         available: acting && unit.factionId === viewer && movementRange(state, unit.id).size > 1 })),
   }, dirtyTiles)
-  hud.selection(selectedTile, resourceName(selectedTile))
+  hud.selection(selectedTile, resourceName(selectedTile), beaconName(state, selectedTile))
   updateExpeditionHud()
 }
 
@@ -187,7 +206,7 @@ function order(command: Command): void {
   const state = expedition
   if (!state) return
   if (!canAct(state)) {
-    hud.order(`It is ${FACTIONS[state.activeFaction]}'s turn. Open their turn from your messenger first.`, true)
+    hud.order(`It is ${factionName(state, state.activeFaction)}'s turn. Open their turn from your messenger first.`, true)
     return
   }
   const result = match ? applyMatchCommand(state, command) : applyCommand(state, command)
@@ -208,7 +227,7 @@ function order(command: Command): void {
   if (!match) return
   persist()
   if (command.type === 'end-turn') {
-    hud.order(`Your turn is complete. Send it to ${FACTIONS[result.state.activeFaction]} and wait for their reply.`)
+    hud.order(`Your turn is complete. Send it to ${factionName(result.state, result.state.activeFaction)} and wait for their reply.`)
     syncMessenger()
     messenger.notice('')
     messenger.reveal()
@@ -233,7 +252,8 @@ function syncForm(world: WorldMap): void {
 function show(next: WorldMap, session?: Expedition): void {
   try {
     const renderStart = performance.now()
-    renderer ??= new WorldRenderer(hud.canvas, select, tile => hud.hover(tile, resourceName(tile)), hud.error)
+    renderer ??= new WorldRenderer(hud.canvas, select,
+      tile => hud.hover(tile, resourceName(tile), beaconName(expedition, tile)), hud.error)
     expedition = session
     selectedUnitId = undefined
     selectedCityId = undefined
@@ -303,11 +323,11 @@ function syncMessenger(): void {
     return
   }
   if (!match) { messenger.hide(); return }
-  const own = FACTIONS[match.faction]
+  const own = `${factionName(state, match.faction)} (${TRIBES[tribeForMatch(state, match.faction)]})`
   const waiting = !canAct(state)
   const view = {
     status: `${matchTitle(match)} · ` +
-      (waiting ? `You play ${own}. Waiting for ${FACTIONS[state.activeFaction]}.` : `You play ${own}. It's your turn.`),
+      (waiting ? `You play ${own}. Waiting for ${factionName(state, state.activeFaction)}.` : `You play ${own}. It's your turn.`),
     matchId: match.id, name: match.name, nameLimit: MATCH_NAME_LIMIT, waiting,
   }
   messenger.match(view)
@@ -329,13 +349,13 @@ function newMatchId(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
-function startMatch(): void {
+function startMatch(tribes: readonly [TribeId, TribeId]): void {
   if (!map || !renderer || match) return
   try {
     match = { id: newMatchId(), faction: MATCH_FACTIONS[0]!, name: '' }
     syncForm(map)
     hud.worldLocked(true)
-    begin(createExpedition(map, MATCH_FACTIONS))
+    begin(createExpedition(map, MATCH_FACTIONS, createScenario(map, tribes)))
     persist()
     hud.order('Match started. Play your turn, then choose End turn and send it to your opponent.')
     messenger.notice('')
@@ -398,7 +418,7 @@ function resume(next: OpenMatch, state: Expedition): void {
   hud.worldLocked(true)
   show(state.map, state)
   hud.order(canAct(state) ? 'Your move. Select the gold scout to begin.'
-    : `Waiting for ${FACTIONS[state.activeFaction]}. Open their turn from your messenger to continue.`)
+    : `Waiting for ${factionName(state, state.activeFaction)}. Open their turn from your messenger to continue.`)
 }
 
 function storedMatch(matchId: string): { readonly open: OpenMatch; readonly state: Expedition }
@@ -424,7 +444,7 @@ function continueMatch(matchId: string): void {
 
 const lastSender = (state: Expedition) => {
   const last = state.commands.at(-1)
-  return last ? FACTIONS[last.factionId] : 'Your opponent'
+  return last ? factionName(state, last.factionId) : 'Your opponent'
 }
 const orderCount = (count: number) => `${count} ${count === 1 ? 'order' : 'orders'}`
 
@@ -486,7 +506,9 @@ async function receive(text: string): Promise<void> {
   const lost = found && !('open' in found) ? `${found.reason} ` : ''
   messenger.notice(open ? `Received ${received}.`
     : saved ? `Opened ${matchTitle(saved.open)} and received ${received}.${switched}`
-      : `${lost}Joined as ${FACTIONS[result.faction]}. ${sender} played ${orderCount(result.newOrders)}.${switched}`)
+      : `${lost}Joined as ${factionName(result.state, result.faction)} ` +
+        `(${TRIBES[tribeForMatch(result.state, result.faction)]}). ` +
+        `${sender} played ${orderCount(result.newOrders)}.${switched}`)
   messenger.fill('')
   persist()
 }
@@ -633,7 +655,8 @@ if (params.get('diagnostics') === '1') {
       return {
         round: state.round, movement: scout.movement, scoutTileId: scout.tileId,
         commandCount: state.commands.length,
-        founders: state.founders, cities: state.cities, units: state.units, selectedUnitId, selectedCityId,
+        scouts: state.scouts, founders: state.founders, cities: state.cities, units: state.units,
+        selectedUnitId, selectedCityId,
         selectedReachable: selectedUnitId ? [...movementRange(state, selectedUnitId).keys()] : [],
         fog: { ...state.factions.find(item => item.id === viewerOf(state))!.fog },
         reachable: [...movementRange(state, scout.id).keys()],
@@ -641,7 +664,7 @@ if (params.get('diagnostics') === '1') {
     },
     match: () => match && expedition ? {
       id: match.id, faction: match.faction, name: match.name, active: expedition.activeFaction,
-      commandCount: expedition.commands.length, stateHash: stateHash(expedition),
+      commandCount: expedition.commands.length, stateHash: stateHash(expedition), scenario: expedition.scenario,
     } : undefined,
   }
 }

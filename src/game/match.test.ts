@@ -87,6 +87,7 @@ describe('match checksums', () => {
     expect(mapHash(createMatch({ ...WORLD, seed: 'aurora' }).map)).not.toBe(mapHash(state.map))
     expect(mapHash(createMatch({ ...WORLD, width: 33 }).map)).not.toBe(mapHash(state.map))
     expect(stateHash(playTurn(state))).not.toBe(stateHash(state))
+    expect(stateHash(createMatch(WORLD, ['engineers', 'engineers']))).not.toBe(stateHash(state))
   })
 
   it('does not depend on the order in which object properties were created', () => {
@@ -122,6 +123,12 @@ describe('exporting and opening a match', () => {
     const state = createMatch(WORLD)
     expect(state.factions.map(faction => faction.id)).toEqual(['meridian', 'lantern'])
     expect(state.activeFaction).toBe('meridian')
+    expect(state.scenario?.players.map(player => [player.id, player.factionId, player.tribe])).toEqual([
+      ['player-1', 'meridian', 'amazons'], ['player-2', 'lantern', 'raccoons'],
+    ])
+    expect(state.scenario?.beacons.map(beacon => beacon.id)).toEqual([
+      'beacon-meridian', 'beacon-central', 'beacon-lantern',
+    ])
   })
 
   it('transports the seed and the ordered history instead of the world', () => {
@@ -130,6 +137,7 @@ describe('exporting and opening a match', () => {
     expect(pkg).toMatchObject({
       format: MATCH_FORMAT, matchId: MATCH_ID, rules: state.rulesVersion, generator: GENERATOR_VERSION, seed: 'polaris', width: 32, height: 24,
       factions: ['meridian', 'lantern'], mapHash: mapHash(state.map), stateHash: stateHash(state),
+      scenario: { version: state.scenario?.version, tribes: state.scenario?.players.map(player => player.tribe) },
     })
     expect(pkg.commands).toHaveLength(state.commands.length)
     expect(pkg.commands.map(order => order[0])).toEqual(expect.arrayContaining(['m', 'f', 'q', 'e']))
@@ -225,6 +233,18 @@ describe('rejecting turns that cannot be trusted', () => {
     expect(failure(edit({ mapHash: '0'.repeat(14) }))).toMatch(/different world/)
     expect(failure(edit({ seed: 'aurora' }))).toMatch(/different world/)
     expect(failure(edit({ width: 33 }))).toMatch(/different world/)
+  })
+
+  it('rejects unsupported scenario data and detects changed tribe assignments', () => {
+    const pkg = exportMatch(MATCH_ID, createMatch(WORLD))
+    const scenario = pkg.scenario!
+    expect(failure({ ...pkg, scenario: undefined })).toMatch(/valid shared-landmass scenario/)
+    const unknownTribe = { ...pkg, scenario: { ...scenario, tribes: ['amazons', 'unknown'] } }
+    expect(failure(unknownTribe)).toMatch(/valid shared-landmass scenario/)
+    const wrongVersion = { ...pkg, scenario: { ...scenario, version: scenario.version + 1 } }
+    expect(failure(wrongVersion)).toMatch(/valid shared-landmass scenario/)
+    const changedTribes = { ...pkg, scenario: { ...scenario, tribes: ['engineers', 'engineers'] } }
+    expect(failure(changedTribes)).toMatch(/ended differently/)
   })
 
   it('rejects world settings the game would never create', () => {

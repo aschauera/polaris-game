@@ -1,5 +1,6 @@
 import type { RenderStats } from './rendering/world'
-import type { City, FactionId, Founder, ProducedUnit, Visibility } from './game/expedition'
+import type { City, FactionId, Founder, ProducedUnit, Scout, Visibility } from './game/expedition'
+import type { Scenario } from './game/scenario'
 
 declare global {
   interface Window {
@@ -11,12 +12,15 @@ declare global {
       camera(): { mode: number; x: number; z: number; halfHeight: number } | undefined
       expedition(): {
         round: number; movement: number; scoutTileId: number; commandCount: number
-        founders: readonly Founder[]; cities: readonly City[]; units: readonly ProducedUnit[]
+        scouts: readonly Scout[]; founders: readonly Founder[]; cities: readonly City[]; units: readonly ProducedUnit[]
         selectedUnitId?: string; selectedCityId?: string; selectedReachable: readonly number[]
         fog: Readonly<Record<number, Exclude<Visibility, 'unseen'>>>
         reachable: readonly number[]
       } | undefined
-      match(): { id: string; faction: FactionId; name: string; active: FactionId; commandCount: number; stateHash: string } | undefined
+      match(): {
+        id: string; faction: FactionId; name: string; active: FactionId; commandCount: number; stateHash: string
+        scenario?: Scenario
+      } | undefined
     }
   }
 }

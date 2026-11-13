@@ -3,6 +3,7 @@ import {
   applyCommand, createExpedition, FACTIONS, PRODUCTION_ITEMS, RULES_VERSION,
   type Command, type CommandResult, type Expedition, type FactionId, type ProductionItemId,
 } from './expedition'
+import { createScenario, SCENARIO_VERSION, TRIBES, type ScenarioSetup, type TribeId } from './scenario'
 
 export const MATCH_FORMAT = 1
 export const MATCH_FACTIONS: readonly FactionId[] = Object.freeze(['meridian', 'lantern'])
@@ -24,6 +25,7 @@ export interface MatchPackage {
   readonly width: number
   readonly height: number
   readonly factions: readonly FactionId[]
+  readonly scenario?: ScenarioSetup
   readonly commands: readonly CompactCommand[]
   readonly mapHash: string
   readonly stateHash: string
@@ -88,7 +90,7 @@ export function mapHash(map: WorldMap): string {
 
 export function stateHash(state: Expedition): string {
   return checksum(canonical({
-    rules: state.rulesVersion, rng: state.rngState, round: state.round, active: state.activeFaction,
+    rules: state.rulesVersion, scenario: state.scenario, rng: state.rngState, round: state.round, active: state.activeFaction,
     factions: state.factions, scouts: state.scouts, founders: state.founders, units: state.units,
     cities: state.cities, nextCityId: state.nextCityId, nextUnitId: state.nextUnitId,
     commands: state.commands.length,
@@ -134,6 +136,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function readScenario(value: unknown): ScenarioSetup | undefined {
+  if (!isRecord(value) || value.version !== SCENARIO_VERSION || !Array.isArray(value.tribes)
+    || value.tribes.length !== 2 || !isTribeId(value.tribes[0]) || !isTribeId(value.tribes[1])) return
+  return Object.freeze({ version: SCENARIO_VERSION, tribes: Object.freeze([value.tribes[0], value.tribes[1]] as const) })
+}
+
+function isTribeId(value: unknown): value is TribeId {
+  return typeof value === 'string' && Object.hasOwn(TRIBES, value)
+}
+
 export function matchIdOf(input: unknown): string | undefined {
   return isRecord(input) && typeof input.matchId === 'string' && MATCH_ID.test(input.matchId) ? input.matchId : undefined
 }
@@ -155,6 +167,8 @@ function parsePackage(input: unknown, retainLongHistory: boolean): { readonly ok
     !MATCH_FACTIONS.every((id, index) => factions[index] === id)) {
     return fail('The turn names factions that this version of Polaris cannot play.')
   }
+  const scenario = input.rules === RULES_VERSION ? readScenario(input.scenario) : undefined
+  if (input.rules === RULES_VERSION && !scenario) return fail('This turn has no valid shared-landmass scenario.')
   if (!Array.isArray(commands) || (!retainLongHistory && commands.length > MATCH_LIMITS.commands)) {
     return fail(`The turn history is missing or longer than ${MATCH_LIMITS.commands} orders.`)
   }
@@ -169,7 +183,8 @@ function parsePackage(input: unknown, retainLongHistory: boolean): { readonly ok
   }
   return { ok: true, value: Object.freeze({
     format: MATCH_FORMAT, matchId, rules: input.rules, generator, seed, width, height,
-    factions: MATCH_FACTIONS, commands: Object.freeze(orders), mapHash: world, stateHash: result,
+    factions: MATCH_FACTIONS, ...(scenario ? { scenario } : {}),
+    commands: Object.freeze(orders), mapHash: world, stateHash: result,
   }) }
 }
 
@@ -186,8 +201,9 @@ export function matchProgress(pkg: Pick<MatchPackage, 'factions' | 'commands'>):
   return { round: Math.floor(ended / pkg.factions.length) + 1, active: pkg.factions[ended % pkg.factions.length]! }
 }
 
-export function createMatch(config: MapConfig): Expedition {
-  return createExpedition(generateMap(config), MATCH_FACTIONS)
+export function createMatch(config: MapConfig, tribes: readonly [TribeId, TribeId] = ['amazons', 'raccoons']): Expedition {
+  const map = generateMap(config)
+  return createExpedition(map, MATCH_FACTIONS, createScenario(map, tribes))
 }
 
 export function applyMatchCommand(state: Expedition, command: Command): CommandResult {
@@ -203,10 +219,15 @@ export function applyMatchCommand(state: Expedition, command: Command): CommandR
 }
 
 export function exportMatch(matchId: string, state: Expedition): MatchPackage {
+  if (!state.scenario) throw new Error('Messenger matches require a validated scenario.')
   return Object.freeze({
     format: MATCH_FORMAT, matchId, rules: state.rulesVersion, generator: state.map.generatorVersion,
     seed: state.map.seed, width: state.map.width, height: state.map.height,
     factions: Object.freeze(state.factions.map(faction => faction.id)),
+    scenario: Object.freeze({
+      version: state.scenario.version,
+      tribes: Object.freeze([state.scenario.players[0].tribe, state.scenario.players[1].tribe] as const),
+    }),
     commands: Object.freeze(state.commands.map(compactCommand)),
     mapHash: mapHash(state.map), stateHash: stateHash(state),
   })
@@ -229,7 +250,10 @@ export function openMatch(input: unknown): OpenResult {
     if (mapHash(map) !== pkg.mapHash) {
       return { ok: false, reason: 'This device builds a different world from the same seed, so the match cannot stay in sync. Start a new match with another seed.' }
     }
-    state = createExpedition(map, pkg.factions)
+    const scenario = pkg.scenario
+    if (!scenario) return { ok: false, reason: 'This turn is missing its shared-landmass scenario.' }
+    const rebuilt = createScenario(map, scenario.tribes)
+    state = createExpedition(map, pkg.factions, rebuilt)
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : 'This match cannot be set up.' }
   }
