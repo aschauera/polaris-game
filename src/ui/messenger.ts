@@ -76,6 +76,7 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
       <select id="messenger-player-two-tribe"></select>
       <p>Each player starts with one free scout and founder; there is no starting army or global stockpile.
         Tribes are presentation-only. Choose independently; mirror matches are allowed.</p>
+      <p id="messenger-topology-note" aria-live="polite" hidden></p>
       <button id="messenger-start" type="button" disabled>Start messenger match</button>
     </div>
     <div id="messenger-saved" hidden>
@@ -129,6 +130,7 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
   const status = get('messenger-status')
   const intro = get('messenger-intro')
   const start = get<HTMLButtonElement>('messenger-start')
+  const topologyNote = get('messenger-topology-note')
   const tribeChoices = [
     get<HTMLSelectElement>('messenger-player-one-tribe'),
     get<HTMLSelectElement>('messenger-player-two-tribe'),
@@ -251,10 +253,12 @@ export function createMessengerPanel(root: HTMLElement, handlers: MessengerHandl
   return {
     hide() { root.hidden = true },
     // No match open: offer to start one, continue a saved one, or open a turn received from someone else.
-    idle(canStart: boolean, saved: readonly SavedMatchEntry[] = []) {
+    idle(canStart: boolean, saved: readonly SavedMatchEntry[] = [], startReason = '') {
       root.hidden = false
       intro.hidden = false
       start.disabled = !canStart
+      topologyNote.textContent = startReason
+      topologyNote.hidden = !startReason
       status.hidden = true
       savedGroup.hidden = !saved.length
       savedList.replaceChildren(...saved.map(savedEntry))

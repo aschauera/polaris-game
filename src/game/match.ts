@@ -3,7 +3,9 @@ import {
   applyCommand, createExpedition, FACTIONS, PRODUCTION_ITEMS, RULES_VERSION,
   type Command, type CommandResult, type Expedition, type FactionId, type ProductionItemId,
 } from './expedition'
-import { createScenario, SCENARIO_VERSION, TRIBES, type ScenarioSetup, type TribeId } from './scenario'
+import {
+  createScenario, SCENARIO_VERSION, TRIBES, type LegacyScenarioSetup, type ScenarioSetup, type TribeId,
+} from './scenario'
 
 export const MATCH_FORMAT = 1
 export const MATCH_FACTIONS: readonly FactionId[] = Object.freeze(['meridian', 'lantern'])
@@ -25,7 +27,7 @@ export interface MatchPackage {
   readonly width: number
   readonly height: number
   readonly factions: readonly FactionId[]
-  readonly scenario?: ScenarioSetup
+  readonly scenario?: ScenarioSetup | LegacyScenarioSetup
   readonly commands: readonly CompactCommand[]
   readonly mapHash: string
   readonly stateHash: string
@@ -79,7 +81,7 @@ const mapHashes = new WeakMap<WorldMap, string>()
 export function mapHash(map: WorldMap): string {
   const known = mapHashes.get(map)
   if (known) return known
-  let text = `${map.generatorVersion}:${map.seed}:${map.width}x${map.height}:${map.rngState}|`
+  let text = `${map.generatorVersion}:${map.topology}:${map.seed}:${map.width}x${map.height}:${map.rngState}|`
   for (const tile of map.tiles) {
     text += `${tile.terrain[0]}${tile.elevation}${tile.trees}:${tile.terrain === 'water' ? tile.waterDepth : '-'},`
   }
@@ -136,10 +138,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function readScenario(value: unknown): ScenarioSetup | undefined {
-  if (!isRecord(value) || value.version !== SCENARIO_VERSION || !Array.isArray(value.tribes)
-    || value.tribes.length !== 2 || !isTribeId(value.tribes[0]) || !isTribeId(value.tribes[1])) return
-  return Object.freeze({ version: SCENARIO_VERSION, tribes: Object.freeze([value.tribes[0], value.tribes[1]] as const) })
+function readScenario(value: unknown): ScenarioSetup | LegacyScenarioSetup | undefined {
+  if (!isRecord(value) || !Array.isArray(value.tribes) || value.tribes.length !== 2
+    || !isTribeId(value.tribes[0]) || !isTribeId(value.tribes[1])) return
+  const tribes = Object.freeze([value.tribes[0], value.tribes[1]] as const)
+  if (value.version === 1) return Object.freeze({ version: 1, tribes })
+  if (value.version === SCENARIO_VERSION
+    && (value.topology === 'shared-landmass' || value.topology === 'archipelago')) {
+    return Object.freeze({ version: SCENARIO_VERSION, topology: value.topology, tribes })
+  }
 }
 
 function isTribeId(value: unknown): value is TribeId {
@@ -168,7 +175,7 @@ function parsePackage(input: unknown, retainLongHistory: boolean): { readonly ok
     return fail('The turn names factions that this version of Polaris cannot play.')
   }
   const scenario = input.rules === RULES_VERSION ? readScenario(input.scenario) : undefined
-  if (input.rules === RULES_VERSION && !scenario) return fail('This turn has no valid shared-landmass scenario.')
+  if (input.rules === RULES_VERSION && !scenario) return fail('This turn has no valid scenario descriptor.')
   if (!Array.isArray(commands) || (!retainLongHistory && commands.length > MATCH_LIMITS.commands)) {
     return fail(`The turn history is missing or longer than ${MATCH_LIMITS.commands} orders.`)
   }
@@ -202,6 +209,9 @@ export function matchProgress(pkg: Pick<MatchPackage, 'factions' | 'commands'>):
 }
 
 export function createMatch(config: MapConfig, tribes: readonly [TribeId, TribeId] = ['amazons', 'raccoons']): Expedition {
+  if (config.topology !== undefined && config.topology !== 'shared-landmass') {
+    throw new Error('Messenger matches require a shared-landmass map until water crossing is implemented.')
+  }
   const map = generateMap(config)
   return createExpedition(map, MATCH_FACTIONS, createScenario(map, tribes))
 }
@@ -226,6 +236,7 @@ export function exportMatch(matchId: string, state: Expedition): MatchPackage {
     factions: Object.freeze(state.factions.map(faction => faction.id)),
     scenario: Object.freeze({
       version: state.scenario.version,
+      topology: state.scenario.topology,
       tribes: Object.freeze([state.scenario.players[0].tribe, state.scenario.players[1].tribe] as const),
     }),
     commands: Object.freeze(state.commands.map(compactCommand)),
@@ -243,16 +254,23 @@ export function openMatch(input: unknown): OpenResult {
   }
   let state: Expedition
   try {
-    const map = generateMap({ seed: pkg.seed, width: pkg.width, height: pkg.height })
+    const setup = pkg.scenario
+    if (!setup) return { ok: false, reason: 'This turn is missing its scenario descriptor.' }
+    const topology = setup.version === 1 ? 'shared-landmass' : setup.topology
+    if (topology !== 'shared-landmass') {
+      return { ok: false, reason: 'Island-layout previews are not playable messenger maps until water crossing is implemented.' }
+    }
+    const map = generateMap({ seed: pkg.seed, width: pkg.width, height: pkg.height, topology })
     if (map.generatorVersion !== pkg.generator) {
       return { ok: false, reason: `This turn uses world generator ${pkg.generator}, but your copy uses ${map.generatorVersion}. Both players need the same version of Polaris.` }
     }
     if (mapHash(map) !== pkg.mapHash) {
       return { ok: false, reason: 'This device builds a different world from the same seed, so the match cannot stay in sync. Start a new match with another seed.' }
     }
-    const scenario = pkg.scenario
-    if (!scenario) return { ok: false, reason: 'This turn is missing its shared-landmass scenario.' }
-    const rebuilt = createScenario(map, scenario.tribes)
+    if (setup.version !== SCENARIO_VERSION || setup.topology !== map.topology) {
+      return { ok: false, reason: `This turn uses scenario ${setup.version}, but your copy uses ${SCENARIO_VERSION}. Both players need the same version of Polaris.` }
+    }
+    const rebuilt = createScenario(map, setup.tribes)
     state = createExpedition(map, pkg.factions, rebuilt)
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : 'This match cannot be set up.' }

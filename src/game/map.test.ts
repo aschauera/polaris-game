@@ -85,16 +85,16 @@ describe('deterministic domain map', () => {
     `)
   })
 
-  it('locks complete generator-v5 fixtures across multiple seeds', () => {
+  it('locks complete generator-v6 fixtures across multiple seeds', () => {
     const fingerprints = ['polaris', 'aurora', '0', 'North_Star-7'].map(seed =>
       createHash('sha256').update(JSON.stringify(generateMap({ seed, width: 8, height: 8 }))).digest('hex'),
     )
     expect(fingerprints).toMatchInlineSnapshot(`
       [
-        "d4f07a34a48150b1d3977b0abfb9cb31154c52077a03620170c10a916f899e8a",
-        "06cfe7802ee4348d00d50d382c112239d4a37acbe649edae0c918a8e08304aba",
-        "9f754da15ea42a44754a90c95ab0911b30abafd8ffafe45a7af24ee330477966",
-        "e1bcf2356e488fb375dd98259a5ebba299488812da6cafca5107bc53c92380a2",
+        "33bc4e7647132b5e6227a102d1000881870ca6d0365f3eb9647fcaaa0360183f",
+        "9ebdcb64dc485d9d0991b393023113c1d9c67872a08321f44b25784a7d73fdf2",
+        "8e4abca4d2eecf2ed0bec00328a05ddcb5337151814ea908b5bb2fb27fd74ef1",
+        "c884125ecd62c47bbcd7ccaa56764e088ce56644000fbaa1338da5c77720f722",
       ]
     `)
   })
@@ -102,6 +102,16 @@ describe('deterministic domain map', () => {
     const config = { seed, width: 32, height: 32 }
     expect(generateMap(config)).toEqual(generateMap(config))
     expect(new Set(generateMap(config).tiles.map(t => t.terrain)).size).toBe(3)
+  })
+
+  it('generates a deterministic archipelago topology with all canonical water depths', () => {
+    const config = { seed: 'island0', width: 32, height: 32, topology: 'archipelago' as const }
+    const map = generateMap(config)
+    expect(map).toEqual(generateMap(config))
+    expect(map).toMatchObject({ topology: 'archipelago', generatorVersion: 6 })
+    expect(map).not.toEqual(generateMap({ ...config, topology: 'shared-landmass' }))
+    expect(new Set(map.tiles.filter(tile => tile.terrain === 'water').map(tile => tile.waterDepth)))
+      .toEqual(new Set(Object.keys(WATER_DEPTH)))
   })
 
   it('generates distinct continents and hex-connected stepped terrain', () => {

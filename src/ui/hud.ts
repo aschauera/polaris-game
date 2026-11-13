@@ -94,6 +94,11 @@ export function createHud() {
         </section>
         <form id="map-form" novalidate>
           <label for="seed">World seed</label><input id="seed" maxlength="64" autocomplete="off" spellcheck="false" />
+          <label for="topology">Map layout</label>
+          <select id="topology">
+            <option value="shared-landmass">Shared landmass · playable</option>
+            <option value="archipelago">Home and beacon islands · preview</option>
+          </select>
           <div class="dimensions">
             <div><label for="width">Width</label><input id="width" type="number" min="8" max="256" step="1" /></div>
             <span aria-hidden="true">×</span>
@@ -101,6 +106,7 @@ export function createHud() {
           </div>
           <button class="primary" type="submit">Regenerate atlas <span aria-hidden="true">↗</span></button>
         </form>
+        <p id="topology-note" aria-live="polite"></p>
         <div class="presets"><button id="showcase">32² showcase</button><button id="fixture">256² fixture</button></div>
         <p id="world-lock" class="lock-note" hidden>The world is fixed while a messenger match is running.</p>
         <p id="error" role="alert" hidden></p>
@@ -129,7 +135,10 @@ export function createHud() {
     <footer><span>✦ EVERY EXPEDITION BEGINS WITH A STEP.</span><span>DRAG · PAN &nbsp; SCROLL · ZOOM &nbsp; CLICK · INSPECT</span></footer>
   `
   const get = <T extends HTMLElement>(id: string) => document.getElementById(id)! as T
-  const inputs = { seed: get<HTMLInputElement>('seed'), width: get<HTMLInputElement>('width'), height: get<HTMLInputElement>('height') }
+  const inputs = {
+    seed: get<HTMLInputElement>('seed'), width: get<HTMLInputElement>('width'), height: get<HTMLInputElement>('height'),
+    topology: get<HTMLSelectElement>('topology'),
+  }
   const productionChoice = get<HTMLSelectElement>('production-choice')
   productionChoice.replaceChildren(...Object.entries(PRODUCTION_ITEMS).map(([id, item]) => {
     const option = document.createElement('option')
@@ -223,11 +232,20 @@ export function createHud() {
       get('order-status').textContent = message
       get('order-status').classList.toggle('rejected', rejected)
     },
-    config: (): MapConfig => ({ seed: inputs.seed.value, width: inputs.width.valueAsNumber, height: inputs.height.valueAsNumber }),
+    config: (): MapConfig => {
+      const topology = inputs.topology.value
+      if (topology !== 'shared-landmass' && topology !== 'archipelago') {
+        throw new Error('Choose a supported map topology.')
+      }
+      return {
+        seed: inputs.seed.value, width: inputs.width.valueAsNumber, height: inputs.height.valueAsNumber, topology,
+      }
+    },
     dimensions: (size: number) => { inputs.width.value = String(size); inputs.height.value = String(size) },
     // The seed and size belong to the match once it started, so the world form must not change them.
     worldLocked: (locked: boolean) => {
-      for (const control of document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('#map-form input, #map-form button, .presets button')) {
+      for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
+        '#map-form input, #map-form select, #map-form button, .presets button')) {
         control.disabled = locked
       }
       get('world-lock').hidden = !locked
@@ -237,13 +255,22 @@ export function createHud() {
       get('error').hidden = false
       get('map-status').textContent = 'Request failed — no new atlas loaded'
     },
-    loaded: (map: WorldMap, beacons = 0) => {
+    loaded: (map: WorldMap, beacons = 0, layoutError?: string) => {
       get('error').hidden = true
-      get<HTMLButtonElement>('start-expedition').disabled = false
+      const islandPreview = map.topology === 'archipelago'
+      const start = get<HTMLButtonElement>('start-expedition')
+      start.disabled = islandPreview
+      start.textContent = islandPreview ? 'Island preview only · boats not implemented' : 'Start expedition'
+      get('topology-note').textContent = islandPreview
+        ? layoutError
+          ? `No fair island layout for this seed and size: ${layoutError} Choose another seed or size.`
+          : 'Preview only: messenger matches and expeditions use the shared-landmass layout until water crossing is implemented.'
+        : 'Shared-landmass maps are playable now. Island layouts can be previewed, but need water crossing before a match can use them.'
       get('world-info').textContent = `${map.seed} / ${map.width} × ${map.height}`
-      // Beacons mark where a messenger match on this map would place them; a map without a fair layout cannot host one.
+      // Beacon markers are a layout preview; only shared-landmass maps can start a messenger match.
       get('map-status').textContent = `${map.tiles.length.toLocaleString('en-US')} TILES · GENERATOR ${String(map.generatorVersion).padStart(2, '0')}`
-        + (beacons ? ` · ${beacons} PUBLIC BEACONS` : ' · NO FAIR MATCH LAYOUT')
+        + (islandPreview ? ` · ISLAND PREVIEW${beacons ? ` · ${beacons} PREVIEW BEACONS` : ' · NO FAIR ISLAND LAYOUT'}`
+          : beacons ? ` · ${beacons} PUBLIC BEACONS` : ' · NO FAIR MATCH LAYOUT')
     },
   }
 }

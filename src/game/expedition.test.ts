@@ -8,7 +8,7 @@ import {
 
 function plainMap(width = 8, height = 12, terrain: Record<number, Terrain> = {}): WorldMap {
   return Object.freeze({
-    seed: 'fixture', width, height, generatorVersion: GENERATOR_VERSION, rngState: 42,
+    seed: 'fixture', width, height, topology: 'shared-landmass', generatorVersion: GENERATOR_VERSION, rngState: 42,
     tiles: Object.freeze(Array.from({ length: width * height }, (_, id) => {
       const kind = terrain[id] ?? 'grassland'
       const fields = { id, x: id % width, z: Math.floor(id / width), elevation: 1, trees: 0 }

@@ -103,7 +103,7 @@ test('starts a validated shared-landmass scenario with independent tribe choices
   if (!state?.scenario) throw new Error('The started match has no scenario data.')
   const scenario = state.scenario
   expect(scenario).toMatchObject({
-    version: 1,
+    version: 2,
     topology: 'shared-landmass',
     players: [
       { id: 'player-1', factionId: 'meridian', tribe: 'engineers' },
@@ -311,7 +311,7 @@ test('keeps a generator-v4 saved match and explains incompatibility without rebu
   }, { id, key, raw })
   await page.goto(WORLD_URL)
   await expect(page.locator('#messenger-notice')).toContainText('The saved match has been kept')
-  await expect(page.locator('#messenger-notice')).toContainText('world generator 4, but your copy uses 5')
+  await expect(page.locator('#messenger-notice')).toContainText('world generator 4, but your copy uses 6')
   expect(await matchOf(page)).toBeUndefined()
   expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw)
   expect(await page.evaluate(() => localStorage.getItem('polaris.current-match.v1'))).toBeNull()
@@ -341,7 +341,7 @@ test('rejects damaged, unfinished, tampered and repeated turns, and opens a fore
     [await encodeTurn(unfinished), 'finished turn'],
     [await encodeTurn({ ...finished, stateHash: '0'.repeat(14) }), 'ended differently'],
     [await encodeTurn({ ...finished, mapHash: '0'.repeat(14) }), 'different world'],
-    [await encodeTurn({ ...finished, generator: 3 }), 'world generator 3, but your copy uses 5'],
+    [await encodeTurn({ ...finished, generator: 3 }), 'world generator 3, but your copy uses 6'],
   ]
   for (const [text, reason] of rejections) {
     await open(text)
