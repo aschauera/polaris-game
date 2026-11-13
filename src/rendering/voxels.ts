@@ -31,6 +31,8 @@ const SOURCE = {
   // A neutral lantern burns pale white; a held one glows in its owner's colour.
   patina: '#5fa58f', patinaDark: '#3e7d6c', beaconGlow: '#f3efe3', beaconCore: '#fffefa',
   beaconGold: '#ffc24a', beaconGoldCore: '#fff2c2', beaconBlue: '#7fa8ff', beaconBlueCore: '#dde8ff',
+  // The availability gem above unit figures: clear ice white with cyan facets, distinct from both faction colours.
+  gem: '#b0e7f9', gemLight: '#e4f9ff', gemShade: '#62bfe0', gemSparkle: '#ffffff',
 } as const
 
 export type VoxelKind = keyof typeof SOURCE
