@@ -4,9 +4,11 @@ import { CreateBoxVertexData } from '@babylonjs/core/Meshes/Builders/boxBuilder'
 import { HEX_ROW, hexAt, hexCenter, hexDistance, hexOffsets } from '../game/hex'
 import { GENERATOR_VERSION, generateMap, type Tile, type WorldMap } from '../game/map'
 import { CAMERA_PITCH, CAMERA_YAW } from './view'
+import { BEACON_HEIGHT, beaconMeshes } from './beacon'
 import {
-  AO_LIGHT, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, centreColumn, columnTileAt, createVoxelWorld, groundHeight,
-  meshChunk, pickTile, resourceAt, siteCode, territoryCode, tileSurface, voxelScale, type ChunkMesh, type VoxelWorld,
+  AO_LIGHT, BEACON_SITE, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, beaconFoot, centreColumn, columnTileAt,
+  createVoxelWorld, groundHeight, meshChunk, pickTile, resourceAt, siteCode, territoryCode, tileSurface, voxelScale,
+  type ChunkMesh, type VoxelWorld,
 } from './voxels'
 
 const allKnown = (map: WorldMap) => new Uint8Array(map.tiles.length).fill(1)
@@ -718,6 +720,54 @@ describe('hex voxel terrain', () => {
     const plain = meshAll(world, known)
     world.sites[5] = siteCode({ houses: 3, storehouse: true, banner: 1 })
     expect(meshAll(world, known)).toEqual(plain)
+  })
+
+  it('levels and clears a beacon tile into a plaza without stamping a keep', () => {
+    const map = flatMap(4, 4, { 5: { trees: 3 }, 10: { terrain: 'hills', elevation: 3, trees: 2 } })
+    const known = allKnown(map)
+    const world = createVoxelWorld(map)
+    expect(shows(meshAll(world, known), VOXEL.path)).toBe(false)
+    world.sites[5] = BEACON_SITE
+    world.sites[10] = BEACON_SITE
+    const plaza = meshAll(world, known)
+    expect(shows(plaza, VOXEL.path)).toBe(true)
+    expect([VOXEL.roof, VOXEL.castle, VOXEL.bannerGold, VOXEL.bannerBlue].map(kind => shows(plaza, kind)))
+      .toEqual([false, false, false, false])
+    expect(['1,1', '2,2'].map(key => trunksPerHex(plaza, world.size).has(key))).toEqual([false, false])
+    // The lighthouse foot stands on level ground, also on a hill.
+    const [fx, fz] = beaconFoot(map.tiles[10]!)
+    const tops = new Set<number>()
+    for (const mesh of plaza) {
+      for (let v = 0; v < mesh.positions.length / 3; v++) {
+        const [x, y, z] = [mesh.positions[v * 3]!, mesh.positions[v * 3 + 1]!, mesh.positions[v * 3 + 2]!]
+        if (mesh.normals[v * 3 + 1] === 1 && Math.hypot(x - fx, z - fz) < 0.3) tops.add(y)
+      }
+    }
+    expect([...tops]).toEqual([tileSurface(world, map.tiles[10]!, true) * world.size])
+    known[5] = 0
+    const hidden = meshAll(world, known)
+    world.sites[5] = 0
+    expect(meshAll(world, known)).toEqual(hidden)
+  })
+
+  it('builds a lighthouse inside its own hex with an unlit lantern as a separate part', () => {
+    const { body, light } = beaconMeshes()
+    const glow = new Set([VOXEL.beaconGlow, VOXEL.beaconCore])
+    const kinds = (mesh: ChunkMesh) => new Set(Array.from({ length: mesh.quads }, (_, quad) => kindAt(mesh, quad * 4)))
+    expect([...kinds(light)].every(kind => glow.has(kind))).toBe(true)
+    expect([...kinds(body)].some(kind => glow.has(kind))).toBe(false)
+    expect(kinds(body)).toContain(VOXEL.patina)
+    const heights = [body, light].flatMap(mesh => Array.from({ length: mesh.positions.length / 3 }, (_, v) => mesh.positions[v * 3 + 1]!))
+    expect(Math.max(...heights)).toBeCloseTo(BEACON_HEIGHT, 9)
+    expect(Math.min(...heights)).toBe(0)
+    // Both row parities: the whole footprint, set back from the centre, stays inside the beacon's hex.
+    for (const tile of flatMap(4, 4).tiles.filter(tile => tile.id === 5 || tile.id === 9)) {
+      const [fx, fz] = beaconFoot(tile)
+      for (let v = 0; v < body.positions.length / 3; v++) {
+        const x = fx + body.positions[v * 3]!, z = fz + body.positions[v * 3 + 2]!
+        expect(hexAt(x, z), `${tile.id}: ${x}, ${z}`).toEqual([tile.x, tile.z])
+      }
+    }
   })
 
   it('marks territory borders on exactly the hex edges where ownership ends', () => {
