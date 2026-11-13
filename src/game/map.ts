@@ -14,7 +14,8 @@ export const WATER_DEPTH = {
   deep: { name: 'Deep water' },
 } as const
 export type WaterDepth = keyof typeof WATER_DEPTH
-export interface MapConfig { seed: string; width: number; height: number }
+export type MapTopology = 'shared-landmass' | 'archipelago'
+export interface MapConfig { seed: string; width: number; height: number; topology?: MapTopology }
 interface TerrainTile {
   readonly id: number
   readonly x: number
@@ -27,8 +28,9 @@ export type Tile = TerrainTile & (
   { readonly terrain: 'water'; readonly waterDepth: WaterDepth }
   | { readonly terrain: 'grassland' | 'hills'; readonly waterDepth?: never }
 )
-export const GENERATOR_VERSION = 5
-export interface WorldMap extends MapConfig {
+export const GENERATOR_VERSION = 6
+export interface WorldMap extends Omit<MapConfig, 'topology'> {
+  readonly topology: MapTopology
   readonly generatorVersion: typeof GENERATOR_VERSION
   readonly rngState: number
   readonly tiles: readonly Tile[]
@@ -46,6 +48,9 @@ export function validateConfig(config: MapConfig): void {
   for (const value of [config.width, config.height]) {
     if (!Number.isInteger(value) || value < 8 || value > 256) {
       throw new Error('Width and height must be whole numbers from 8 to 256.')
+    }
+    if (config.topology !== undefined && config.topology !== 'shared-landmass' && config.topology !== 'archipelago') {
+      throw new Error('Choose a supported map topology.')
     }
   }
 }
@@ -94,7 +99,9 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
-function addBathymetry(config: MapConfig, tiles: readonly TerrainTile[], seed: number): readonly Tile[] {
+function addBathymetry(
+  config: MapConfig, tiles: readonly TerrainTile[], seed: number, topology: MapTopology,
+): readonly Tile[] {
   const { width, height } = config
   const distance = new Uint16Array(tiles.length).fill(0xffff)
   const queue = new Uint32Array(tiles.length)
@@ -115,12 +122,13 @@ function addBathymetry(config: MapConfig, tiles: readonly TerrainTile[], seed: n
     }
   }
   const scale = clamp(Math.min(width, height) / 64, 1, 3)
+  const shelfScale = scale * (topology === 'archipelago' ? clamp(Math.min(width, height) / 32, 1, 3) * 1.25 : 1)
   const angle = hash(seed ^ 0x517cc1b7, 0, 0) * Math.PI
   const cos = Math.cos(angle), sin = Math.sin(angle)
   return Object.freeze(tiles.map((tile): Tile => {
     if (tile.terrain !== 'water') return Object.freeze({ ...tile, terrain: tile.terrain })
     const [x, z] = hexCenter(tile.x, tile.z)
-    const shelfWidth = (0.55 + noise(seed ^ 0x6da73b41, x, z, 4 * scale) * 1.1) * scale
+    const shelfWidth = (0.55 + noise(seed ^ 0x6da73b41, x, z, 4 * scale) * 1.1) * shelfScale
     // Broad elongated lobes extend the seabed offshore; no paths are repaired or RNG steps consumed.
     const bank = Math.max(0, noise(seed ^ 0x3e91c67b, (x * cos + z * sin) * 0.4,
       z * cos - x * sin, 3 * scale) - 0.5) * 6 * scale
@@ -138,7 +146,9 @@ export function tileAt(map: WorldMap, x: number, z: number): Tile | undefined {
 
 export function generateMap(config: MapConfig): WorldMap {
   validateConfig(config)
+  const topology = config.topology ?? 'shared-landmass'
   let state = seedState(config.seed)
+  const formSeed = state
   const random = (): number => {
     const step = randomStep(state)
     state = step.state
@@ -149,35 +159,85 @@ export function generateMap(config: MapConfig): WorldMap {
   const extentX = config.width, extentZ = config.height * HEX_ROW
   const minDimension = Math.min(extentX, extentZ)
   const landScale = Math.min(config.width, config.height)
-  const count = Math.max(2, Math.min(5, Math.round(Math.sqrt(config.width * config.height) / 16)))
   const continents: Landform[] = []
-  for (let index = 0; index < count; index++) {
-    let x = 0, z = 0, separated = false
-    for (let attempt = 0; attempt < 48; attempt++) {
-      x = extentX * (0.12 + random() * 0.76)
-      z = extentZ * (0.12 + random() * 0.76)
-      if (continents.every(form => Math.hypot(form.x - x, form.z - z) > minDimension * 0.69)) {
-        separated = true
-        break
+  let islands: Landform[]
+  if (topology === 'shared-landmass') {
+    const count = Math.max(2, Math.min(5, Math.round(Math.sqrt(config.width * config.height) / 16)))
+    for (let index = 0; index < count; index++) {
+      let x = 0, z = 0, separated = false
+      for (let attempt = 0; attempt < 48; attempt++) {
+        x = extentX * (0.12 + random() * 0.76)
+        z = extentZ * (0.12 + random() * 0.76)
+        if (continents.every(form => Math.hypot(form.x - x, form.z - z) > minDimension * 0.69)) {
+          separated = true
+          break
+        }
+      }
+      if (!separated && continents.length) continue
+      const radius = landScale * (0.156 + random() * 0.052)
+      continents.push({
+        x, z, radiusX: radius * (0.78 + random() * 0.54), radiusZ: radius * (0.78 + random() * 0.54),
+        angle: random() * Math.PI,
+      })
+    }
+    islands = Array.from({ length: 1 + Math.floor(random() * 3) }, () => {
+      const radius = landScale * (0.035 + random() * 0.045)
+      return {
+        x: extentX * (0.08 + random() * 0.84), z: extentZ * (0.08 + random() * 0.84),
+        radiusX: radius * (0.7 + random() * 0.6), radiusZ: radius * (0.7 + random() * 0.6),
+        angle: random() * Math.PI,
+      }
+    })
+  } else {
+    const jitter = (key: number) => hash(formSeed ^ 0x65b3a19d, key, 0) - 0.5
+    const home = (key: number, horizontal: number): Landform => {
+      const radius = landScale * (0.17 + hash(formSeed ^ 0x128fd349, key, 0) * 0.02)
+      const form: Landform = {
+        x: extentX * (horizontal + jitter(key) * 0.025),
+        z: extentZ * (0.56 + jitter(key + 3) * 0.035),
+        radiusX: radius * (0.82 + hash(formSeed ^ 0x4c0a7781, key, 1) * 0.36),
+        radiusZ: radius * (0.82 + hash(formSeed ^ 0x8db01a27, key, 2) * 0.36),
+        angle: hash(formSeed ^ 0xe16f38b5, key, 3) * Math.PI,
+        bay: {
+          angle: hash(formSeed ^ 0x518cc1b7, key, 4) * Math.PI * 2,
+          width: 0.3 + hash(formSeed ^ 0x421f0a3d, key, 5) * 0.12,
+          bend: (hash(formSeed ^ 0x76da8279, key, 6) - 0.5) * 0.5,
+        },
+      }
+      return form
+    }
+    continents.push(home(0, 0.25), home(1, 0.75))
+    const beaconRadius = landScale * (0.085 + hash(formSeed ^ 0x7f4a7c15, 2, 0) * 0.02)
+    islands = [{
+      x: extentX * (0.5 + jitter(2) * 0.025),
+      z: extentZ * (0.22 + jitter(5) * 0.02),
+      radiusX: beaconRadius * (0.82 + hash(formSeed ^ 0x947c9a31, 2, 1) * 0.36),
+      radiusZ: beaconRadius * (0.82 + hash(formSeed ^ 0xb64af201, 2, 2) * 0.36),
+      angle: hash(formSeed ^ 0x4a98b56d, 2, 3) * Math.PI,
+    }]
+    if (landScale >= 48) {
+      const extraCount = 1 + Math.floor(random() * 3)
+      for (let index = 0; index < extraCount; index++) {
+        let form: Landform | undefined
+        for (let attempt = 0; attempt < 48; attempt++) {
+          const x = extentX * (0.08 + random() * 0.84)
+          const z = extentZ * (0.08 + random() * 0.84)
+          const radius = landScale * (0.025 + random() * 0.025)
+          const candidate = {
+            x, z, radiusX: radius * (0.7 + random() * 0.6), radiusZ: radius * (0.7 + random() * 0.6),
+            angle: random() * Math.PI,
+          }
+          if ([...continents, ...islands].every(existing => {
+            const [u, v] = localPoint(existing, candidate.x, candidate.z)
+            return Math.hypot(u, v) > 1.7
+          })) { form = candidate; break }
+        }
+        if (form) islands.push(form)
       }
     }
-    if (!separated && continents.length) continue
-    const radius = landScale * (0.156 + random() * 0.052)
-    continents.push({
-      x, z, radiusX: radius * (0.78 + random() * 0.54), radiusZ: radius * (0.78 + random() * 0.54),
-      angle: random() * Math.PI,
-    })
   }
-  const islands = Array.from({ length: 1 + Math.floor(random() * 3) }, () => {
-    const radius = landScale * (0.035 + random() * 0.045)
-    return {
-      x: extentX * (0.08 + random() * 0.84), z: extentZ * (0.08 + random() * 0.84),
-      radiusX: radius * (0.7 + random() * 0.6), radiusZ: radius * (0.7 + random() * 0.6),
-      angle: random() * Math.PI,
-    }
-  })
   const landforms: Landform[] = [...continents, ...islands]
-  const inlandSea = random() < 0.28
+  const inlandSea = topology === 'shared-landmass' && random() < 0.28
     ? { x: extentX * (0.2 + random() * 0.6), z: extentZ * (0.2 + random() * 0.6),
       radius: landScale * (0.045 + random() * 0.04) }
     : undefined
@@ -185,6 +245,7 @@ export function generateMap(config: MapConfig): WorldMap {
   const broadScale = minDimension * 0.19
   const detailScale = Math.max(2, minDimension * 0.07)
   for (const [index, form] of continents.entries()) {
+    if (form.bay) continue
     if (Math.min(form.radiusX, form.radiusZ) < 2) continue
     form.bay = {
       angle: hash(state ^ 0x518cc1b7, index, 0) * Math.PI * 2,
@@ -235,5 +296,8 @@ export function generateMap(config: MapConfig): WorldMap {
       tiles.push({ id: z * config.width + x, x, z, terrain, elevation, trees })
     }
   }
-  return Object.freeze({ ...config, generatorVersion: GENERATOR_VERSION, rngState: state, tiles: addBathymetry(config, tiles, state) })
+  return Object.freeze({
+    ...config, topology, generatorVersion: GENERATOR_VERSION, rngState: state,
+    tiles: addBathymetry(config, tiles, state, topology),
+  })
 }

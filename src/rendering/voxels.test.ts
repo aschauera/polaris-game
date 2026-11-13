@@ -24,7 +24,7 @@ function flatMap(width: number, height: number, overrides: Record<number, Partia
     const fields = { id, x: id % width, z: Math.floor(id / width), elevation: 1, trees: 0, ...rest }
     return terrain === 'water' ? { ...fields, terrain, waterDepth: waterDepth ?? 'deep' } : { ...fields, terrain }
   })
-  return { seed: 'flat', width, height, generatorVersion: GENERATOR_VERSION, rngState: 1, tiles }
+  return { seed: 'flat', width, height, topology: 'shared-landmass', generatorVersion: GENERATOR_VERSION, rngState: 1, tiles }
 }
 
 function terraceMap(width: number, height: number): WorldMap {

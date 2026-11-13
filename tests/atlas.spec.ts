@@ -281,7 +281,7 @@ test('inspects all canonical water depths, including a submerged shoal beyond tw
   const bank = pickableTile(world, map.tiles.filter(tile => tile.terrain === 'water' && tile.waterDepth === 'shoal'
     && map.tiles.every(other => other.terrain === 'water' || hexDistance(tile.x, tile.z, other.x, other.z) >= 3)))
   await page.goto('/?diagnostics=1')
-  await expect(page.locator('#map-status')).toContainText('GENERATOR 05')
+  await expect(page.locator('#map-status')).toContainText('GENERATOR 06')
   for (const depth of ['shallow', 'shelf', 'deep', 'shoal'] as const) {
     const tile = depth === 'shoal' ? bank : pickableTile(world,
       map.tiles.filter(tile => tile.terrain === 'water' && tile.waterDepth === depth))
@@ -307,7 +307,7 @@ test('shows an incised bay as real selectable water, not a painted gap on land',
   expect(tile.terrain).toBe('water')
   expect(neighbors(map, tile.id).filter(id => map.tiles[id]!.terrain === 'water').length).toBeGreaterThanOrEqual(4)
   await page.goto('/?diagnostics=1')
-  await expect(page.locator('#map-status')).toContainText('GENERATOR 05')
+  await expect(page.locator('#map-status')).toContainText('GENERATOR 06')
   await inspectSurface(page, tile)
   const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, tile.id)
   await page.mouse.click(point.x, point.y)
@@ -587,6 +587,32 @@ test.describe('adaptive terrain detail', () => {
     await expect(page.locator('#map-status')).toContainText('1,024 TILES')
     expect(await stats(page)).toMatchObject({ voxelsPerTile: 16, ...ATLAS })
   })
+})
+
+test('previews generated island layouts while keeping matches on the playable topology', async ({ page }, testInfo) => {
+  await page.goto('/?diagnostics=1&seed=island0&width=32&height=32')
+  await page.locator('#topology').selectOption('archipelago')
+  await page.locator('#map-form button[type="submit"]').click()
+  await expect(page.locator('#map-status')).toContainText('GENERATOR 06')
+  await expect(page.locator('.beacon-marker')).toHaveCount(3)
+  await expect(page.locator('#start-expedition')).toBeDisabled()
+  await expect(page.locator('#start-expedition')).toContainText('preview only')
+  await expect(page.locator('#messenger-start')).toBeDisabled()
+  await expect(page.locator('#messenger-topology-note')).toContainText('preview-only')
+  await page.screenshot({ path: testInfo.outputPath('archipelago-preview.png'), fullPage: true })
+
+  await page.locator('#width').fill('23')
+  await page.locator('#map-form button[type="submit"]').click()
+  await expect(page.locator('#topology-note')).toContainText('at least 24')
+  await expect(page.locator('#map-status')).toContainText('NO FAIR ISLAND LAYOUT')
+  await expect(page.locator('.beacon-marker')).toHaveCount(0)
+
+  await page.locator('#width').fill('32')
+  await page.locator('#topology').selectOption('shared-landmass')
+  await page.locator('#map-form button[type="submit"]').click()
+  await expect(page.locator('#start-expedition')).toBeEnabled()
+  await expect(page.locator('#messenger-start')).toBeEnabled()
+  await page.screenshot({ path: testInfo.outputPath('shared-landmass-playable.png'), fullPage: true })
 })
 
 test('resource annotations respect uncharted and remembered fog and disappear when a city is founded', async ({ page }) => {

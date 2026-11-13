@@ -125,18 +125,24 @@ function beaconHolder(state: Expedition, index: number): FactionId | undefined {
 
 // The atlas previews where a messenger match on a map would place its public beacons; placement does not depend on
 // the tribes, and no beacon is held before a match starts. Maps without a fair layout preview none.
-const atlasLayouts = new WeakMap<WorldMap, readonly ScenarioBeacon[] | undefined>()
-function atlasBeacons(world: WorldMap): readonly ScenarioBeacon[] | undefined {
-  if (!atlasLayouts.has(world)) {
-    let beacons: readonly ScenarioBeacon[] | undefined
-    try { beacons = createScenario(world).beacons } catch { beacons = undefined }
-    atlasLayouts.set(world, beacons)
+interface AtlasLayout { readonly beacons: readonly ScenarioBeacon[]; readonly reason?: string }
+const atlasLayouts = new WeakMap<WorldMap, AtlasLayout>()
+function atlasLayout(world: WorldMap): AtlasLayout {
+  const known = atlasLayouts.get(world)
+  if (known) return known
+  let layout: AtlasLayout
+  try {
+    layout = { beacons: createScenario(world).beacons }
+  } catch (error) {
+    if (!(error instanceof Error)) throw error
+    layout = { beacons: [], reason: error.message }
   }
-  return atlasLayouts.get(world)
+  atlasLayouts.set(world, layout)
+  return layout
 }
 
 function beaconName(state: Expedition | undefined, tile?: Tile): string | undefined {
-  const beacons = state ? state.scenario?.beacons : map && atlasBeacons(map)
+  const beacons = state ? state.scenario?.beacons : map && atlasLayout(map).beacons
   const index = tile ? beacons?.findIndex(beacon => beacon.tileId === tile.id) ?? -1 : -1
   if (index < 0) return undefined
   const holder = state && beaconHolder(state, index)
@@ -275,6 +281,7 @@ function syncForm(world: WorldMap): void {
   hud.inputs.seed.value = world.seed
   hud.inputs.width.value = String(world.width)
   hud.inputs.height.value = String(world.height)
+  hud.inputs.topology.value = world.topology
 }
 
 function show(next: WorldMap, session?: Expedition): void {
@@ -287,10 +294,10 @@ function show(next: WorldMap, session?: Expedition): void {
     selectedCityId = undefined
     selectedTile = undefined
     hud.selection()
-    const preview = atlasBeacons(next)
-    renderer.setMap(next, preview?.map(beacon => ({ tileId: beacon.tileId, role: beacon.role })))
+    const layout = atlasLayout(next)
+    renderer.setMap(next, layout.beacons.map(beacon => ({ tileId: beacon.tileId, role: beacon.role })))
     map = next
-    hud.loaded(next, preview?.length ?? 0)
+    hud.loaded(next, layout.beacons.length, layout.reason)
     if (session) {
       renderExpedition()
       renderer.focusTile(scoutOf(session).tileId)
@@ -309,7 +316,7 @@ function regenerate(): void {
     const start = performance.now()
     const next = generateMap(config)
     generationMs = performance.now() - start
-    show(next, expedition ? createExpedition(next) : undefined)
+    show(next, expedition && next.topology === 'shared-landmass' ? createExpedition(next) : undefined)
   } catch (error) {
     hud.error(error instanceof Error ? error.message : 'Unable to generate or render the atlas.')
   }
@@ -347,7 +354,11 @@ function syncMessenger(): void {
   if (!state) {
     const storage = browserStorage()
     const saved = storage ? listMatches(storage) : undefined
-    messenger.idle(!!map, saved?.matches.map(describeMatch) ?? [])
+    const shared = map?.topology === 'shared-landmass'
+    messenger.idle(shared, saved?.matches.map(describeMatch) ?? [],
+      map?.topology === 'archipelago'
+        ? 'Island layouts are preview-only until boats are implemented. Choose a shared-landmass map to start a match.'
+        : '')
     if (saved?.errors.length) messenger.storage(saved.errors.join(' '))
     return
   }
@@ -380,6 +391,10 @@ function newMatchId(): string {
 
 function startMatch(tribes: readonly [TribeId, TribeId]): void {
   if (!map || !renderer || match) return
+  if (map.topology !== 'shared-landmass') {
+    messenger.notice('Island layouts are preview-only until water crossing is implemented.', true)
+    return
+  }
   try {
     match = { id: newMatchId(), faction: MATCH_FACTIONS[0]!, name: '' }
     syncForm(map)
@@ -573,6 +588,7 @@ hud.fixture.addEventListener('click', () => { hud.dimensions(256); regenerate() 
 hud.showcase.addEventListener('click', () => { hud.dimensions(32); regenerate() })
 hud.startExpedition.addEventListener('click', () => {
   if (!map || !renderer) return
+  if (map.topology !== 'shared-landmass') return
   try {
     begin(createExpedition(map))
     hud.order('Select the gold scout to begin. Sight reaches two hexes in every direction.')

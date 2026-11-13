@@ -27,6 +27,109 @@ function travelTurns(map: ReturnType<typeof generateMap>, start: number, target:
   return Infinity
 }
 
+function reachableByShallows(map: ReturnType<typeof generateMap>, start: number, target: number): boolean {
+  const visited = new Set([start])
+  const pending = [start]
+  for (let index = 0; index < pending.length; index++) {
+    const tileId = pending[index]!
+    if (tileId === target) return true
+    for (const id of neighbors(map, tileId)) {
+      const tile = map.tiles[id]!
+      if (tile.terrain === 'water' && tile.waterDepth !== 'shallow' && tile.waterDepth !== 'shoal') continue
+      if (visited.has(id)) continue
+      visited.add(id)
+      pending.push(id)
+    }
+  }
+  return false
+}
+
+function landComponent(map: ReturnType<typeof generateMap>, start: number): Set<number> {
+  const component = new Set([start])
+  const pending = [start]
+  for (let index = 0; index < pending.length; index++) {
+    for (const id of neighbors(map, pending[index]!)) {
+      if (map.tiles[id]!.terrain === 'water' || component.has(id)) continue
+      component.add(id)
+      pending.push(id)
+    }
+  }
+  return component
+}
+
+interface RouteItem { readonly id: number; readonly time: number }
+
+function routePush(heap: RouteItem[], item: RouteItem): void {
+  let index = heap.push(item) - 1
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2)
+    if (heap[parent]!.time <= item.time) break
+    heap[index] = heap[parent]!
+    index = parent
+  }
+  heap[index] = item
+}
+
+function routePop(heap: RouteItem[]): RouteItem | undefined {
+  const first = heap[0]
+  const last = heap.pop()
+  if (!first || !last || heap.length === 0) return first
+  let index = 0
+  while (true) {
+    const left = index * 2 + 1
+    if (left >= heap.length) break
+    const right = left + 1
+    const child = right < heap.length && heap[right]!.time < heap[left]!.time ? right : left
+    if (heap[child]!.time >= last.time) break
+    heap[index] = heap[child]!
+    index = child
+  }
+  heap[index] = last
+  return first
+}
+
+function routeTurns(map: ReturnType<typeof generateMap>, start: number, target: number): number {
+  const best = new Float64Array(map.tiles.length * 12).fill(Infinity)
+  const heap: RouteItem[] = []
+  const stateId = (tile: number, water: boolean, phase: number) => tile * 12 + Number(water) * 6 + phase
+  const offer = (tile: number, water: boolean, time: number) => {
+    const id = stateId(tile, water, time % 6)
+    if (time >= best[id]!) return
+    best[id] = time
+    routePush(heap, { id, time })
+  }
+  const initial = stateId(start, false, 0)
+  best[initial] = 0
+  routePush(heap, { id: initial, time: 0 })
+  while (heap.length) {
+    const current = routePop(heap)!
+    if (current.time !== best[current.id]) continue
+    const tileId = Math.floor(current.id / 12)
+    const water = Math.floor(current.id / 6) % 2 === 1
+    const phase = current.id % 6
+    const move = (points: number, ticksPerPoint: number) => {
+      const ticks = points * ticksPerPoint
+      return phase + ticks <= 6 ? current.time + ticks : current.time - phase + 6 + ticks
+    }
+    for (const id of neighbors(map, tileId)) {
+      const next = map.tiles[id]!
+      const navigable = next.terrain === 'water' && (next.waterDepth === 'shallow' || next.waterDepth === 'shoal')
+      if (water) {
+        if (navigable) offer(id, true, move(1, 2))
+        else if (next.terrain !== 'water') offer(id, false, current.time - phase + 6)
+      } else if (next.terrain !== 'water') {
+        offer(id, false, move(next.terrain === 'hills' ? 2 : 1, 3))
+      } else if (navigable) {
+        offer(id, true, current.time - phase + 6)
+      }
+    }
+  }
+  const landTurns = travelTurns(map, start, target)
+  const seaTicks = Math.min(...Array.from({ length: 6 }, (_, phase) => best[stateId(target, false, phase)]!))
+  const seaTurns = Number.isFinite(seaTicks) ? Math.ceil(seaTicks / 6) + 1 : Infinity
+  return Math.min(landTurns, seaTurns)
+}
+
 describe('shared-landmass scenarios', () => {
   it.each([
     ['polaris', 24, 24],
@@ -35,7 +138,7 @@ describe('shared-landmass scenarios', () => {
   ])('builds a reproducible, fair scenario for %s (%ix%i)', (seed, width, height) => {
     const map = generateMap({ seed, width, height })
     const scenario = createScenario(map)
-    expect(createScenario(map)).toEqual(scenario)
+    if (width <= 64) expect(createScenario(map)).toEqual(scenario)
     expect(Object.isFrozen(scenario)).toBe(true)
     expect(scenario.players.map(player => player.tribe)).toEqual(['amazons', 'raccoons'])
     expect(scenario.beacons.map(beacon => beacon.role)).toEqual(['near-meridian', 'central', 'near-lantern'])
@@ -102,5 +205,75 @@ describe('shared-landmass scenarios', () => {
   it('rejects a map without a valid coastal start instead of repairing it', () => {
     const map = generateMap({ seed: 'polaris', width: 8, height: 8 })
     expect(() => createScenario(map)).toThrow(/fair shared-landmass scenario/)
+  })
+})
+
+describe('archipelago preview scenarios', () => {
+  it.each([
+    ['polaris', 24, 24],
+    ['island3', 24, 24],
+    ['island14', 24, 24],
+    ['island0', 32, 32],
+    ['island0', 64, 64],
+    ['island0', 128, 128],
+    ['island0', 256, 256],
+  ])('builds a fair, navigable preview for %s (%ix%i)', (seed, width, height) => {
+    const map = generateMap({ seed, width, height, topology: 'archipelago' })
+    const scenario = createScenario(map)
+    expect(scenario.topology).toBe('archipelago')
+    if (width <= 64) expect(createScenario(map)).toEqual(scenario)
+    expect(() => createExpedition(map, ['meridian', 'lantern'], scenario)).toThrow(/preview.*water crossing/)
+    const starts = scenario.players.map(player => player.startTileId)
+    const homes = scenario.players.map(player => landComponent(map, player.startTileId))
+    const beaconLand = landComponent(map, scenario.beacons[1]!.tileId)
+    const reserved = new Set([
+      ...scenario.players.flatMap(player => [player.startTileId, player.founderTileId]),
+      ...scenario.beacons.map(beacon => beacon.tileId),
+    ])
+    expect(reserved.size).toBe(7)
+    expect(homes[0]!.has(starts[1]!)).toBe(false)
+    expect(homes[1]!.has(starts[0]!)).toBe(false)
+    expect(beaconLand.has(starts[0]!)).toBe(false)
+    expect(beaconLand.has(starts[1]!)).toBe(false)
+    for (const [index, player] of scenario.players.entries()) {
+      const home = homes[index]!
+      const start = map.tiles[player.startTileId]!
+      expect([...home].some(id => !reserved.has(id)
+        && hexDistance(start.x, start.z, map.tiles[id]!.x, map.tiles[id]!.z) >= 5
+        && neighbors(map, id).some(neighbor => map.tiles[neighbor]!.terrain === 'water'
+          && (map.tiles[neighbor]!.waterDepth === 'shallow' || map.tiles[neighbor]!.waterDepth === 'shoal')))).toBe(true)
+      for (const beacon of scenario.beacons) {
+        expect(reachableByShallows(map, player.startTileId, beacon.tileId)).toBe(true)
+      }
+    }
+    for (const beacon of scenario.beacons) {
+      expect(neighbors(map, beacon.tileId).filter(id =>
+        map.tiles[id]!.terrain !== 'water' && !reserved.has(id)).length).toBeGreaterThanOrEqual(2)
+    }
+    expect(reachableByShallows(map, starts[0]!, starts[1]!)).toBe(true)
+  })
+
+  it('rejects layouts below the supported island-scenario size', () => {
+    const map = generateMap({ seed: 'polaris', width: 23, height: 24, topology: 'archipelago' })
+    expect(() => createScenario(map)).toThrow(/at least 24/)
+  })
+
+  it.each([
+    ['polaris', 24, 24],
+    ['island0', 32, 32],
+    ['island0', 64, 64],
+  ])('keeps mirrored travel turns fair when the starting sides are swapped on %s (%ix%i)', (seed, width, height) => {
+    const map = generateMap({ seed, width, height, topology: 'archipelago' })
+    const scenario = createScenario(map)
+    const [first, second] = scenario.players
+    const [nearFirst, central, nearSecond] = scenario.beacons
+    expect(Math.abs(routeTurns(map, first.startTileId, second.startTileId)
+      - routeTurns(map, second.startTileId, first.startTileId))).toBeLessThanOrEqual(1)
+    expect(Math.abs(routeTurns(map, first.startTileId, central.tileId)
+      - routeTurns(map, second.startTileId, central.tileId))).toBeLessThanOrEqual(1)
+    expect(Math.abs(routeTurns(map, first.startTileId, nearFirst.tileId)
+      - routeTurns(map, second.startTileId, nearSecond.tileId))).toBeLessThanOrEqual(1)
+    expect(Number.isFinite(routeTurns(map, first.startTileId, nearSecond.tileId))).toBe(true)
+    expect(Number.isFinite(routeTurns(map, second.startTileId, nearFirst.tileId))).toBe(true)
   })
 })

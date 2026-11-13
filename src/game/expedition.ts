@@ -186,6 +186,9 @@ export function createExpedition(
   factionIds: readonly FactionId[] = ['meridian'],
   scenario?: Scenario,
 ): Expedition {
+  if (map.topology !== 'shared-landmass') {
+    throw new Error('Island-layout previews cannot start an expedition until water crossing is implemented.')
+  }
   if (!factionIds.length || new Set(factionIds).size !== factionIds.length ||
     factionIds.some(id => !Object.hasOwn(FACTIONS, id))) throw new Error('Choose unique supported factions for the expedition.')
   if (scenario && (scenario.players.length !== factionIds.length ||

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyCommand, type Expedition } from '../game/expedition'
+import { GENERATOR_VERSION } from '../game/map'
 import { createMatch, exportMatch, MATCH_LIMITS, stateHash } from '../game/match'
 import {
   currentMatchId, forgetMatch, listMatches, MATCH_NAME_LIMIT, migrateLegacyMatch, restoreMatch, saveMatch, setCurrentMatch,
@@ -106,12 +107,12 @@ describe('match storage', () => {
     }
   })
 
-  it.each([3, 4])('keeps generator-v%s saves unchanged and stops auto-resuming them rather than rebuilding or deleting them', generator => {
+  it.each([3, 4, 5])('keeps generator-v%s saves unchanged and stops auto-resuming them rather than rebuilding or deleting them', generator => {
     const old = { faction: 'meridian', name: 'Earlier world', match: { ...exportMatch(MATCH_ID, match()), generator } }
     const raw = JSON.stringify(old)
     const storage = memoryStorage({ [PREFIX + MATCH_ID]: raw, [CURRENT]: MATCH_ID })
     expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
-      ok: false, reason: expect.stringMatching(new RegExp(`has been kept.*world generator ${generator}, but your copy uses 5`)),
+      ok: false, reason: expect.stringMatching(new RegExp(`has been kept.*world generator ${generator}, but your copy uses ${GENERATOR_VERSION}`)),
     })
 
     expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
@@ -122,6 +123,23 @@ describe('match storage', () => {
     expect(restoreMatch(storage, MATCH_ID)).toMatchObject({ ok: false })
     expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
     expect(currentMatchId(storage)).toBe(OTHER_ID)
+  })
+
+  it('keeps a readable scenario-v1 turn unchanged rather than interpreting it as scenario v2', () => {
+    const current = exportMatch(MATCH_ID, match())
+    const old = {
+      ...current,
+      generator: 5,
+      scenario: { version: 1, tribes: current.scenario!.tribes },
+    }
+    const raw = JSON.stringify({ faction: 'meridian', name: 'Earlier scenario', match: old })
+    const storage = memoryStorage({ [PREFIX + MATCH_ID]: raw, [CURRENT]: MATCH_ID })
+    expect(restoreMatch(storage, MATCH_ID)).toMatchObject({
+      ok: false, kept: true, reason: expect.stringMatching(/world generator 5, but your copy uses 6/),
+    })
+    expect(storage.items.get(PREFIX + MATCH_ID)).toBe(raw)
+    expect(currentMatchId(storage)).toBeUndefined()
+    expect(listMatches(storage).matches.map(item => item.matchId)).toEqual([MATCH_ID])
   })
 
   it.each([3, 4])('keeps rules-v%s saves unchanged and listed without replaying them under new rules', rules => {

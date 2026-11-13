@@ -78,6 +78,12 @@ describe('match checksums', () => {
     expect(opened.ok).toBe(true)
     if (opened.ok) expect(opened.state).toEqual(state)
   })
+
+  it('recognizes readable scenario-v1 turns and reports their compatibility limit', () => {
+    const pkg = exportMatch(MATCH_ID, createMatch(WORLD))
+    const legacy = { ...pkg, scenario: { version: 1, tribes: pkg.scenario!.tribes } }
+    expect(failure(legacy)).toMatch(/scenario 1, but your copy uses 2/)
+  })
   it('hashes equal worlds and states identically and any difference differently', () => {
     const state = createMatch(WORLD)
     expect(mapHash(state.map)).toMatch(CHECKSUM)
@@ -86,6 +92,7 @@ describe('match checksums', () => {
     expect(stateHash(createMatch(WORLD))).toBe(stateHash(state))
     expect(mapHash(createMatch({ ...WORLD, seed: 'aurora' }).map)).not.toBe(mapHash(state.map))
     expect(mapHash(createMatch({ ...WORLD, width: 33 }).map)).not.toBe(mapHash(state.map))
+    expect(mapHash({ ...state.map, topology: 'archipelago' })).not.toBe(mapHash(state.map))
     expect(stateHash(playTurn(state))).not.toBe(stateHash(state))
     expect(stateHash(createMatch(WORLD, ['engineers', 'engineers']))).not.toBe(stateHash(state))
   })
@@ -137,7 +144,8 @@ describe('exporting and opening a match', () => {
     expect(pkg).toMatchObject({
       format: MATCH_FORMAT, matchId: MATCH_ID, rules: state.rulesVersion, generator: GENERATOR_VERSION, seed: 'polaris', width: 32, height: 24,
       factions: ['meridian', 'lantern'], mapHash: mapHash(state.map), stateHash: stateHash(state),
-      scenario: { version: state.scenario?.version, tribes: state.scenario?.players.map(player => player.tribe) },
+      scenario: { version: state.scenario?.version, topology: 'shared-landmass',
+        tribes: state.scenario?.players.map(player => player.tribe) },
     })
     expect(pkg.commands).toHaveLength(state.commands.length)
     expect(pkg.commands.map(order => order[0])).toEqual(expect.arrayContaining(['m', 'f', 'q', 'e']))
@@ -224,8 +232,8 @@ describe('rejecting turns that cannot be trusted', () => {
   it('rejects another version of the rules or of the world generator', () => {
     expect(failure(edit({ rules: pkg.rules - 1 }))).toMatch(/game rules .* same version/)
     expect(failure(edit({ generator: pkg.generator + 1 }))).toMatch(/world generator .* same version/)
-    for (const generator of [3, 4]) {
-      expect(failure(edit({ generator }))).toContain(`world generator ${generator}, but your copy uses 5`)
+    for (const generator of [3, 4, 5]) {
+      expect(failure(edit({ generator }))).toContain(`world generator ${generator}, but your copy uses 6`)
     }
   })
 
@@ -238,11 +246,11 @@ describe('rejecting turns that cannot be trusted', () => {
   it('rejects unsupported scenario data and detects changed tribe assignments', () => {
     const pkg = exportMatch(MATCH_ID, createMatch(WORLD))
     const scenario = pkg.scenario!
-    expect(failure({ ...pkg, scenario: undefined })).toMatch(/valid shared-landmass scenario/)
+    expect(failure({ ...pkg, scenario: undefined })).toMatch(/valid scenario descriptor/)
     const unknownTribe = { ...pkg, scenario: { ...scenario, tribes: ['amazons', 'unknown'] } }
-    expect(failure(unknownTribe)).toMatch(/valid shared-landmass scenario/)
+    expect(failure(unknownTribe)).toMatch(/valid scenario descriptor/)
     const wrongVersion = { ...pkg, scenario: { ...scenario, version: scenario.version + 1 } }
-    expect(failure(wrongVersion)).toMatch(/valid shared-landmass scenario/)
+    expect(failure(wrongVersion)).toMatch(/valid scenario descriptor/)
     const changedTribes = { ...pkg, scenario: { ...scenario, tribes: ['engineers', 'engineers'] } }
     expect(failure(changedTribes)).toMatch(/ended differently/)
   })
