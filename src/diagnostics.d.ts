@@ -10,6 +10,8 @@ declare global {
       }
       projectTile(id: number): { x: number; y: number } | undefined
       camera(): { mode: number; x: number; z: number; halfHeight: number } | undefined
+      /** Shows holders on the open scenario's lighthouses (null = neutral) without touching the match; false without one. */
+      previewBeaconHolders(holders: readonly (FactionId | null)[]): boolean
       expedition(): {
         round: number; movement: number; scoutTileId: number; commandCount: number
         scouts: readonly Scout[]; founders: readonly Founder[]; cities: readonly City[]; units: readonly ProducedUnit[]

@@ -4,7 +4,7 @@ import { CreateBoxVertexData } from '@babylonjs/core/Meshes/Builders/boxBuilder'
 import { HEX_ROW, hexAt, hexCenter, hexDistance, hexOffsets } from '../game/hex'
 import { GENERATOR_VERSION, generateMap, type Tile, type WorldMap } from '../game/map'
 import { CAMERA_PITCH, CAMERA_YAW } from './view'
-import { BEACON_HEIGHT, beaconMeshes } from './beacon'
+import { BEACON_HEIGHT, BEACON_VOXEL, beaconMeshes } from './beacon'
 import {
   AO_LIGHT, BEACON_SITE, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, beaconFoot, centreColumn, columnTileAt,
   createVoxelWorld, groundHeight, meshChunk, pickTile, resourceAt, siteCode, territoryCode, tileSurface, voxelScale,
@@ -767,6 +767,40 @@ describe('hex voxel terrain', () => {
         const x = fx + body.positions[v * 3]!, z = fz + body.positions[v * 3 + 2]!
         expect(hexAt(x, z), `${tile.id}: ${x}, ${z}`).toEqual([tile.x, tile.z])
       }
+    }
+  })
+
+  it('shows a beacon holder in banners, bands and light, and nothing faction-coloured while neutral', () => {
+    const kinds = (mesh: ChunkMesh) => new Set(Array.from({ length: mesh.quads }, (_, quad) => kindAt(mesh, quad * 4)))
+    const gold = [VOXEL.bannerGold, VOXEL.goldDark] as const, blue = [VOXEL.bannerBlue, VOXEL.blueDark] as const
+    const neutral = beaconMeshes()
+    expect([...gold, ...blue].some(kind => kinds(neutral.body).has(kind))).toBe(false)
+    expect(kinds(neutral.body)).toContain(VOXEL.roof)
+    const extent = (mesh: ChunkMesh) => Math.max(...Array.from(mesh.positions).filter((_, index) => index % 3 !== 1).map(Math.abs))
+    // Columns whose cloth reaches the lowest banner row on the camera-facing +z side: a swallowtail for Meridian,
+    // a point for Lantern.
+    const tails = (mesh: ChunkMesh, cloth: number) => [-1, 0, 1].filter(column => {
+      for (let quad = 0; quad < mesh.quads; quad++) {
+        const corners = [0, 1, 2, 3].map(k => (quad * 4 + k) * 3)
+        if (kindAt(mesh, quad * 4) !== cloth || mesh.normals[corners[0]! + 2] !== 1) continue
+        if (Math.abs(mesh.positions[corners[0]! + 2]! - 3.5 * BEACON_VOXEL) > 1e-9) continue
+        const xs = corners.map(c => mesh.positions[c]! / BEACON_VOXEL), ys = corners.map(c => mesh.positions[c + 1]! / BEACON_VOXEL)
+        if (Math.min(...xs) < column && column < Math.max(...xs) && Math.abs(Math.min(...ys) - 7) < 1e-9) return true
+      }
+      return false
+    })
+    for (const [owner, light, mine, theirs, tail] of [
+      [0, [VOXEL.beaconGold, VOXEL.beaconGoldCore], gold, blue, [-1, 1]],
+      [1, [VOXEL.beaconBlue, VOXEL.beaconBlueCore], blue, gold, [0]],
+    ] as const) {
+      const held = beaconMeshes(owner)
+      expect(kinds(held.light)).toEqual(new Set(light))
+      expect(mine.every(kind => kinds(held.body).has(kind))).toBe(true)
+      expect(theirs.some(kind => kinds(held.body).has(kind))).toBe(false)
+      expect(kinds(held.body).has(VOXEL.roof)).toBe(false)
+      expect(tails(held.body, mine[0])).toEqual(tail)
+      // Banners hang within the gallery, so a held lighthouse keeps the neutral footprint inside its hex.
+      expect(extent(held.body)).toBeLessThanOrEqual(extent(neutral.body))
     }
   })
 
