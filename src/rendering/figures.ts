@@ -6,7 +6,13 @@ export type FigureKind = 'scout' | 'founder' | 'guard' | 'worker'
 export const FIGURE_VOXEL = 1 / 24
 const WIDTH = 7
 const DEPTH = 5
-const HEIGHT = 17
+/** Figures without the diamond keep their original volume; the scout's pennant, the tallest accessory, ends at layer 15. */
+const BODY_HEIGHT = 17
+/** Half-widths of the availability diamond's rows from its lower tip to its flat table; the girdle spans the volume. */
+const DIAMOND_ROWS = [0, 1, 2, 3, 2, 1] as const
+/** The diamond's lower tip floats one voxel above the tallest accessory. */
+const DIAMOND_BASE = 16 + 1
+const HEIGHT = DIAMOND_BASE + DIAMOND_ROWS.length
 
 interface Team { cloth: number; trim: number }
 const TEAMS: readonly Team[] = [
@@ -71,15 +77,34 @@ function stampFigure(volume: Volume, kind: FigureKind, team: Team): void {
   box(volume, 4, 4, 2, 3, 1, 2, VOXEL.leather)
 }
 
+/**
+ * A clear diamond above a unit that can still move: a one-voxel slab in the figure's front plane, which nearly faces
+ * the camera, with a flat table, a wide girdle and a pavilion tapering to a point. Bottom faces stay hidden from the
+ * camera, so the long lower edges read cleanly. Ice-white and cyan facets are shaded like the scene light from the upper
+ * left (local +x faces screen left), with a white sparkle on the table; no faction colour is used, so the marker means
+ * the same for both players. Being part of the figure's own voxel mesh, it needs no extra mesh, material or animation.
+ */
+function stampDiamond(volume: Volume): void {
+  const [cx, cz] = [(WIDTH - 1) / 2, (DEPTH - 1) / 2]
+  DIAMOND_ROWS.forEach((half, row) => {
+    for (let dx = -half; dx <= half; dx++) {
+      const kind = dx < 0 ? VOXEL.gemShade : dx === 0 ? VOXEL.gem
+        : row === DIAMOND_ROWS.length - 1 ? VOXEL.gemSparkle : VOXEL.gemLight
+      placeVoxel(volume, cx + dx, DIAMOND_BASE + row, cz, kind)
+    }
+  })
+}
+
 const cache = new Map<string, ChunkMesh>()
 
-/** Mesh of a figure whose feet are centred on the local origin. */
-export function figureMesh(kind: FigureKind, banner: 0 | 1): ChunkMesh {
-  const key = `${kind}:${banner}`
+/** Mesh of a figure whose feet are centred on the local origin; available units carry the diamond above the head. */
+export function figureMesh(kind: FigureKind, banner: 0 | 1, available = false): ChunkMesh {
+  const key = `${kind}:${banner}:${available}`
   let mesh = cache.get(key)
   if (!mesh) {
-    const volume = createVolume(0, 0, WIDTH, DEPTH, HEIGHT)
+    const volume = createVolume(0, 0, WIDTH, DEPTH, available ? HEIGHT : BODY_HEIGHT)
     stampFigure(volume, kind, TEAMS[banner]!)
+    if (available) stampDiamond(volume)
     mesh = meshVolume(volume, FIGURE_VOXEL, [-WIDTH / 2 * FIGURE_VOXEL, 0, -DEPTH / 2 * FIGURE_VOXEL])
     cache.set(key, mesh)
   }

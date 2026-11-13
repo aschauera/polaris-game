@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page, type TestInfo } from '@playwright/test'
-import { applyCommand, type Expedition } from '../src/game/expedition'
-import { hexOffsets } from '../src/game/hex'
+import { applyCommand, movementRange, type Expedition } from '../src/game/expedition'
+import { hexDistance, hexOffsets } from '../src/game/hex'
 import { tileAt } from '../src/game/map'
 import { createMatch, exportMatch, MATCH_LIMITS, stateHash } from '../src/game/match'
 import { encodeTurn } from '../src/exchange/turn-code'
@@ -123,6 +123,39 @@ test('starts a validated shared-landmass scenario with independent tribe choices
   expect(expedition?.units).toHaveLength(0)
   expect(expedition?.scoutTileId).toBe(scenario.players[0].startTileId)
   expect(expedition?.founders[0]?.tileId).toBe(scenario.players[0].founderTileId)
+  // Lighthouses stand only on charted beacons; the scout's first move charts the near one.
+  const towers = () => page.evaluate(() => window.polarisDiagnostics!.stats().beaconTowers)
+  expect(await towers()).toBe(0)
+  const local = createMatch(WORLD, ['engineers', 'engineers'])
+  const near = local.map.tiles[scenario.beacons[0].tileId]!
+  const scout = local.scouts.find(unit => unit.factionId === local.activeFaction)!
+  const [to] = [...movementRange(local, scout.id).keys()].map(id => local.map.tiles[id]!)
+    .sort((a, b) => hexDistance(a.x, a.z, near.x, near.z) - hexDistance(b.x, b.z, near.x, near.z) || a.id - b.id)
+  expect(hexDistance(to!.x, to!.z, near.x, near.z)).toBeLessThanOrEqual(2)
+  await page.getByRole('button', { name: 'Reset view' }).click()
+  await page.getByRole('button', { name: 'Select scout', exact: true }).click()
+  const point = await page.evaluate(id => window.polarisDiagnostics!.projectTile(id)!, to!.id)
+  await page.mouse.click(point.x, point.y)
+  await expect.poll(async () => (await expeditionOf(page))?.scoutTileId).toBe(to!.id)
+  expect((await expeditionOf(page))?.fog[near.id]).toBe('visible')
+  expect(await towers()).toBe(1)
+  // Holders are public: markers name them even on uncharted beacons, and the display preview never touches the match.
+  const hash = (await matchOf(page))?.stateHash
+  const markers = page.locator('.beacon-marker')
+  const preview = (holders: ('meridian' | 'lantern' | null)[]) =>
+    page.evaluate(list => window.polarisDiagnostics!.previewBeaconHolders(list), holders)
+  expect(await preview(['lantern', null, 'meridian'])).toBe(true)
+  await expect(markers).toHaveText(['✦ 1 · Lantern', '✦ 2', '✦ 3 · Meridian'])
+  await expect(markers.nth(0)).toHaveClass(/held blue/)
+  // Held beacon plates share the compact size of city plates.
+  expect((await markers.nth(0).boundingBox())!.height).toBeCloseTo(20, 0)
+  await expect(markers.nth(0)).toHaveAttribute('aria-label', /held by Lantern$/)
+  await expect(markers.nth(1)).toHaveAttribute('aria-label', /neutral$/)
+  expect(await page.evaluate(() => window.polarisDiagnostics!.stats())).toMatchObject({ beaconTowers: 1, heldBeaconTowers: 1 })
+  expect(await preview([null, null, null])).toBe(true)
+  await expect(markers).toHaveText(['✦ 1', '✦ 2', '✦ 3'])
+  expect(await page.evaluate(() => window.polarisDiagnostics!.stats())).toMatchObject({ beaconTowers: 1, heldBeaconTowers: 0 })
+  expect((await matchOf(page))?.stateHash).toBe(hash)
   await page.getByRole('button', { name: 'Reset view' }).click()
   await page.getByRole('button', { name: 'Zoom in' }).click()
   await page.getByRole('button', { name: 'Zoom in' }).click()
@@ -131,6 +164,8 @@ test('starts a validated shared-landmass scenario with independent tribe choices
   for (let step = 0; step < 2; step++) await page.keyboard.press('ArrowDown')
   await expect(page.locator('.beacon-marker:visible')).toHaveCount(3)
   await capture(page, testInfo, 'scenario-beacons')
+  await preview(['lantern', null, 'meridian'])
+  await capture(page, testInfo, 'scenario-beacons-held')
 })
 
 test('two devices exchange turns through a link and a pasted code and stay in sync', async ({ browser }, testInfo) => {

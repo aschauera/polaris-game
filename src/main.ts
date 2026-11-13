@@ -6,7 +6,7 @@ import {
   UNIT_RULES, unitsOf, type Command, type Expedition, type FactionId, type ProductionItemId,
 } from './game/expedition'
 import { applyMatchCommand, compactCommand, exportMatch, MATCH_FACTIONS, matchIdOf, receiveTurn, stateHash } from './game/match'
-import { createScenario, TRIBES, type TribeId } from './game/scenario'
+import { createScenario, TRIBES, type Scenario, type ScenarioBeacon, type TribeId } from './game/scenario'
 import { decodeTurn, encodeTurn, linkedTurn, turnLink } from './exchange/turn-code'
 import {
   currentMatchId, forgetMatch, listMatches, MATCH_NAME_LIMIT, migrateLegacyMatch, restoreMatch, saveMatch, setCurrentMatch,
@@ -35,6 +35,9 @@ let expedition: Expedition | undefined
 let selectedTile: Tile | undefined
 let selectedUnitId: string | undefined
 let selectedCityId: string | undefined
+// Holding beacons arrives with P5 (#15). Until then only the diagnostics preview names holders, for display only:
+// it never reaches the match state, saves or turns, and it lapses as soon as another scenario opens.
+let beaconHolderPreview: { readonly scenario: Scenario; readonly holders: readonly (FactionId | null)[] } | undefined
 // The open messenger match. A solo expedition has none and simply plays whichever faction is active.
 // Other matches stay saved on this device until they are opened again.
 interface OpenMatch { readonly id: string; readonly faction: FactionId; readonly name: string }
@@ -115,9 +118,29 @@ function resourceName(tile?: Tile): string | undefined {
   return kind ? RESOURCES[kind].name : undefined
 }
 
+function beaconHolder(state: Expedition, index: number): FactionId | undefined {
+  const preview = beaconHolderPreview
+  return preview && preview.scenario === state.scenario ? preview.holders[index] ?? undefined : undefined
+}
+
+// The atlas previews where a messenger match on a map would place its public beacons; placement does not depend on
+// the tribes, and no beacon is held before a match starts. Maps without a fair layout preview none.
+const atlasLayouts = new WeakMap<WorldMap, readonly ScenarioBeacon[] | undefined>()
+function atlasBeacons(world: WorldMap): readonly ScenarioBeacon[] | undefined {
+  if (!atlasLayouts.has(world)) {
+    let beacons: readonly ScenarioBeacon[] | undefined
+    try { beacons = createScenario(world).beacons } catch { beacons = undefined }
+    atlasLayouts.set(world, beacons)
+  }
+  return atlasLayouts.get(world)
+}
+
 function beaconName(state: Expedition | undefined, tile?: Tile): string | undefined {
-  const index = tile && state?.scenario?.beacons.findIndex(beacon => beacon.tileId === tile.id)
-  return index !== undefined && index >= 0 ? `Public beacon ${index + 1}` : undefined
+  const beacons = state ? state.scenario?.beacons : map && atlasBeacons(map)
+  const index = tile ? beacons?.findIndex(beacon => beacon.tileId === tile.id) ?? -1 : -1
+  if (index < 0) return undefined
+  const holder = state && beaconHolder(state, index)
+  return `Public beacon ${index + 1} · ${holder ? `held by ${FACTIONS[holder]}` : 'neutral'}`
 }
 
 function select(tile?: Tile, unitId?: string, citySelected = false): void {
@@ -165,7 +188,12 @@ function renderExpedition(dirtyTiles?: readonly number[]): void {
   const unit = selectedUnit(state)
   const acting = canAct(state)
   const fog = state.factions.find(item => item.id === viewer)!.fog
-  const beacons = state.scenario?.beacons
+  // Beacon holders are public, so they show for every beacon regardless of fog.
+  const beacons = state.scenario?.beacons.map((beacon, index) => {
+    const holder = beaconHolder(state, index)
+    return { tileId: beacon.tileId, role: beacon.role,
+      owner: holder && { banner: bannerOf(holder), name: FACTIONS[holder].split(' ')[0]! } }
+  })
   renderer?.setExploration({
     fog, scoutTileId: scout.tileId,
     beacons,
@@ -259,9 +287,10 @@ function show(next: WorldMap, session?: Expedition): void {
     selectedCityId = undefined
     selectedTile = undefined
     hud.selection()
-    renderer.setMap(next)
+    const preview = atlasBeacons(next)
+    renderer.setMap(next, preview?.map(beacon => ({ tileId: beacon.tileId, role: beacon.role })))
     map = next
-    hud.loaded(next)
+    hud.loaded(next, preview?.length ?? 0)
     if (session) {
       renderExpedition()
       renderer.focusTile(scoutOf(session).tileId)
@@ -641,13 +670,21 @@ else {
 if (problems.length) messenger.notice(problems.join(' '), true)
 takeLinkedTurn()
 
-// Opt-in, read-only diagnostics work in production benchmarks without exposing state mutation.
+// Opt-in diagnostics work in production benchmarks without exposing state mutation; the beacon holder preview only
+// changes what the lighthouses show.
 if (params.get('diagnostics') === '1') {
   window.polarisDiagnostics = {
     stats: () => ({ ...renderer?.stats(), generationMs, renderSetupMs, seed: map?.seed,
       width: map?.width, height: map?.height, rngState: map?.rngState }),
     projectTile: id => renderer?.projectTile(id),
     camera: () => renderer?.cameraState(),
+    previewBeaconHolders: holders => {
+      const scenario = expedition?.scenario
+      if (!scenario) return false
+      beaconHolderPreview = { scenario, holders: [...holders] }
+      renderExpedition()
+      return true
+    },
     expedition: () => {
       const state = expedition
       if (!state) return undefined

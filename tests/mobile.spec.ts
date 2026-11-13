@@ -106,6 +106,13 @@ test('touch: tap selects, one finger pans, two fingers pinch-zoom without select
   await expect(founder).toHaveAttribute('aria-pressed', 'true')
   await page.locator('#found-city').tap()
   const city = page.locator('.city-plate')
+  // The plate is as compact as a held beacon plate, while an invisible band keeps a 44px touch target.
+  const plate = (await city.boundingBox())!
+  expect(plate.height).toBeCloseTo(20, 0)
+  for (const offset of [-20, 20]) {
+    expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('.city-plate'),
+      [plate.x + plate.width / 2, plate.y + plate.height / 2 + offset])).toBe(true)
+  }
   await city.tap()
   await expect(city).toHaveClass(/available/)
   await page.locator('#queue-production').tap()

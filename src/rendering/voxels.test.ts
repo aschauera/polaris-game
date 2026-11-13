@@ -4,9 +4,12 @@ import { CreateBoxVertexData } from '@babylonjs/core/Meshes/Builders/boxBuilder'
 import { HEX_ROW, hexAt, hexCenter, hexDistance, hexOffsets } from '../game/hex'
 import { GENERATOR_VERSION, generateMap, type Tile, type WorldMap } from '../game/map'
 import { CAMERA_PITCH, CAMERA_YAW } from './view'
+import { BEACON_HEIGHT, BEACON_VOXEL, beaconMeshes } from './beacon'
+import { figureMesh } from './figures'
 import {
-  AO_LIGHT, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, centreColumn, columnTileAt, createVoxelWorld, groundHeight,
-  meshChunk, pickTile, resourceAt, siteCode, territoryCode, tileSurface, voxelScale, type ChunkMesh, type VoxelWorld,
+  AO_LIGHT, BEACON_SITE, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, beaconFoot, centreColumn, columnTileAt,
+  createVoxelWorld, groundHeight, meshChunk, pickTile, resourceAt, siteCode, territoryCode, tileSurface, voxelScale,
+  type ChunkMesh, type VoxelWorld,
 } from './voxels'
 
 const allKnown = (map: WorldMap) => new Uint8Array(map.tiles.length).fill(1)
@@ -720,6 +723,88 @@ describe('hex voxel terrain', () => {
     expect(meshAll(world, known)).toEqual(plain)
   })
 
+  it('levels and clears a beacon tile into a plaza without stamping a keep', () => {
+    const map = flatMap(4, 4, { 5: { trees: 3 }, 10: { terrain: 'hills', elevation: 3, trees: 2 } })
+    const known = allKnown(map)
+    const world = createVoxelWorld(map)
+    expect(shows(meshAll(world, known), VOXEL.path)).toBe(false)
+    world.sites[5] = BEACON_SITE
+    world.sites[10] = BEACON_SITE
+    const plaza = meshAll(world, known)
+    expect(shows(plaza, VOXEL.path)).toBe(true)
+    expect([VOXEL.roof, VOXEL.castle, VOXEL.bannerGold, VOXEL.bannerBlue].map(kind => shows(plaza, kind)))
+      .toEqual([false, false, false, false])
+    expect(['1,1', '2,2'].map(key => trunksPerHex(plaza, world.size).has(key))).toEqual([false, false])
+    // The lighthouse foot stands on level ground, also on a hill.
+    const [fx, fz] = beaconFoot(map.tiles[10]!)
+    const tops = new Set<number>()
+    for (const mesh of plaza) {
+      for (let v = 0; v < mesh.positions.length / 3; v++) {
+        const [x, y, z] = [mesh.positions[v * 3]!, mesh.positions[v * 3 + 1]!, mesh.positions[v * 3 + 2]!]
+        if (mesh.normals[v * 3 + 1] === 1 && Math.hypot(x - fx, z - fz) < 0.3) tops.add(y)
+      }
+    }
+    expect([...tops]).toEqual([tileSurface(world, map.tiles[10]!, true) * world.size])
+    known[5] = 0
+    const hidden = meshAll(world, known)
+    world.sites[5] = 0
+    expect(meshAll(world, known)).toEqual(hidden)
+  })
+
+  it('builds a lighthouse inside its own hex with an unlit lantern as a separate part', () => {
+    const { body, light } = beaconMeshes()
+    const glow = new Set([VOXEL.beaconGlow, VOXEL.beaconCore])
+    const kinds = (mesh: ChunkMesh) => new Set(Array.from({ length: mesh.quads }, (_, quad) => kindAt(mesh, quad * 4)))
+    expect([...kinds(light)].every(kind => glow.has(kind))).toBe(true)
+    expect([...kinds(body)].some(kind => glow.has(kind))).toBe(false)
+    expect(kinds(body)).toContain(VOXEL.patina)
+    const heights = [body, light].flatMap(mesh => Array.from({ length: mesh.positions.length / 3 }, (_, v) => mesh.positions[v * 3 + 1]!))
+    expect(Math.max(...heights)).toBeCloseTo(BEACON_HEIGHT, 9)
+    expect(Math.min(...heights)).toBe(0)
+    // Both row parities: the whole footprint, set back from the centre, stays inside the beacon's hex.
+    for (const tile of flatMap(4, 4).tiles.filter(tile => tile.id === 5 || tile.id === 9)) {
+      const [fx, fz] = beaconFoot(tile)
+      for (let v = 0; v < body.positions.length / 3; v++) {
+        const x = fx + body.positions[v * 3]!, z = fz + body.positions[v * 3 + 2]!
+        expect(hexAt(x, z), `${tile.id}: ${x}, ${z}`).toEqual([tile.x, tile.z])
+      }
+    }
+  })
+
+  it('shows a beacon holder in banners, bands and light, and nothing faction-coloured while neutral', () => {
+    const kinds = (mesh: ChunkMesh) => new Set(Array.from({ length: mesh.quads }, (_, quad) => kindAt(mesh, quad * 4)))
+    const gold = [VOXEL.bannerGold, VOXEL.goldDark] as const, blue = [VOXEL.bannerBlue, VOXEL.blueDark] as const
+    const neutral = beaconMeshes()
+    expect([...gold, ...blue].some(kind => kinds(neutral.body).has(kind))).toBe(false)
+    expect(kinds(neutral.body)).toContain(VOXEL.roof)
+    const extent = (mesh: ChunkMesh) => Math.max(...Array.from(mesh.positions).filter((_, index) => index % 3 !== 1).map(Math.abs))
+    // Columns whose cloth reaches the lowest banner row on the camera-facing +z side: a swallowtail for Meridian,
+    // a point for Lantern.
+    const tails = (mesh: ChunkMesh, cloth: number) => [-1, 0, 1].filter(column => {
+      for (let quad = 0; quad < mesh.quads; quad++) {
+        const corners = [0, 1, 2, 3].map(k => (quad * 4 + k) * 3)
+        if (kindAt(mesh, quad * 4) !== cloth || mesh.normals[corners[0]! + 2] !== 1) continue
+        if (Math.abs(mesh.positions[corners[0]! + 2]! - 3.5 * BEACON_VOXEL) > 1e-9) continue
+        const xs = corners.map(c => mesh.positions[c]! / BEACON_VOXEL), ys = corners.map(c => mesh.positions[c + 1]! / BEACON_VOXEL)
+        if (Math.min(...xs) < column && column < Math.max(...xs) && Math.abs(Math.min(...ys) - 7) < 1e-9) return true
+      }
+      return false
+    })
+    for (const [owner, light, mine, theirs, tail] of [
+      [0, [VOXEL.beaconGold, VOXEL.beaconGoldCore], gold, blue, [-1, 1]],
+      [1, [VOXEL.beaconBlue, VOXEL.beaconBlueCore], blue, gold, [0]],
+    ] as const) {
+      const held = beaconMeshes(owner)
+      expect(kinds(held.light)).toEqual(new Set(light))
+      expect(mine.every(kind => kinds(held.body).has(kind))).toBe(true)
+      expect(theirs.some(kind => kinds(held.body).has(kind))).toBe(false)
+      expect(kinds(held.body).has(VOXEL.roof)).toBe(false)
+      expect(tails(held.body, mine[0])).toEqual(tail)
+      // Banners hang within the gallery, so a held lighthouse keeps the neutral footprint inside its hex.
+      expect(extent(held.body)).toBeLessThanOrEqual(extent(neutral.body))
+    }
+  })
+
   it('marks territory borders on exactly the hex edges where ownership ends', () => {
     const map = flatMap(6, 6)
     const owners = new Uint8Array(map.tiles.length)
@@ -797,6 +882,42 @@ describe('hex voxel terrain', () => {
     known[7] = 0
     expect(at(1, 1)).toBe(tileSurface(world, map.tiles[7]!, false) * world.size)
     expect(groundHeight(world, known, -3, -3)).toBeUndefined()
+  })
+
+  it('crowns only available figures with a clear voxel diamond above an unchanged body', () => {
+    const gem = new Set<number>([VOXEL.gem, VOXEL.gemLight, VOXEL.gemShade, VOXEL.gemSparkle])
+    // Figures are centred on half voxels, so compare positions in half-voxel units.
+    const points = (mesh: ChunkMesh, keep: (kind: number) => boolean) =>
+      Array.from({ length: mesh.quads * 4 }, (_, vertex) => vertex).filter(vertex => keep(kindAt(mesh, vertex)))
+        .map(vertex => [0, 1, 2].map(axis => Math.round(mesh.positions[vertex * 3 + axis]! * 48)) as [number, number, number])
+    const span = (list: readonly (readonly number[])[], axis: number) =>
+      Math.max(...list.map(point => point[axis]!)) - Math.min(...list.map(point => point[axis]!))
+    for (const kind of ['scout', 'founder', 'guard', 'worker'] as const) for (const banner of [0, 1] as const) {
+      const idle = figureMesh(kind, banner)
+      const ready = figureMesh(kind, banner, true)
+      expect(points(idle, value => gem.has(value))).toEqual([])
+      const body = points(ready, value => !gem.has(value))
+      expect(body.map(String).sort()).toEqual(points(idle, () => true).map(String).sort())
+      const crown = points(ready, value => gem.has(value))
+      const [bottom, top] = [Math.min(...crown.map(point => point[1])), Math.max(...crown.map(point => point[1]))]
+      expect(bottom).toBeGreaterThan(Math.max(...body.map(point => point[1])))
+      // A one-voxel slab as wide as the body, centred over it in the figure's front plane, which faces the camera.
+      expect([0, 1, 2].map(axis => span(crown, axis))).toEqual([14, 12, 2])
+      for (const axis of [0, 2]) {
+        expect(Math.min(...crown.map(point => point[axis]!)) + Math.max(...crown.map(point => point[axis]!))).toBe(0)
+      }
+      // Half-widths at each row boundary: a pointed pavilion, the widest girdle and a flat three-voxel table on top.
+      const levels = [...new Set(crown.map(point => point[1]))].sort((a, b) => a - b)
+      expect(levels.map(level => Math.max(...crown.filter(point => point[1] === level).map(point => Math.abs(point[0])))))
+        .toEqual([1, 3, 5, 7, 7, 5, 3])
+      // Light facets face screen left (local +x), the cyan shade faces right, and only the table carries the sparkle.
+      const facet = (kind: number) => points(ready, value => value === kind)
+      expect(facet(VOXEL.gemLight).every(point => point[0] > 0)).toBe(true)
+      expect(facet(VOXEL.gemShade).every(point => point[0] < 0)).toBe(true)
+      const sparkle = facet(VOXEL.gemSparkle)
+      expect(sparkle.length).toBeGreaterThan(0)
+      expect(sparkle.every(point => point[1] >= top - 2 && point[0] > 0)).toBe(true)
+    }
   })
 
   it('remeshes only chunks near a changed tile', () => {
