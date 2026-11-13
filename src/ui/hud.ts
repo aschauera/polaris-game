@@ -237,11 +237,13 @@ export function createHud() {
       get('error').hidden = false
       get('map-status').textContent = 'Request failed — no new atlas loaded'
     },
-    loaded: (map: WorldMap) => {
+    loaded: (map: WorldMap, beacons = 0) => {
       get('error').hidden = true
       get<HTMLButtonElement>('start-expedition').disabled = false
       get('world-info').textContent = `${map.seed} / ${map.width} × ${map.height}`
+      // Beacons mark where a messenger match on this map would place them; a map without a fair layout cannot host one.
       get('map-status').textContent = `${map.tiles.length.toLocaleString('en-US')} TILES · GENERATOR ${String(map.generatorVersion).padStart(2, '0')}`
+        + (beacons ? ` · ${beacons} PUBLIC BEACONS` : ' · NO FAIR MATCH LAYOUT')
     },
   }
 }

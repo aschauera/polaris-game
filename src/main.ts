@@ -6,7 +6,7 @@ import {
   UNIT_RULES, unitsOf, type Command, type Expedition, type FactionId, type ProductionItemId,
 } from './game/expedition'
 import { applyMatchCommand, compactCommand, exportMatch, MATCH_FACTIONS, matchIdOf, receiveTurn, stateHash } from './game/match'
-import { createScenario, TRIBES, type Scenario, type TribeId } from './game/scenario'
+import { createScenario, TRIBES, type Scenario, type ScenarioBeacon, type TribeId } from './game/scenario'
 import { decodeTurn, encodeTurn, linkedTurn, turnLink } from './exchange/turn-code'
 import {
   currentMatchId, forgetMatch, listMatches, MATCH_NAME_LIMIT, migrateLegacyMatch, restoreMatch, saveMatch, setCurrentMatch,
@@ -123,10 +123,23 @@ function beaconHolder(state: Expedition, index: number): FactionId | undefined {
   return preview && preview.scenario === state.scenario ? preview.holders[index] ?? undefined : undefined
 }
 
+// The atlas previews where a messenger match on a map would place its public beacons; placement does not depend on
+// the tribes, and no beacon is held before a match starts. Maps without a fair layout preview none.
+const atlasLayouts = new WeakMap<WorldMap, readonly ScenarioBeacon[] | undefined>()
+function atlasBeacons(world: WorldMap): readonly ScenarioBeacon[] | undefined {
+  if (!atlasLayouts.has(world)) {
+    let beacons: readonly ScenarioBeacon[] | undefined
+    try { beacons = createScenario(world).beacons } catch { beacons = undefined }
+    atlasLayouts.set(world, beacons)
+  }
+  return atlasLayouts.get(world)
+}
+
 function beaconName(state: Expedition | undefined, tile?: Tile): string | undefined {
-  const index = tile && state?.scenario?.beacons.findIndex(beacon => beacon.tileId === tile.id)
-  if (!state || index === undefined || index < 0) return undefined
-  const holder = beaconHolder(state, index)
+  const beacons = state ? state.scenario?.beacons : map && atlasBeacons(map)
+  const index = tile ? beacons?.findIndex(beacon => beacon.tileId === tile.id) ?? -1 : -1
+  if (index < 0) return undefined
+  const holder = state && beaconHolder(state, index)
   return `Public beacon ${index + 1} · ${holder ? `held by ${FACTIONS[holder]}` : 'neutral'}`
 }
 
@@ -274,9 +287,10 @@ function show(next: WorldMap, session?: Expedition): void {
     selectedCityId = undefined
     selectedTile = undefined
     hud.selection()
-    renderer.setMap(next)
+    const preview = atlasBeacons(next)
+    renderer.setMap(next, preview?.map(beacon => ({ tileId: beacon.tileId, role: beacon.role })))
     map = next
-    hud.loaded(next)
+    hud.loaded(next, preview?.length ?? 0)
     if (session) {
       renderExpedition()
       renderer.focusTile(scoutOf(session).tileId)

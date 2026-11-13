@@ -5,6 +5,7 @@ import { HEX_ROW, hexAt, hexCenter, hexDistance, hexOffsets } from '../game/hex'
 import { GENERATOR_VERSION, generateMap, type Tile, type WorldMap } from '../game/map'
 import { CAMERA_PITCH, CAMERA_YAW } from './view'
 import { BEACON_HEIGHT, BEACON_VOXEL, beaconMeshes } from './beacon'
+import { figureMesh } from './figures'
 import {
   AO_LIGHT, BEACON_SITE, FACE_DIRECTIONS, FACE_FLAG, PALETTE, VOXEL, affectedChunks, beaconFoot, centreColumn, columnTileAt,
   createVoxelWorld, groundHeight, meshChunk, pickTile, resourceAt, siteCode, territoryCode, tileSurface, voxelScale,
@@ -881,6 +882,42 @@ describe('hex voxel terrain', () => {
     known[7] = 0
     expect(at(1, 1)).toBe(tileSurface(world, map.tiles[7]!, false) * world.size)
     expect(groundHeight(world, known, -3, -3)).toBeUndefined()
+  })
+
+  it('crowns only available figures with a clear voxel diamond above an unchanged body', () => {
+    const gem = new Set<number>([VOXEL.gem, VOXEL.gemLight, VOXEL.gemShade, VOXEL.gemSparkle])
+    // Figures are centred on half voxels, so compare positions in half-voxel units.
+    const points = (mesh: ChunkMesh, keep: (kind: number) => boolean) =>
+      Array.from({ length: mesh.quads * 4 }, (_, vertex) => vertex).filter(vertex => keep(kindAt(mesh, vertex)))
+        .map(vertex => [0, 1, 2].map(axis => Math.round(mesh.positions[vertex * 3 + axis]! * 48)) as [number, number, number])
+    const span = (list: readonly (readonly number[])[], axis: number) =>
+      Math.max(...list.map(point => point[axis]!)) - Math.min(...list.map(point => point[axis]!))
+    for (const kind of ['scout', 'founder', 'guard', 'worker'] as const) for (const banner of [0, 1] as const) {
+      const idle = figureMesh(kind, banner)
+      const ready = figureMesh(kind, banner, true)
+      expect(points(idle, value => gem.has(value))).toEqual([])
+      const body = points(ready, value => !gem.has(value))
+      expect(body.map(String).sort()).toEqual(points(idle, () => true).map(String).sort())
+      const crown = points(ready, value => gem.has(value))
+      const [bottom, top] = [Math.min(...crown.map(point => point[1])), Math.max(...crown.map(point => point[1]))]
+      expect(bottom).toBeGreaterThan(Math.max(...body.map(point => point[1])))
+      // A one-voxel slab as wide as the body, centred over it in the figure's front plane, which faces the camera.
+      expect([0, 1, 2].map(axis => span(crown, axis))).toEqual([14, 12, 2])
+      for (const axis of [0, 2]) {
+        expect(Math.min(...crown.map(point => point[axis]!)) + Math.max(...crown.map(point => point[axis]!))).toBe(0)
+      }
+      // Half-widths at each row boundary: a pointed pavilion, the widest girdle and a flat three-voxel table on top.
+      const levels = [...new Set(crown.map(point => point[1]))].sort((a, b) => a - b)
+      expect(levels.map(level => Math.max(...crown.filter(point => point[1] === level).map(point => Math.abs(point[0])))))
+        .toEqual([1, 3, 5, 7, 7, 5, 3])
+      // Light facets face screen left (local +x), the cyan shade faces right, and only the table carries the sparkle.
+      const facet = (kind: number) => points(ready, value => value === kind)
+      expect(facet(VOXEL.gemLight).every(point => point[0] > 0)).toBe(true)
+      expect(facet(VOXEL.gemShade).every(point => point[0] < 0)).toBe(true)
+      const sparkle = facet(VOXEL.gemSparkle)
+      expect(sparkle.length).toBeGreaterThan(0)
+      expect(sparkle.every(point => point[1] >= top - 2 && point[0] > 0)).toBe(true)
+    }
   })
 
   it('remeshes only chunks near a changed tile', () => {
