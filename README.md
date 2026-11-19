@@ -46,6 +46,16 @@ The production deployment uses Azure Container Apps with GitHub continuous
 deployment, as described below. Local previews run through an HTTP server, not
 by opening `index.html` from disk.
 
+### Pull-request approval policy
+
+Every change to `main` must use a pull request and receive an explicit approving
+review from the repository owner defined in `.github/CODEOWNERS`. New commits
+dismiss stale approval, the latest push must be approved, and review
+conversations must be resolved. Pull-request CI also pauses at the protected
+`pr-approval` environment until the same owner explicitly approves the workflow
+run. Push and release validation remain automatic; the production deployment
+still runs only for a published GitHub release.
+
 ### Trying the phone layout in a desktop browser
 
 Run `npm run dev` (or `npm run preview` after a build), open the URL in Chrome or
