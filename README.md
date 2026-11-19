@@ -50,9 +50,10 @@ by opening `index.html` from disk.
 
 Every change to `main` must use a pull request. Pull-request CI pauses at the
 protected `pr-approval` environment until the repository owner defined in
-`.github/CODEOWNERS` explicitly approves that workflow run. The resulting
-`pr-approval` status check is required for merging, so this gate also protects
-owner-authored PRs, which cannot receive a normal self-review. Review
+`.github/CODEOWNERS` explicitly approves that workflow run. Both the resulting
+`pr-approval` check and the subsequent `validate-pr` check are required for
+merging, so this gate also protects owner-authored PRs, which cannot receive a
+normal self-review. Review
 conversations must be resolved and administrators cannot bypass the gate. Push
 and release validation remain automatic; the production deployment still runs
 only for a published GitHub release.
