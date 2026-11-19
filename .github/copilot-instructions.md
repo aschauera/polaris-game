@@ -38,7 +38,7 @@ These rules apply to every Copilot agent and contributor working on Polaris, so 
 
 Run `npm run typecheck`, `npm run lint`, `npm run test:unit` and `npm run test:e2e` before handing over. Push validation runs automatically. Pull-request validation waits at the protected `pr-approval` environment until @aschauera explicitly approves that workflow run; never remove, bypass or duplicate this gate. Every future workflow or job triggered for pull requests must use the same protected environment gate before substantive work executes.
 
-Every path is owned by @aschauera through `.github/CODEOWNERS`. `main` requires a pull request, one approving code-owner review, dismissal of stale approvals, approval after the most recent push and resolution of review conversations. These requirements apply to administrators as well. Agents and contributors must never merge a PR, bypass protection or weaken these settings without @aschauera's explicit request. Report the actual local and approved CI results and any limitations in the PR.
+Every path is owned by @aschauera through `.github/CODEOWNERS`, so non-owner pull requests request the correct reviewer. `main` requires a pull request and the successful `pr-approval` status check, which can succeed only after @aschauera approves the protected environment for that run; this also works for owner-authored PRs, which GitHub does not allow the author to approve as a normal review. Review conversations must be resolved, and the protection applies to administrators. Agents and contributors must never merge a PR, bypass protection or weaken these settings without @aschauera's explicit request. Report the actual local and approved CI results and any limitations in the PR.
 
 ## Azure deployment
 

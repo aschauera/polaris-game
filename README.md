@@ -48,13 +48,14 @@ by opening `index.html` from disk.
 
 ### Pull-request approval policy
 
-Every change to `main` must use a pull request and receive an explicit approving
-review from the repository owner defined in `.github/CODEOWNERS`. New commits
-dismiss stale approval, the latest push must be approved, and review
-conversations must be resolved. Pull-request CI also pauses at the protected
-`pr-approval` environment until the same owner explicitly approves the workflow
-run. Push and release validation remain automatic; the production deployment
-still runs only for a published GitHub release.
+Every change to `main` must use a pull request. Pull-request CI pauses at the
+protected `pr-approval` environment until the repository owner defined in
+`.github/CODEOWNERS` explicitly approves that workflow run. The resulting
+`pr-approval` status check is required for merging, so this gate also protects
+owner-authored PRs, which cannot receive a normal self-review. Review
+conversations must be resolved and administrators cannot bypass the gate. Push
+and release validation remain automatic; the production deployment still runs
+only for a published GitHub release.
 
 ### Trying the phone layout in a desktop browser
 
