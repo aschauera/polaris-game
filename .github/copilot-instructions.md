@@ -34,9 +34,11 @@ These rules apply to every Copilot agent and contributor working on Polaris, so 
 - Multiplayer is **play by messenger** ([ADR-005](../docs/architecture.md#adr-005-serverless-play-by-messenger)): players exchange turn links, codes or files, and each copy replays the command log. The server-authoritative online variant (#17, #23) was discarded. Do not add a server, relay or WebRTC without a new decision recorded in the architecture.
 - **Save and transport reliability.** Report failed storage writes explicitly, keep warnings separate from transient sharing notices, and never shelve or switch away from an unsaved match, including when a known older message selects another match. Explicit Leave remains the discard path. Set auto-resume only after saving; report pointer/removal/migration failures. Clear a match's own auto-resume pointer before deleting its record so failed pointer cleanup leaves a recoverable save. Messenger commands use the existing 10,000-order transport cap and reserve the last slot for End turn; solo rules and replay hashes are unchanged. Keep readable over-limit local archives byte-for-byte and listed, clear only their own auto-resume pointer, reject replay and prevent incoming turns from overwriting retained records. Local archive parsing must not relax incoming limits.
 
-## Validation
+## Validation and approval gates
 
-Run `npm run typecheck`, `npm run lint`, `npm run test:unit` and `npm run test:e2e` before handing over; CI runs them on every push and pull request. Report the actual results and any limitations in the PR.
+Run `npm run typecheck`, `npm run lint`, `npm run test:unit` and `npm run test:e2e` before handing over. Push validation runs automatically. Pull-request validation waits at the protected `pr-approval` environment until @aschauera explicitly approves that workflow run; never remove, bypass or duplicate this gate. Every future workflow or job triggered for pull requests must use the same protected environment gate before substantive work executes.
+
+Every path is owned by @aschauera through `.github/CODEOWNERS`, so non-owner pull requests request the correct reviewer. `main` requires a pull request and the successful `pr-approval` status check, which can succeed only after @aschauera approves the protected environment for that run; this also works for owner-authored PRs, which GitHub does not allow the author to approve as a normal review. Review conversations must be resolved, and the protection applies to administrators. Agents and contributors must never merge a PR, bypass protection or weaken these settings without @aschauera's explicit request. Report the actual local and approved CI results and any limitations in the PR.
 
 ## Azure deployment
 
