@@ -6,7 +6,17 @@ on:
 permissions:
   contents: read
 jobs:
+  pr-approval:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    environment: pr-approval
+    steps:
+      - name: Record explicit owner approval
+        run: echo "Pull-request validation approved by the required environment reviewer."
+
   validate:
+    needs: pr-approval
+    if: ${{ always() && (github.event_name != 'pull_request' || needs.pr-approval.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
